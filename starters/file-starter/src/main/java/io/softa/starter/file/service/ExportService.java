@@ -6,6 +6,7 @@ import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.dto.FileInfo;
 import io.softa.starter.file.dto.ExportTemplateDTO;
 import io.softa.starter.file.dto.SheetInfo;
+import io.softa.starter.file.vo.ExportableImportTemplate;
 import io.softa.starter.file.vo.PivotSpec;
 
 public interface ExportService {
@@ -48,6 +49,26 @@ public interface ExportService {
      * @return fileInfo object with download URL
      */
     FileInfo exportByTemplate(Long exportTemplateId, FlexQuery flexQuery);
+
+    /**
+     * The import templates of {@code modelName} a file for re-import can be exported with by the caller,
+     * described as the caller will get them; empty when the caller cannot both export and import the model.
+     *
+     * @param modelName the model of the list the export dialog is opened on
+     * @return the usable templates, in display order
+     */
+    List<ExportableImportTemplate> listImportTemplates(String modelName);
+
+    /**
+     * Export the selected rows into an import template's workbook — its columns, dropdowns and date
+     * formats — to be edited and imported back with the same template.
+     *
+     * @param modelName        the model of the list; the template must be one of its own
+     * @param importTemplateId the ID of the import template
+     * @param flexQuery        the rows to export; its fields are the template's columns
+     * @return fileInfo object with download URL
+     */
+    FileInfo exportByImportTemplate(String modelName, Long importTemplateId, FlexQuery flexQuery);
 
     /**
      * Export multiple sheets merged to on Excel file by specifying multi export templates.

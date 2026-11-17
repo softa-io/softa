@@ -9,15 +9,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.fesod.sheet.FesodSheet;
 import org.apache.fesod.sheet.context.AnalysisContext;
 import org.apache.fesod.sheet.event.AnalysisEventListener;
-import org.apache.fesod.sheet.write.handler.CellWriteHandler;
-import org.apache.fesod.sheet.write.handler.RowWriteHandler;
 import org.apache.fesod.sheet.write.handler.WriteHandler;
-import org.apache.fesod.sheet.write.handler.context.CellWriteHandlerContext;
-import org.apache.fesod.sheet.write.handler.context.RowWriteHandlerContext;
-import org.apache.fesod.sheet.write.metadata.style.WriteCellStyle;
-import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.usermodel.VerticalAlignment;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,13 +49,11 @@ import io.softa.starter.file.enums.ImportStatus;
 import io.softa.starter.file.enums.ImportType;
 import io.softa.starter.file.excel.export.ExcelSheetData;
 import io.softa.starter.file.excel.export.support.ExcelUploadService;
-import io.softa.starter.file.excel.export.support.OptionDropdownHandler;
-import io.softa.starter.file.excel.style.TemporalColumnFormatHandler;
-import io.softa.starter.file.excel.export.support.OptionDropdownResolver;
 import io.softa.starter.file.excel.imports.ImportFieldAccess;
 import io.softa.starter.file.excel.imports.ImportFieldPaths;
 import io.softa.starter.file.excel.imports.ImportHeaderMatcher;
 import io.softa.starter.file.excel.imports.ImportRowPipeline;
+import io.softa.starter.file.excel.imports.ImportTemplateWorkbook;
 import io.softa.starter.file.excel.style.ImportSheetStyleHandler;
 import io.softa.starter.file.message.AsyncImportProducer;
 import io.softa.starter.file.service.ImportHistoryService;
@@ -102,7 +92,7 @@ public class ImportServiceImpl implements ImportService {
     private AsyncImportProducer asyncImportProducer;
 
     @Autowired
-    private OptionDropdownResolver optionDropdownResolver;
+    private ImportTemplateWorkbook importTemplateWorkbook;
 
     @Autowired
     private PermissionService permissionService;
@@ -135,53 +125,9 @@ public class ImportServiceImpl implements ImportService {
         checkImportAccess(importTemplate.getModelName());
         // Construct the importTemplateDTO object
         ImportTemplateDTO importTemplateDTO = this.getImportTemplateDTO(importTemplate, null);
-
-        List<ImportFieldDTO> importFields = importTemplateDTO.getImportFields();
-        List<String> headers = importFields.stream().map(ImportFieldDTO::getHeader).toList();
-
-        // 1) Main sheet: header row, plus a dropdown on every column whose values are a fixed list.
-        // Resolved here rather than inside the handler so the query happens before the workbook is
-        // serialised — a write handler runs during serialisation and should not be holding a
-        // connection. An empty map simply means no column qualified.
-        // The template's own country, not the request's: an administrator of a company in one country
-        // may download another country's template, and inferring it from the request would fill that
-        // template with the wrong country's values.
-        Map<Integer, List<String>> dropdowns = optionDropdownResolver.resolve(
-                importTemplate.getModelName(), importFields, importTemplate.getCountry(),
-                importTemplate.getImportRule());
-        ExcelSheetData mainSheetData = new ExcelSheetData(importTemplate.getName(), headers, Collections.emptyList(),
-                new WriteHandler[]{
-                        // Header look, description comments, freeze, filter, widths, data-area grid.
-                        ImportSheetStyleHandler.forTemplate(importFields),
-                        new OptionDropdownHandler(dropdowns),
-                        // Without this a date column is General, and the format a typed date takes is
-                        // the reader's locale — contradicting the instruction sheet beside it.
-                        TemporalColumnFormatHandler.forFields(importTemplate.getModelName(),
-                                importFields.stream().map(ImportFieldDTO::getFieldName).toList())
-                });
-        List<ExcelSheetData> sheetDataList = new ArrayList<>();
-        sheetDataList.add(mainSheetData);
-        if (Boolean.TRUE.equals(importTemplate.getIncludeDescription())) {
-            // 2) Instruction sheet: header row + a second row containing field descriptions.
-            // Use the description configured on the import template field (not MetaField.description).
-            List<Object> instructionRow = importFields.stream().<Object>map(f -> {
-                String description = f.getDescription();
-                return description == null ? "" : description;
-            }).toList();
-            ImportSheetStyleHandler instructionStyle = ImportSheetStyleHandler.forCompanionSheet(importFields);
-            ExcelSheetData instructionSheetData = new ExcelSheetData(
-                    "Import instructions",
-                    headers,
-                    List.of(instructionRow),
-                    new WriteHandler[]{
-                            instructionStyle,
-                            createInstructionWrapHandler(),
-                            createInstructionRowHeightHandler(instructionStyle)
-                    }
-            );
-            sheetDataList.add(instructionSheetData);
-        }
-
+        // The blank form of the workbook an export for re-import fills in: same sheets, no rows.
+        List<ExcelSheetData> sheetDataList = importTemplateWorkbook.sheets(
+                importTemplate, importTemplateDTO.getImportFields(), List.of());
         return excelUploadService.generateFileAndUpload(
                 importTemplate.getModelName(),
                 importTemplate.getName(),
@@ -227,55 +173,6 @@ public class ImportServiceImpl implements ImportService {
             asyncImportProducer.sendAsyncImport(importTemplateDTO);
         }
         return importHistory;
-    }
-
-    private WriteHandler createInstructionWrapHandler() {
-        return new CellWriteHandler() {
-            @Override
-            public void afterCellDispose(CellWriteHandlerContext context) {
-                if (context.getHead()) {
-                    return;
-                }
-                WriteCellStyle writeCellStyle = context.getFirstCellData().getOrCreateStyle();
-                writeCellStyle.setWrapped(Boolean.TRUE);
-                writeCellStyle.setVerticalAlignment(VerticalAlignment.TOP);
-            }
-        };
-    }
-
-    /** Sized against the widths {@code style} gives each column, which follow the column's header. */
-    private WriteHandler createInstructionRowHeightHandler(ImportSheetStyleHandler style) {
-        return new RowWriteHandler() {
-            @Override
-            public void afterRowDispose(RowWriteHandlerContext context) {
-                Row row = context.getRow();
-                if (context.getHead() || row == null) {
-                    return;
-                }
-                row.setHeightInPoints(calculateInstructionRowHeight(row, style));
-            }
-        };
-    }
-
-    private float calculateInstructionRowHeight(Row row, ImportSheetStyleHandler style) {
-        int estimatedLineCount = 1;
-        short lastCellNum = row.getLastCellNum();
-        if (lastCellNum <= 0) {
-            return estimatedLineCount * 16f;
-        }
-        for (int i = 0; i < lastCellNum; i++) {
-            Cell cell = row.getCell(i);
-            if (cell == null) {
-                continue;
-            }
-            String cellText = cell.toString();
-            if (StringUtils.isBlank(cellText)) {
-                continue;
-            }
-            estimatedLineCount = Math.max(estimatedLineCount,
-                    ImportSheetStyleHandler.wrappedLines(cellText, style.columnWidth(i) - 4));
-        }
-        return estimatedLineCount * 16f;
     }
 
     /**
@@ -531,6 +428,7 @@ public class ImportServiceImpl implements ImportService {
      * @param importTemplate the import template object
      * @return importTemplateDTO object
      */
+    @Override
     public ImportTemplateDTO getImportTemplateDTO(ImportTemplate importTemplate, Map<String, Object> env) {
         ImportTemplateDTO importTemplateDTO = this.convertToImportTemplateDTO(importTemplate, env);
         // Construct the headers order by sequence of the export fields

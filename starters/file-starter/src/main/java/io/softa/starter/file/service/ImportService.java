@@ -7,6 +7,7 @@ import org.springframework.web.multipart.MultipartFile;
 import io.softa.framework.orm.dto.FileInfo;
 import io.softa.starter.file.dto.ImportTemplateDTO;
 import io.softa.starter.file.entity.ImportHistory;
+import io.softa.starter.file.entity.ImportTemplate;
 import io.softa.starter.file.vo.ImportWizard;
 
 public interface ImportService {
@@ -18,6 +19,17 @@ public interface ImportService {
      * @return import template fileInfo
      */
     FileInfo getTemplateFile(Long templateId);
+
+    /**
+     * The template as the caller's import of it reads it: its columns in sequence, read past the
+     * caller's row scope, with the columns the caller may not write left out — what the downloaded
+     * template carries and what an import with it takes.
+     *
+     * @param importTemplate the import template
+     * @param env            the environment variables a default value may name, or null
+     * @return the template's import shape for the caller
+     */
+    ImportTemplateDTO getImportTemplateDTO(ImportTemplate importTemplate, Map<String, Object> env);
 
     /**
      * Import data from the uploaded file and the import template ID

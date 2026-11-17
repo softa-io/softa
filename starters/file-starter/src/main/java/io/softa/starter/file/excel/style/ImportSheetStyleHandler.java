@@ -86,7 +86,10 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
     private final int resultColumn;
     private final String successLabel;
     private final String failedLabel;
-    /** Last row the filter covers: the header alone for a template, every data row for a result file. */
+    /**
+     * Last row the filter covers: the header alone for a blank template, every data row for a result
+     * file or a template exported with records.
+     */
     private final int lastFilterRow;
 
     private final Map<Workbook, Map<String, CellStyle>> styleCache = new IdentityHashMap<>();
@@ -116,7 +119,15 @@ public class ImportSheetStyleHandler implements SheetWriteHandler, RowWriteHandl
 
     /** The template's main sheet: header look, comments, freeze, filter, widths and the data-area grid. */
     public static ImportSheetStyleHandler forTemplate(List<ImportFieldDTO> fields) {
-        return new ImportSheetStyleHandler(Mode.TEMPLATE, fields, List.of(), null, null, 0);
+        return forTemplate(fields, 0);
+    }
+
+    /**
+     * The template's main sheet with {@code dataRows} records written under the header — a file
+     * exported for re-import — so the filter covers them, as it covers a result file's rows.
+     */
+    public static ImportSheetStyleHandler forTemplate(List<ImportFieldDTO> fields, int dataRows) {
+        return new ImportSheetStyleHandler(Mode.TEMPLATE, fields, List.of(), null, null, Math.max(0, dataRows));
     }
 
     /** A companion sheet of a template (the instruction sheet): the same header look and widths only. */

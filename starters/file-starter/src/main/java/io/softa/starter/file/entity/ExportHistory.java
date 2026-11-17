@@ -31,6 +31,10 @@ public class ExportHistory extends AuditableModel {
     @Field(label = "Template ID", fieldType = FieldType.MANY_TO_ONE, relatedModel = ExportTemplate.class)
     private Long templateId;
 
+    @Field(label = "Import Template ID", fieldType = FieldType.MANY_TO_ONE, relatedModel = ImportTemplate.class,
+            description = "The import template a file for re-import was written with")
+    private Long importTemplateId;
+
     @Field
     private String modelName;
 
