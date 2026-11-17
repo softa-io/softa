@@ -8,6 +8,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import tools.jackson.databind.JsonNode;
 
+import io.softa.starter.permission.scope.DepartmentIdPathResolver;
+import io.softa.framework.base.context.EmpInfo;
 import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
@@ -20,11 +22,13 @@ import io.softa.framework.orm.enums.*;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.scope.DepartmentGrantRules;
 import io.softa.framework.orm.service.AccessScope;
 import io.softa.framework.orm.service.ImportScope;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.starter.permission.index.EndpointIndex;
+import io.softa.starter.permission.interceptor.AdmittedRequest;
 import io.softa.starter.permission.scope.*;
 import io.softa.starter.permission.sensitive.SensitiveFieldSetCache;
 import io.softa.starter.permission.spi.*;
@@ -100,6 +104,11 @@ public class PermissionServiceImpl implements PermissionService {
      *  one, i.e. exactly the behaviour that predates the mechanism. */
     private final Supplier<ModelDefaultScopeRegistry> defaultScopeSupplier;
 
+    /** Where the departments a condition names for the caller sit in the tree. Supplied lazily for the same
+     *  reason as the three above. A null supplier (the older constructors, and every unit test not asking
+     *  for it) leaves those conditions contributing nothing. */
+    private final Supplier<DepartmentIdPathResolver> departmentPathsSupplier;
+
     public PermissionServiceImpl(PermissionSnapshotProvider snapshotProvider,
             ScopeRuleCompiler scopeCompiler,
             SensitiveFieldSetCache sfsCache,
@@ -137,6 +146,20 @@ public class PermissionServiceImpl implements PermissionService {
             Supplier<EndpointIndex> endpointIndexSupplier,
             Supplier<SubtreeFilterRewriter> subtreeRewriterSupplier,
             Supplier<ModelDefaultScopeRegistry> defaultScopeSupplier) {
+        this(snapshotProvider, scopeCompiler, sfsCache, modelService, applicability,
+                endpointIndexSupplier, subtreeRewriterSupplier, defaultScopeSupplier, () -> null);
+    }
+
+    public PermissionServiceImpl(PermissionSnapshotProvider snapshotProvider,
+            ScopeRuleCompiler scopeCompiler,
+            SensitiveFieldSetCache sfsCache,
+            ModelService<?> modelService,
+            ScopeApplicabilityResolver applicability,
+            Supplier<EndpointIndex> endpointIndexSupplier,
+            Supplier<SubtreeFilterRewriter> subtreeRewriterSupplier,
+            Supplier<ModelDefaultScopeRegistry> defaultScopeSupplier,
+            Supplier<DepartmentIdPathResolver> departmentPathsSupplier) {
+        this.departmentPathsSupplier = departmentPathsSupplier;
         this.snapshotProvider = snapshotProvider;
         this.scopeCompiler = scopeCompiler;
         this.sfsCache = sfsCache;
@@ -272,7 +295,7 @@ public class PermissionServiceImpl implements PermissionService {
         plan.readersByFields().forEach((fields, readers) -> {
             if (fields.contains(field)) granting.addAll(readers);
         });
-        return anyOf(granting.stream().map(g -> grantScope(g, model)).toList());
+        return anyOf(granting.stream().map(g -> grantScope(g, model, false)).toList());
     }
 
     /**
@@ -464,7 +487,8 @@ public class PermissionServiceImpl implements PermissionService {
      * department — not, as merging the rules of both used to make it, editing everyone.
      */
     Filters rowScope(PermissionInfo pi, String model, AccessType access) {
-        return anyOf(holders(pi, model, access).stream().map(g -> grantScope(g, model)).toList());
+        boolean withinGrant = staysWithinGrant(access);
+        return anyOf(holders(pi, model, access).stream().map(g -> grantScope(g, model, withinGrant)).toList());
     }
 
     /**
@@ -514,14 +538,26 @@ public class PermissionServiceImpl implements PermissionService {
      * whatever reached the write was then authorized elsewhere, a flow or a service acting for the caller.
      */
     private List<Grant> ownersHolders(List<Grant> all, String model, AccessType access) {
-        List<Grant> holding = all.stream().filter(g -> findReferencers(model, g).stream()
+        List<Grant> holding = ownersHolding(all, model, access);
+        return holding.isEmpty() ? all : holding;
+    }
+
+    /** The roles holding {@code access} on a model that owns {@code model}; empty when none does. */
+    private List<Grant> ownersHolding(List<Grant> all, String model, AccessType access) {
+        return all.stream().filter(g -> findReferencers(model, g).stream()
                         .filter(ref -> ref.kind() != Kind.SHARED)
                         .anyMatch(ref -> {
                             Set<String> ownerCandidates = actionPermissions(ref.parentModel(), access);
                             return g.permissions().stream().anyMatch(ownerCandidates::contains);
                         }))
                 .toList();
-        return holding.isEmpty() ? all : holding;
+    }
+
+    private static List<Grant> holdingAny(List<Grant> all, Set<String> permissions) {
+        if (permissions == null || permissions.isEmpty()) {
+            return List.of();
+        }
+        return all.stream().filter(g -> g.permissions().stream().anyMatch(permissions::contains)).toList();
     }
 
     /**
@@ -553,29 +589,42 @@ public class PermissionServiceImpl implements PermissionService {
      * waived by an ALL rule on some model. Admins never get here — a tenant admin sees every company
      * in its tenant.
      */
-    private Filters grantScope(Grant g, String model) {
+    private Filters grantScope(Grant g, String model, boolean withinGrant) {
         RequestMemo memo = RequestMemo.current();
         if (memo == null) {
-            return computeGrantScope(g, model);
+            return computeGrantScope(g, model, withinGrant);
         }
-        Optional<Filters> known = memo.scope(g, model);
+        String key = withinGrant ? model + WITHIN_GRANT_KEY : model;
+        Optional<Filters> known = memo.scope(g, key);
         if (known == null) {
-            Filters computed = computeGrantScope(g, model);
-            memo.putScope(g, model, computed);
+            Filters computed = computeGrantScope(g, model, withinGrant);
+            memo.putScope(g, key, computed);
             return computed;
         }
         // A copy every time: the query builder rewrites the leaves of the filters it is handed in place.
         return known.map(Filters::deepCopy).orElse(null);
     }
 
-    private Filters computeGrantScope(Grant g, String model) {
-        Filters company = companyScope(model, g.companies());
+    /** Marks a remembered scope as the one that stays within the department grant; no model name holds it. */
+    private static final String WITHIN_GRANT_KEY = "|withinGrant";
+
+    /**
+     * Whether {@code access} stays within the department grant on a model the role is exempt on. The exemption
+     * lets a role view past the grant, in lists and on detail pages, and nothing else: changing rows stays
+     * within it, and so does exporting them, which takes the rows out of the system in bulk.
+     */
+    private static boolean staysWithinGrant(AccessType access) {
+        return access != null && !AccessType.READ.equals(access);
+    }
+
+    private Filters computeGrantScope(Grant g, String model, boolean withinGrant) {
+        Filters company = roleAxes(model, g, withinGrant);
         Filters rows;
         if (hasExplicitRules(g, model)) {
             rows = scopeCompiler.compile(withDeclaredScope(g.rules(model), model), model);
             rows = allOf(rows, conditionOf(g, model));
         } else {
-            rows = scopeWithoutGrant(model, g);
+            rows = scopeWithoutGrant(model, g, withinGrant);
         }
         return allOf(company, rows);
     }
@@ -594,6 +643,81 @@ public class PermissionServiceImpl implements PermissionService {
         rule.setScopeType(ScopeType.CUSTOM);
         rule.setScopeExpr(condition);
         return scopeCompiler.compile(List.of(rule), model);
+    }
+
+    /**
+     * The bounds a role puts on {@code model} regardless of its rules: its company grant AND its
+     * department grant. {@code null} when neither narrows — which, for a role with neither grant
+     * configured, is every model.
+     */
+    private Filters roleAxes(String model, Grant g, boolean withinGrant) {
+        return allOf(companyScope(model, g.companies()), departmentAxis(model, g, withinGrant));
+    }
+
+    /**
+     * The role's department grant on {@code model}: the departments it names and those worked out for the
+     * holder, each with everything under it, or the rows of the holder's direct reports. A row has to meet any
+     * one of them. {@code null} when it does not narrow: no grant, a model that does not belong to a department,
+     * or a model the role is exempt on — for viewing only, as changing and exporting rows stay within the grant.
+     *
+     * <p>Without an employee behind the caller the conditions worked out for the holder contribute nothing.
+     */
+    // Package-private for test, like departmentScope.
+    Filters departmentAxis(String model, RoleGrant grant, AccessType access) {
+        return departmentAxis(model, Grant.of(grant), staysWithinGrant(access));
+    }
+
+    private Filters departmentAxis(String model, Grant g, boolean withinGrant) {
+        if (g.departments() == null || (!withinGrant && g.departmentExempt().contains(model))) {
+            return null;
+        }
+        if (departmentPathFieldOf(model) == null || g.departmentConditions().isEmpty()) {
+            return departmentScope(model, g.departments());
+        }
+        Set<String> roots = new HashSet<>(g.departments());
+        roots.addAll(holderDepartmentPaths(g.departmentConditions()));
+        Filters departments = departmentScope(model, roots);
+        if (!g.departmentConditions().contains(CONDITION_DIRECT_REPORTS)
+                || !applicability.applicableFor(model).contains(ScopeType.DIRECT_REPORTS)) {
+            return departments;
+        }
+        return Filters.or(departments, scopeCompiler.compile(List.of(ruleOf(ScopeType.DIRECT_REPORTS)), model));
+    }
+
+    private static final String CONDITION_OWN_DEPARTMENT = "OWN_DEPARTMENT";
+    private static final String CONDITION_MANAGED_DEPARTMENTS = "MANAGED_DEPARTMENTS";
+    private static final String CONDITION_DIRECT_REPORTS = "DIRECT_REPORTS";
+
+    /**
+     * The paths of the departments the conditions name for the caller, read from the request's employee.
+     * Remembered for the request, past the writes that forget a grant's rows: a batch write asks once per check,
+     * and each asking reads the tenant's whole tree out of the cache.
+     */
+    private Set<String> holderDepartmentPaths(Set<String> conditions) {
+        Context context = ContextHolder.getContext();
+        EmpInfo employee = context.getEmpInfo();
+        DepartmentIdPathResolver resolver = departmentPathsSupplier.get();
+        if (employee == null || resolver == null) {
+            return Set.of();
+        }
+        RequestMemo memo = RequestMemo.current();
+        if (memo == null) {
+            return resolveHolderDepartmentPaths(employee, conditions, resolver);
+        }
+        String key = context.getTenantId() + "|" + employee.getEmpId() + "|" + new TreeSet<>(conditions);
+        return memo.holderPaths(key, () -> resolveHolderDepartmentPaths(employee, conditions, resolver));
+    }
+
+    private static Set<String> resolveHolderDepartmentPaths(EmpInfo employee, Set<String> conditions,
+                                                            DepartmentIdPathResolver resolver) {
+        List<Long> departments = new ArrayList<>();
+        if (conditions.contains(CONDITION_OWN_DEPARTMENT) && employee.getDeptId() != null) {
+            departments.add(employee.getDeptId());
+        }
+        if (conditions.contains(CONDITION_MANAGED_DEPARTMENTS) && employee.getManagedDeptIds() != null) {
+            departments.addAll(employee.getManagedDeptIds());
+        }
+        return departments.isEmpty() ? Set.of() : new HashSet<>(resolver.idPathsOf(departments));
     }
 
     /** AND of two scopes where {@code null} is "no restriction". */
@@ -620,25 +744,29 @@ public class PermissionServiceImpl implements PermissionService {
     /**
      * One role's grant, as the data plane reads it — or the snapshot's unions read as one role, for a
      * snapshot that predates per-role grants. A missing permission set, rule map, condition map or
-     * sensitive-set map is read as an empty one. {@code companies} keeps the snapshot's tri-state:
-     * {@code null} is no company restriction, empty reaches no company, otherwise exactly those.
+     * sensitive-set map is read as an empty one. {@code companies} and {@code departments} keep the
+     * snapshot's tri-state: {@code null} is no restriction on that axis, empty reaches nothing on it,
+     * otherwise exactly those. The unions carry no department grant — it exists per role only — so a
+     * snapshot read as one role is not bounded by departments, as before the grant existed.
      */
     record Grant(Set<String> permissions, Map<String, List<ScopeRule>> scopes,
                  Map<String, JsonNode> conditions, Map<String, Set<String>> sensitiveSets,
-                 Set<Long> companies) {
+                 Set<Long> companies, Set<String> departments,
+                 Set<String> departmentConditions, Set<String> departmentExempt) {
 
         static Grant of(RoleGrant g) {
             return new Grant(orEmpty(g.getPermissions()), orEmpty(g.getModelScopeMap()),
                     orEmpty(g.getModelScopeConditions()), orEmpty(g.getModelSensitiveFieldSetsMap()),
-                    g.getGrantedCompanyIds());
+                    g.getGrantedCompanyIds(), g.getGrantedDepartmentPaths(),
+                    orEmpty(g.getDepartmentConditions()), orEmpty(g.getDepartmentExemptModels()));
         }
 
         static Grant union(PermissionInfo pi) {
             if (pi == null) {
-                return new Grant(Set.of(), Map.of(), Map.of(), Map.of(), null);
+                return new Grant(Set.of(), Map.of(), Map.of(), Map.of(), null, null, Set.of(), Set.of());
             }
             return new Grant(orEmpty(pi.getPermissions()), orEmpty(pi.getModelScopeMap()), Map.of(),
-                    orEmpty(pi.getModelSensitiveFieldSetsMap()), pi.getGrantedCompanyIds());
+                    orEmpty(pi.getModelSensitiveFieldSetsMap()), pi.getGrantedCompanyIds(), null, Set.of(), Set.of());
         }
 
         List<ScopeRule> rules(String model) {
@@ -711,6 +839,9 @@ public class PermissionServiceImpl implements PermissionService {
         }
         for (Grant g : grantsOf(pi)) {
             if (hasExplicitRules(g, model)) return true;
+            // A department grant bounds the model on its own, like the company axis above — asked only
+            // when one is configured, so a caller without one is answered exactly as before.
+            if (g.departments() != null && departmentAnchorOf(model) != null) return true;
         }
         return false;
     }
@@ -755,6 +886,7 @@ public class PermissionServiceImpl implements PermissionService {
         private final Map<PermissionInfo, List<Grant>> grants = new java.util.IdentityHashMap<>();
         private final Map<PermissionInfo, Map<String, FieldPlan>> plans = new java.util.IdentityHashMap<>();
         private final Map<Grant, Map<String, Optional<Filters>>> scopes = new java.util.IdentityHashMap<>();
+        private final Map<String, Set<String>> holderPaths = new java.util.HashMap<>();
 
         /** The current request's memo; {@code null} off a request. */
         static RequestMemo current() {
@@ -798,6 +930,10 @@ public class PermissionServiceImpl implements PermissionService {
 
         synchronized void forgetScopes() {
             scopes.clear();
+        }
+
+        synchronized Set<String> holderPaths(String key, Supplier<Set<String>> resolve) {
+            return holderPaths.computeIfAbsent(key, k -> resolve.get());
         }
     }
 
@@ -853,11 +989,11 @@ public class PermissionServiceImpl implements PermissionService {
      * range of its own (see {@link #hasOwnRowScope}); a label lookup crosses the range upstream, through
      * {@code ModelService.searchListIgnoringRowScope}.
      */
-    private Filters scopeWithoutGrant(String model, Grant g) {
+    private Filters scopeWithoutGrant(String model, Grant g, boolean withinGrant) {
         List<Referencer> refs = findReferencers(model, g);
         Referencer ref = refs.isEmpty() ? null : refs.getFirst();
         if (ref != null && ref.kind() != Kind.SHARED) {
-            return followOwners(refs, g);
+            return followOwners(refs, g, withinGrant);
         }
         if (hasForwardAnchor(model)) {
             return ScopeRuleCompiler.matchNone();
@@ -941,13 +1077,13 @@ public class PermissionServiceImpl implements PermissionService {
      * of the rows that own it. With several owners a child row is in range when an in-range row of
      * any of them owns it: the union, which does not depend on the order the owners were found in.
      */
-    private Filters followOwners(List<Referencer> refs, Grant g) {
+    private Filters followOwners(List<Referencer> refs, Grant g, boolean withinGrant) {
         Set<Serializable> visibleIds = new LinkedHashSet<>();
         List<Filters> backRefFilters = new ArrayList<>();
         for (Referencer ref : refs) {
             // The owner's rows under the SAME grant: a child is visible through the role that can see
             // its owner, not through whichever of the caller's roles happens to.
-            Filters ownerScope = grantScope(g, ref.parentModel());
+            Filters ownerScope = grantScope(g, ref.parentModel(), withinGrant);
             Filters owners = ownerScope == null ? new Filters() : ownerScope;
             switch (ref.kind()) {
                 // Both callers hand over ownership edges only; a shared reference bounds nothing.
@@ -1132,7 +1268,12 @@ public class PermissionServiceImpl implements PermissionService {
 
     /** Which of {@code ids} the grants reach on {@code model}, as normalized ids. */
     private Set<Object> rowsReached(String model, List<Grant> grants, List<Serializable> ids) {
-        Filters scope = anyOf(grants.stream().map(g -> grantScope(g, model)).toList());
+        return rowsReached(model, grants, ids, false);
+    }
+
+    /** {@link #rowsReached} for viewing or, with {@code withinGrant}, for what stays within the department grant: they differ on a model exempt from it. */
+    private Set<Object> rowsReached(String model, List<Grant> grants, List<Serializable> ids, boolean withinGrant) {
+        Filters scope = anyOf(grants.stream().map(g -> grantScope(g, model, withinGrant)).toList());
         if (scope == null) {
             return ids.stream().map(PermissionServiceImpl::normalizeId).collect(Collectors.toSet());
         }
@@ -1312,16 +1453,22 @@ public class PermissionServiceImpl implements PermissionService {
         List<Grant> readers = holders(pi, model, AccessType.READ);
         List<Grant> editors = holders(pi, model, AccessType.UPDATE);
         List<Grant> deleters = holders(pi, model, AccessType.DELETE);
-        Map<Grant, Set<Object>> reach = new java.util.HashMap<>();
-        for (List<Grant> group : List.of(readers, editors, deleters)) {
+        // Separately for viewing and changing: an exempt role sees more than it may change, and the
+        // actions offered here have to match what the write check answers.
+        Map<Grant, Set<Object>> viewable = new java.util.HashMap<>();
+        for (Grant g : readers) {
+            viewable.computeIfAbsent(g, k -> rowsReached(model, List.of(k), idList));
+        }
+        Map<Grant, Set<Object>> changeable = new java.util.HashMap<>();
+        for (List<Grant> group : List.of(editors, deleters)) {
             for (Grant g : group) {
-                reach.computeIfAbsent(g, k -> rowsReached(model, List.of(k), idList));
+                changeable.computeIfAbsent(g, k -> rowsReached(model, List.of(k), idList, true));
             }
         }
         List<RecordAccess> out = new ArrayList<>(idList.size());
         for (Serializable id : idList) {
             Object key = normalizeId(id);
-            List<Grant> reading = readers.stream().filter(g -> reach.get(g).contains(key)).toList();
+            List<Grant> reading = readers.stream().filter(g -> viewable.get(g).contains(key)).toList();
             if (reading.isEmpty()) {
                 // Not a record the caller can see at all: nothing of it shows and nothing can be done.
                 out.add(new RecordAccess(id, owned, Set.of(), Set.of(),
@@ -1329,7 +1476,7 @@ public class PermissionServiceImpl implements PermissionService {
                 continue;
             }
             List<Grant> editing = held.contains(AccessType.UPDATE)
-                    ? editors.stream().filter(g -> reach.get(g).contains(key)).toList()
+                    ? editors.stream().filter(g -> changeable.get(g).contains(key)).toList()
                     : List.of();
             Set<String> hidden = new java.util.TreeSet<>();
             Set<String> readonly = new java.util.TreeSet<>();
@@ -1342,7 +1489,7 @@ public class PermissionServiceImpl implements PermissionService {
             }
             Set<AccessType> actions = EnumSet.noneOf(AccessType.class);
             if (!editing.isEmpty()) actions.add(AccessType.UPDATE);
-            if (held.contains(AccessType.DELETE) && deleters.stream().anyMatch(g -> reach.get(g).contains(key))) {
+            if (held.contains(AccessType.DELETE) && deleters.stream().anyMatch(g -> changeable.get(g).contains(key))) {
                 actions.add(AccessType.DELETE);
             }
             Map<String, Set<String>> hiddenFields = fieldsMissing(owned, reading, null);
@@ -1393,6 +1540,166 @@ public class PermissionServiceImpl implements PermissionService {
         Set<String> all = new java.util.TreeSet<>(sfsCache.setIdsOwnedBy(model));
         all.addAll(sfsCache.setIdsAttachedTo(model));
         return new CreateAccess(hidden, fieldsMissing(all, creators, null));
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The holders are found as {@link #rowScope} finds them, so the answer bounds the same roles whose
+     * rows the write is bounded by — except where that falls back to every role ({@link #companyHolders}).
+     * No snapshot is an empty set: as everywhere here, unknown fails closed.
+     */
+    @Override
+    public Set<Long> getGrantedCompanyIds(String model, AccessType accessType) {
+        if (shouldBypass()) return null;
+        PermissionInfo pi = currentPi();
+        if (pi == null) return Set.of();
+        if (PermissionInfo.hasFullDataAccess(pi)) return null;
+        return companiesOf(companyHolders(pi, model, accessType));
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Roles holding the write that agree on their companies need no read: whichever of them reach the row,
+     * the answer is the same, and a row none of them reaches is refused by the row check on its own.
+     */
+    @Override
+    public Set<Long> getGrantedCompanyIds(String model, AccessType accessType, Serializable id) {
+        if (id == null || AccessType.CREATE.equals(accessType)) {
+            return getGrantedCompanyIds(model, accessType);
+        }
+        if (shouldBypass()) return null;
+        PermissionInfo pi = currentPi();
+        if (pi == null) return Set.of();
+        if (PermissionInfo.hasFullDataAccess(pi)) return null;
+        List<Grant> holders = companyHolders(pi, model, accessType);
+        if (holders.stream().map(Grant::companies).distinct().count() <= 1) {
+            return companiesOf(holders);
+        }
+        return companiesOf(holders.stream().filter(g -> reachesRow(g, model, id, accessType)).toList());
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The holders are found as {@link #companyHolders} finds them: a picker asks before the save, so a model
+     * written through custom endpoints answers by the roles holding those, not by every role.
+     *
+     * <p>A holding role with a condition on direct reports leaves the picker unbounded, on a model the condition
+     * applies to. The holder's reports can sit in any department, so nothing here can say which the write will
+     * accept, and the save's own check decides. Where it does not apply the save judges by the role's departments
+     * alone, and so does the picker.
+     */
+    @Override
+    public Filters getWritableDepartmentScope(String model, AccessType accessType) {
+        if (shouldBypass() || !placesRowsByDepartment(model)) return null;
+        PermissionInfo pi = currentPi();
+        if (pi == null) return ScopeRuleCompiler.matchNone();
+        if (PermissionInfo.hasFullDataAccess(pi)) return null;
+        return writableDepartments(model, companyHolders(pi, model, accessType));
+    }
+
+    @Override
+    public Filters getWritableDepartmentScope(String model, AccessType accessType, Serializable id) {
+        if (id == null || AccessType.CREATE.equals(accessType)) {
+            return getWritableDepartmentScope(model, accessType);
+        }
+        if (shouldBypass() || !placesRowsByDepartment(model)) return null;
+        PermissionInfo pi = currentPi();
+        if (pi == null) return ScopeRuleCompiler.matchNone();
+        if (PermissionInfo.hasFullDataAccess(pi)) return null;
+        List<Grant> holders = companyHolders(pi, model, accessType);
+        // One holder answers alone, as the save would; several are narrowed to those reaching the row, as
+        // getGrantedCompanyIds narrows them — a holder the row is beyond would widen the choice past the save.
+        List<Grant> reaching = holders.size() <= 1 ? holders
+                : holders.stream().filter(g -> reachesRow(g, model, id, accessType)).toList();
+        return writableDepartments(model, reaching);
+    }
+
+    /** The departments {@code holders} may put a record of {@code model} in, together; see getWritableDepartmentScope. */
+    private Filters writableDepartments(String model, List<Grant> holders) {
+        boolean reportsApply = applicability.applicableFor(model).contains(ScopeType.DIRECT_REPORTS);
+        return anyOf(holders.stream()
+                .map(g -> reportsApply && g.departmentConditions().contains(CONDITION_DIRECT_REPORTS)
+                        ? null
+                        : departmentAxis(ModelConstant.DEPARTMENT_MODEL, g, true))
+                .toList());
+    }
+
+    /**
+     * Whether a department picked on a record of {@code model} decides which departments' rows it counts among:
+     * the department model itself, or a model storing a {@code departmentId} of its own. One whose
+     * {@code departmentId} is a dynamic cascade (its employee's department) has none to pick.
+     */
+    private static boolean placesRowsByDepartment(String model) {
+        if (departmentAnchorOf(model) == null || departmentPathFieldOf(model) == null) {
+            return false;
+        }
+        MetaField field = ModelManager.getModelFieldOrNull(model, ModelConstant.DEPARTMENT_FIELD);
+        return ModelConstant.DEPARTMENT_MODEL.equals(model) || field == null || !field.isDynamicCascadedField();
+    }
+
+    /** The grants' companies together; {@code null} as soon as one of them is unrestricted. */
+    private static Set<Long> companiesOf(List<Grant> grants) {
+        Set<Long> granted = new java.util.TreeSet<>();
+        for (Grant g : grants) {
+            if (g.companies() == null) return null;
+            granted.addAll(g.companies());
+        }
+        return granted;
+    }
+
+    /** Whether one grant names this row for {@code accessType}, judged as {@link #checkIdsAccess} judges it. */
+    private boolean reachesRow(Grant g, String model, Serializable id, AccessType accessType) {
+        Filters scope = idCheckScope(g, model, accessType);
+        if (scope == null) return true;
+        List<Serializable> ids = List.of(id);
+        Filters target = Filters.and(byIds(model, ids), scope);
+        return unscoped(() -> modelService.count(model, target)) > 0
+                || (ModelManager.existModel(model) && ModelManager.isTimelineModel(model)
+                        && reachedOnAnySlice(model, ids, scope));
+    }
+
+    /**
+     * The roles whose company grants bound a write of {@code model}: the holders of the write, as
+     * {@link #holders} finds them — unless no role holds it.
+     *
+     * <p>A model written only through custom endpoints (a contract saved through
+     * {@code POST /Contract/upload}) has no holder of its standard write, and {@link #holders}
+     * then answers every role the user has. For row scope that is the intended reading — whatever reached
+     * the write was authorized elsewhere — but for the companies a write may name it hands the choice to
+     * the self-service role, which carries no company grant and so reaches every company. Here it is
+     * narrowed instead, in this order:
+     * <ol>
+     *   <li>the roles holding a permission that admitted the current request, when its path names this
+     *       model ({@link AdmittedRequest}) — the save itself;</li>
+     *   <li>the roles holding a permission that lists a custom write endpoint on this model
+     *       ({@link EndpointIndex#customWritePermissions}) — a picker on the form, asked before the save,
+     *       or a write reached through another model's endpoint;</li>
+     *   <li>every role, as before, when neither names any.</li>
+     * </ol>
+     */
+    private List<Grant> companyHolders(PermissionInfo pi, String model, AccessType access) {
+        if (!WRITES.contains(access) || pi.getRoleGrants() == null) {
+            return holders(pi, model, access);
+        }
+        List<Grant> all = grantsOf(pi);
+        Set<String> candidates = actionPermissions(model, access);
+        List<Grant> holding = candidates.isEmpty() ? ownersHolding(all, model, access) : holdingAny(all, candidates);
+        if (!holding.isEmpty()) {
+            return holding;
+        }
+        AdmittedRequest admitted = AdmittedRequest.current();
+        if (admitted != null && model.equals(admitted.pathModel())) {
+            List<Grant> admitting = holdingAny(all, admitted.permissions());
+            if (!admitting.isEmpty()) {
+                return admitting;
+            }
+        }
+        EndpointIndex index = endpointIndexSupplier.get();
+        List<Grant> customWriters = index == null ? List.of() : holdingAny(all, index.customWritePermissions(model));
+        return customWriters.isEmpty() ? all : customWriters;
     }
 
     /**
@@ -1502,7 +1809,7 @@ public class PermissionServiceImpl implements PermissionService {
         List<Serializable> idList = ids.stream().distinct().collect(Collectors.toList());
         fieldsByWriters.forEach((grantingWriters, written) -> {
             Filters scope = anyOf(grantingWriters.stream()
-                    .map(g -> judgedOnOwner(g, model, accessType) ? null : grantScope(g, model))
+                    .map(g -> judgedOnOwner(g, model, accessType) ? null : grantScope(g, model, staysWithinGrant(accessType)))
                     .toList());
             if (scope == null) return;
             Filters target = Filters.and(byIds(model, idList), scope);
@@ -1728,20 +2035,23 @@ public class PermissionServiceImpl implements PermissionService {
      * see its javadoc for why the order decides whether one-to-many children work at all.
      */
     private Filters idCheckScope(Grant g, String model, AccessType accessType) {
+        boolean withinGrant = staysWithinGrant(accessType);
         if (hasExplicitRules(g, model)) {
-            return grantScope(g, model);
+            return grantScope(g, model, withinGrant);
         }
         // Rows a grant reaches without rules of its own still stay inside its companies. Reads were bounded
         // so (computeGrantScope); the writes below returned "no restriction" and were not, so a role granted
-        // one company could change or delete another company's cost centres by id.
-        Filters company = companyScope(model, g.companies());
+        // one company could change or delete another company's cost centres by id. The department grant
+        // rides with it, for the same reason.
+        Filters company = roleAxes(model, g, withinGrant);
         if (judgedOnOwner(g, model, accessType)) {
+            // Written before its owner, so its rows are not placed yet: the owner's own check decides.
             return company;
         }
         List<Referencer> refs = findReferencers(model, g);
         Kind kind = refs.isEmpty() ? null : refs.getFirst().kind();
         if (kind == Kind.OWNED_ONE_TO_ONE) {
-            return allOf(company, followOwners(refs, g));
+            return allOf(company, followOwners(refs, g, withinGrant));
         }
         if (kind == Kind.SHARED && !hasForwardAnchor(model)) {
             return company;
@@ -1758,7 +2068,7 @@ public class PermissionServiceImpl implements PermissionService {
                     ? ScopeRuleCompiler.matchNone()
                     : allOf(company, scopeCompiler.compile(List.of(ruleOf(declared)), model));
         }
-        return grantScope(g, model);
+        return grantScope(g, model, withinGrant);
     }
 
     /**
@@ -1890,6 +2200,89 @@ public class PermissionServiceImpl implements PermissionService {
         return ModelManager.getModel(model).isMultiCompany() ? ModelConstant.COMPANY_FIELD : null;
     }
 
+
+    /**
+     * The role's department grant on {@code model} as a filter, {@code null} when it does not narrow.
+     * {@link #roleAxes} ANDs it onto that role's rows, beside the company grant.
+     *
+     * <p>{@code rootPaths} are the {@code idPath}s of the granted roots, so this matches every row whose
+     * department sits at or under one of them, through the department's own path: {@code idPath} on the
+     * department model, {@code departmentId.idPath} on a model belonging to a department — or, where that
+     * {@code departmentId} is a dynamic cascaded field with no column of its own, its cascade path —
+     * {@code employeeId.departmentId.idPath} on one belonging to an employee. The tree
+     * is read live, so a department created under or moved into a granted subtree is in it at once.
+     *
+     * <p>A department just inserted has no path yet: the application writes it once the row has an id, after
+     * the insert's own access check. Such a row is judged by its parent's path instead, so a role may create
+     * a department under one it is granted — and not at the top, where there is no parent to judge by.
+     *
+     * <p>Same three states as {@link #companyScope}: {@code null} unrestricted — every role nobody gave
+     * a department grant, which is what keeps this inert until one is configured — empty matches
+     * nothing, otherwise those subtrees. Rows with no department at all fall outside a configured
+     * grant, as rows with no company fall outside a company grant.
+     */
+    // Package-private for test, like companyScope.
+    Filters departmentScope(String model, Set<String> rootPaths) {
+        if (rootPaths == null) {
+            return null;   // no department grant configured → unrestricted
+        }
+        if (model == null || !ModelManager.existModel(model)) {
+            return null;
+        }
+        String pathField = departmentPathFieldOf(model);
+        if (pathField == null) {
+            return null;
+        }
+        if (rootPaths.isEmpty()) {
+            return ScopeRuleCompiler.matchNone();
+        }
+        // Sorted for a stable statement text, as companyScope does.
+        List<String> roots = new ArrayList<>(rootPaths);
+        roots.sort(null);
+        Filters subtrees = IdPath.subtreesOf(pathField, roots);
+        if (!ModelConstant.DEPARTMENT_MODEL.equals(model) || !hasParentOnTheTree(model)) {
+            return subtrees;
+        }
+        return Filters.or(subtrees, Filters.and(new Filters().isNotSet(IdPath.FIELD),
+                IdPath.subtreesOf(IdPath.fieldOn(PARENT_FIELD), roots)));
+    }
+
+    private static final String PARENT_FIELD = "parentId";
+
+    /** Whether the department model relates each row to its parent, the tree a path-less row is judged on. */
+    private static boolean hasParentOnTheTree(String model) {
+        MetaField parent = ModelManager.getModelFieldOrNull(model, PARENT_FIELD);
+        return parent != null && FieldType.TO_ONE_TYPES.contains(parent.getFieldType())
+                && model.equals(parent.getRelatedModel());
+    }
+
+    /**
+     * The path field the department grant matches on {@code model}, or null when the grant does not reach
+     * it — see {@link #departmentAnchorOf}. The department model needs its own {@code idPath}; another model
+     * goes through its {@code departmentId}. A dynamic one has no column of its own, and its cascade path is used.
+     */
+    private static String departmentPathFieldOf(String model) {
+        String anchor = departmentAnchorOf(model);
+        if (anchor == null
+                || ModelManager.getModelFieldOrNull(ModelConstant.DEPARTMENT_MODEL, IdPath.FIELD) == null) {
+            return null;
+        }
+        if (ModelConstant.DEPARTMENT_MODEL.equals(model)) {
+            return IdPath.FIELD;
+        }
+        String path = storedPath(model, anchor);
+        return IdPath.fieldOn(path);
+    }
+
+    private static String storedPath(String model, String fieldName) {
+        MetaField field = ModelManager.getModelFieldOrNull(model, fieldName);
+        return field.isDynamicCascadedField() ? field.getCascadedField() : fieldName;
+    }
+
+    /** The field a model is bounded by the department grant through; see {@link DepartmentGrantRules#anchorOf}. */
+    private static String departmentAnchorOf(String model) {
+        return DepartmentGrantRules.anchorOf(model);
+    }
 
     private static boolean hasExplicitRules(Grant g, String model) {
         List<ScopeRule> r = g.rules(model);

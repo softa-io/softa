@@ -487,7 +487,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         }
         Optional<UserIdentity> resolved = this.findLinked(identifier);
         if (resolved.isEmpty()) {
-            this.refuseUnknownLikeAWrongPassword(identifier, channel);
+            this.refuseUnknownLikeAWrongPassword(identifier, channel, password);
         }
         UserIdentity identity = resolved.get();
         Long profileId = identity.getProfileId();
@@ -533,13 +533,19 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      * identifier that never counted down would confirm its non-existence as surely as "no such
      * account". The submitted identifier is counted in the same window instead (see
      * {@link UserIdentityService#recordUnknownIdentifierFailure}).
+     *
+     * <p>And it takes as long: the password is hashed exactly as a real check would hash it. The
+     * hash is slow on purpose, so a refusal that skipped it would answer the question by its timing.
      */
-    private void refuseUnknownLikeAWrongPassword(String identifier, LoginChannel channel) {
+    private void refuseUnknownLikeAWrongPassword(String identifier, LoginChannel channel, String password) {
         history.record(LoginEvent.LOGIN_FAILED, null, null, null, channel, LoginMethod.PASSWORD,
                 AccountErrorCodes.ACCOUNT_NOT_FOUND);
         if (identityService.isUnknownIdentifierLocked(identifier)) {
             throw AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_LOCKED, lockedMessage());
         }
+        // Always false for nobody; called for the time it takes, after the lock check as the real
+        // branch does it, so a locked identifier is refused as quickly on both sides.
+        identityService.matchesPassword(null, password);
         long failures = identityService.recordUnknownIdentifierFailure(identifier);
         if (failures >= UserIdentityService.FAILURES_BEFORE_LOCK) {
             throw AccountErrorCodes.refusal(AccountErrorCodes.PASSWORD_LOCKED, lockedMessage());

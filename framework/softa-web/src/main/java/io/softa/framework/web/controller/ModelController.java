@@ -14,10 +14,15 @@ import org.springframework.web.bind.annotation.*;
 
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.enums.Operator;
+import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.annotation.DataMask;
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.*;
+import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.ConvertType;
+import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
@@ -300,6 +305,112 @@ public class ModelController<K extends Serializable> {
     }
 
     /**
+     * Get the original values of masked fields on a record this one owns: the one-to-one section {@code field}
+     * points at, or, for a one-to-many {@code field}, its row {@code rowId}. A record an owner holds through such
+     * a field is read through the owner and has no endpoints of its own, so its masked values are asked for here.
+     * The owner has to be readable, the row has to be the owner's, and the section's own row and field rules
+     * still decide what comes back.
+     *
+     * @param modelName the owner model
+     * @param id        the owner's id
+     * @param field     the owner's one-to-one or one-to-many field
+     * @param rowId     the row of a one-to-many field; ignored for a one-to-one field
+     * @param fields    masked fields of the owned model
+     * @return unmasked field values map, {fieldName: fieldValue}
+     */
+    @GetMapping("/getRelationUnmaskedFields")
+    @Operation(description = "Get the original values of masked fields on a record this one owns.")
+    @Parameters({
+            @Parameter(name = "id", description = "The owner's ID", schema = @Schema(type = "string")),
+            @Parameter(name = "field", description = "The owner's one-to-one or one-to-many field"),
+            @Parameter(name = "rowId", description = "The row of a one-to-many field", schema = @Schema(type = "string")),
+            @Parameter(name = "fields", description = "Masked fields of the owned model"),
+            @Parameter(name = "effectiveDate", description = "Effective date for timeline model.")
+    })
+    public ApiResponse<Map<String, Object>> getRelationUnmaskedFields(@PathVariable String modelName,
+                                                                      @RequestParam K id,
+                                                                      @RequestParam String field,
+                                                                      @RequestParam(required = false) String rowId,
+                                                                      @RequestParam List<String> fields,
+                                                                      @RequestParam(required = false) LocalDate effectiveDate) {
+        ContextHolder.getContext().setEffectiveDate(effectiveDate);
+        MetaField relation = ownedRelation(modelName, field);
+        K ownerId = IdUtils.formatId(modelName, id);
+        String ownedModel = relation.getRelatedModel();
+        K ownedId;
+        if (relation.getFieldType() == FieldType.ONE_TO_ONE) {
+            Object value = modelService.getById(modelName, ownerId, List.of(field))
+                    .map(row -> row.get(field))
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "The data of model {0} with id {1} does not exist!", modelName, ownerId));
+            Object referenced = value instanceof Map<?, ?> reference ? reference.get(ModelConstant.ID) : value;
+            Assert.notNull(referenced, "The {0} of model {1} with id {2} is empty.", field, modelName, ownerId);
+            ownedId = IdUtils.formatId(ownedModel, (Serializable) referenced);
+        } else {
+            Assert.notBlank(rowId, "A one-to-many field needs the rowId of its row.");
+            requireReadable(modelName, ownerId);
+            ownedId = IdUtils.formatId(ownedModel, rowId);
+            Filters ownRow = new Filters().eq(ModelConstant.ID, ownedId).eq(relation.getRelatedField(), ownerId);
+            Assert.isTrue(modelService.count(ownedModel, ownRow) > 0,
+                    "Row {0} of {1} does not belong to model {2} with id {3}.", rowId, field, modelName, ownerId);
+        }
+        return ApiResponse.success(modelService.getUnmaskedFields(ownedModel, ownedId, fields));
+    }
+
+    /**
+     * Page through the rows of a one-to-many field of one record. The rows a record owns are read through it
+     * and have no endpoints of their own: the owner has to be readable, and the rows' own rules still bound the
+     * page. The query parameters apply to the owned model; the rows are limited to this record's.
+     *
+     * @param modelName   the owner model
+     * @param id          the owner's id
+     * @param field       the owner's one-to-many field
+     * @param queryParams fields, filters, orders and paging on the owned model
+     * @return the record's rows in the page
+     */
+    @PostMapping(value = "/searchRelationPage")
+    @Operation(description = "Page through the rows of a one-to-many field of one record.")
+    @Parameters({
+            @Parameter(name = "id", description = "The owner's ID", schema = @Schema(type = "string")),
+            @Parameter(name = "field", description = "The owner's one-to-many field")
+    })
+    @DataMask
+    public ApiResponse<Page<Map<String, Object>>> searchRelationPage(@PathVariable String modelName,
+                                                                     @RequestParam K id,
+                                                                     @RequestParam String field,
+                                                                     @RequestBody(required = false) QueryParams queryParams) {
+        MetaField relation = ownedRelation(modelName, field);
+        Assert.isTrue(relation.getFieldType() == FieldType.ONE_TO_MANY,
+                "Field {0} of model {1} is not a one-to-many field.", field, modelName);
+        id = IdUtils.formatId(modelName, id);
+        requireReadable(modelName, id);
+        if (queryParams == null) {
+            queryParams = new QueryParams();
+        }
+        FlexQuery flexQuery = QueryParams.convertParamsToFlexQuery(queryParams);
+        flexQuery.setFilters(Filters.and(flexQuery.getFilters(), new Filters().eq(relation.getRelatedField(), id)));
+        Page<Map<String, Object>> page = Page.of(queryParams.getPageNumber(), queryParams.getPageSize());
+        return ApiResponse.success(modelService.searchPage(relation.getRelatedModel(), flexQuery, page));
+    }
+
+    /** A one-to-one or keyed one-to-many field of {@code modelName}, the kind through which it owns records. */
+    private static MetaField ownedRelation(String modelName, String field) {
+        MetaField relation = ModelManager.getModelField(modelName, field);
+        boolean toMany = relation.getFieldType() == FieldType.ONE_TO_MANY
+                && relation.getRelatedField() != null && !relation.getRelatedField().isBlank();
+        Assert.isTrue(toMany || relation.getFieldType() == FieldType.ONE_TO_ONE,
+                "Field {0} of model {1} is not a one-to-one or one-to-many field.", field, modelName);
+        return relation;
+    }
+
+    /** Refuses unless the caller can read the record: what it owns is read through it. */
+    private void requireReadable(String modelName, K id) {
+        if (modelService.getById(modelName, id, List.of(ModelConstant.ID)).isEmpty()) {
+            throw new IllegalArgumentException("The data of model {0} with id {1} does not exist!", modelName, id);
+        }
+    }
+
+    /**
      * Update one row by id.
      *
      * @param modelName model name
@@ -531,6 +642,9 @@ public class ModelController<K extends Serializable> {
     public ApiResponse<List<Map<String, Object>>> searchList(@PathVariable String modelName,
                                                              @RequestBody(required = false) SearchListParams searchListParams) {
         FlexQuery flexQuery = SearchListParams.convertParamsToFlexQuery(searchListParams);
+        SourceRecord source = searchListParams == null ? null : searchListParams.getSourceRecord();
+        narrowToWritableCompanies(modelName, source, flexQuery);
+        narrowToWritableDepartments(modelName, source, flexQuery);
         return ApiResponse.success(modelService.searchList(modelName, flexQuery));
     }
 
@@ -549,7 +663,126 @@ public class ModelController<K extends Serializable> {
     public ApiResponse<List<Map<String, Object>>> searchName(@PathVariable String modelName,
                                                              @RequestBody(required = false) SearchNameParams searchNameParams) {
         SearchNameParams params = searchNameParams == null ? new SearchNameParams() : searchNameParams;
-        return ApiResponse.success(modelService.searchName(modelName, params.toFlexQuery(), params.toPage()));
+        FlexQuery flexQuery = params.toFlexQuery();
+        SourceRecord source = searchNameParams == null ? null : searchNameParams.getSourceRecord();
+        narrowToWritableCompanies(modelName, source, flexQuery);
+        narrowToWritableDepartments(modelName, source, flexQuery);
+        return ApiResponse.success(modelService.searchName(modelName, flexQuery, params.toPage()));
+    }
+
+    /** ANDs {@link #writableCompanies} onto a read of the options, when it narrows them. */
+    private void narrowToWritableCompanies(String modelName, SourceRecord source, FlexQuery flexQuery) {
+        Set<Long> writable = writableCompanies(modelName, source, permissionService);
+        if (writable != null) {
+            narrowTo(new Filters().in(ModelConstant.ID, writable), source, flexQuery);
+        }
+    }
+
+    /** ANDs {@link #writableDepartments} onto a read of the options, when it narrows them. */
+    private void narrowToWritableDepartments(String modelName, SourceRecord source, FlexQuery flexQuery) {
+        Filters writable = writableDepartments(modelName, source, permissionService);
+        if (writable != null) {
+            narrowTo(writable, source, flexQuery);
+        }
+    }
+
+    /**
+     * ANDs {@code writable} onto the options, the value the edited record holds now kept among them.
+     *
+     * <p>A record may already name a company or department the write could not choose — set by an administrator or by
+     * the system — and its save keeps it while the field is left alone. Narrowed without it, the picker would show a
+     * value it does not offer, as if the record were broken.
+     */
+    private void narrowTo(Filters writable, SourceRecord source, FlexQuery flexQuery) {
+        Object current = currentValue(source);
+        Filters offered = current == null ? writable
+                : Filters.or(writable, Filters.of(ModelConstant.ID, Operator.EQUAL, current));
+        flexQuery.setFilters(Filters.and(flexQuery.getFilters(), offered));
+    }
+
+    /**
+     * The id the edited record's picked field holds now, read as the caller reads the record; null for a new record, a
+     * search naming no field, an empty field, or a record the caller cannot read.
+     */
+    private Object currentValue(SourceRecord source) {
+        if (source == null || source.getFieldName() == null || source.getFieldName().isBlank()
+                || source.getRecordId() == null || String.valueOf(source.getRecordId()).isBlank()) {
+            return null;
+        }
+        String field = source.getFieldName();
+        K id = IdUtils.formatId(source.getModel(), source.getRecordId());
+        Object value = modelService.getById(source.getModel(), id, List.of(field))
+                .map(row -> row.get(field)).orElse(null);
+        Object referenced = value instanceof Map<?, ?> reference ? reference.get(ModelConstant.ID) : value;
+        return referenced == null || String.valueOf(referenced).isBlank() ? null : referenced;
+    }
+
+    /**
+     * The departments a picker may offer when it places a record being written; null when nothing narrows it.
+     *
+     * <p>The same reasoning as {@link #writableCompanies}, for departments: the department list as the user
+     * reads it answers for what they may view, and an exemption from the department grant shows them all of it,
+     * so a form offered departments the save would then refuse. Its read says which record it is for, and the
+     * department grants of the roles holding that write answer instead — create when the record has no id yet,
+     * update when it has, then by the roles reaching that record
+     * ({@link PermissionService#getWritableDepartmentScope(String, AccessType, java.io.Serializable)}), as the
+     * save judges it. A picker that names its field,
+     * and the field does not place the record ({@link PermissionService#placesInDepartment}), reads as any other.
+     */
+    static Filters writableDepartments(String modelName, SourceRecord source, PermissionService permissionService) {
+        if (!ModelConstant.DEPARTMENT_MODEL.equals(modelName) || source == null
+                || source.getModel() == null || source.getModel().isBlank()
+                || !ModelManager.existModel(source.getModel())) {
+            return null;
+        }
+        if (source.getFieldName() != null && !source.getFieldName().isBlank()
+                && !PermissionService.placesInDepartment(source.getModel(), source.getFieldName())) {
+            return null;
+        }
+        boolean creating = source.getRecordId() == null || String.valueOf(source.getRecordId()).isBlank();
+        return creating
+                ? permissionService.getWritableDepartmentScope(source.getModel(), AccessType.CREATE)
+                : permissionService.getWritableDepartmentScope(source.getModel(), AccessType.UPDATE,
+                        source.getRecordId());
+    }
+
+    /**
+     * The companies a picker may offer when it names a company on a record being written; null when
+     * nothing narrows it.
+     *
+     * <p>The company list as the user reads it reaches the companies of every role they hold, and a role
+     * with no company grant — the self-service role everyone carries — reaches them all. A form picking
+     * a company for a record (an employee's signing entity, a cost centre's company) offered companies
+     * the write would then refuse. Its search says which record it is for ({@link SourceRecord}): the
+     * company grants of the roles holding that write answer instead — create when the record has no id
+     * yet, update when it has, then by the roles reaching that record
+     * ({@link PermissionService#getGrantedCompanyIds(String, AccessType, java.io.Serializable)}).
+     *
+     * <p>A write granted no company offers none: every company the picker could list would be refused. The
+     * name search and the list read a tree or list picker loads through answer alike. A picker that names its field,
+     * and the field names no company the save judges ({@link PermissionService#namesCompany}) — one not stored, say,
+     * that only filters another picker — reads as any other.
+     */
+    static Set<Long> writableCompanies(String modelName, SearchNameParams params, PermissionService permissionService) {
+        return writableCompanies(modelName, params == null ? null : params.getSourceRecord(), permissionService);
+    }
+
+    /** {@link #writableCompanies(String, SearchNameParams, PermissionService)} for the record a read is for. */
+    static Set<Long> writableCompanies(String modelName, SourceRecord source, PermissionService permissionService) {
+        if (!ModelConstant.COMPANY_MODEL.equals(modelName) || source == null) {
+            return null;
+        }
+        if (source.getModel() == null || source.getModel().isBlank() || !ModelManager.existModel(source.getModel())) {
+            return null;
+        }
+        if (source.getFieldName() != null && !source.getFieldName().isBlank()
+                && !PermissionService.namesCompany(source.getModel(), source.getFieldName())) {
+            return null;
+        }
+        boolean creating = source.getRecordId() == null || String.valueOf(source.getRecordId()).isBlank();
+        return creating
+                ? permissionService.getGrantedCompanyIds(source.getModel(), AccessType.CREATE)
+                : permissionService.getGrantedCompanyIds(source.getModel(), AccessType.UPDATE, source.getRecordId());
     }
 
     /**

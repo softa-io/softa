@@ -12,6 +12,7 @@ import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.enums.OnDelete;
+import io.softa.framework.orm.enums.WidgetType;
 
 /**
  * The PERSON's AUTHENTICATION — login identifiers and the password, split out from {@link UserProfile}.
@@ -69,20 +70,25 @@ public class UserIdentity extends AuditableModel {
     @Field(fieldType = FieldType.ONE_TO_ONE, relatedModel = UserProfile.class, onDelete = OnDelete.CASCADE)
     private Long profileId;
 
-    @Field(description = "Login identifier. Seeded from the account's work email when a person is "
+    @Field(length = 256, description = "Login identifier. Seeded from the account's work email when a person is "
             + "created; identifies a human, not an employment")
     private String loginEmail;
 
-    @Field(description = "Login identifier, dial-code format. Same reasoning as loginEmail")
+    @Field(widgetType = WidgetType.PHONE,
+            description = "Login identifier, E.164 (+6591234567). Same reasoning as loginEmail")
     private String loginMobile;
 
     @Field(copyable = false, length = 256,
-            description = "Password hash. length 256 because the stored hash is 128 characters, so "
-                    + "the 64-char type default would silently truncate it and no credential could "
-                    + "be written at all")
+            description = "Password hash, pbkdf2-sha256$<iterations>$<salt>$<hash> with the salt "
+                    + "inside (87 characters); rows not yet upgraded still hold the old one-round "
+                    + "SHA-512 (128 hex characters). length 256 because the 64-char type default would "
+                    + "silently truncate either, and no credential could be written at all")
     private String password;
 
-    @Field(copyable = false, description = "Per-row salt for the password hash")
+    @Field(copyable = false,
+            description = "Salt of the old one-round SHA-512 hash, read only to verify a row not yet "
+                    + "upgraded. Cleared whenever a password is stored in the current scheme, whose "
+                    + "salt is inside the hash")
     private String passwordSalt;
 
     @Field(copyable = false,

@@ -52,7 +52,7 @@ class RoleBindValidatorTest {
             return List.of(ordinary);
         });
         ceiling = mock(RoleGrantCeiling.class);
-        when(ceiling.violation(any())).thenReturn(Optional.empty());
+        when(ceiling.assignmentViolation(any())).thenReturn(Optional.empty());
         validator = new RoleBindValidator(modelService, ceiling);
     }
 
@@ -93,13 +93,13 @@ class RoleBindValidatorTest {
         as(Set.of(), () -> validator.validateCreate(ctx));
 
         assertThat(ctx.hasErrors()).isFalse();
-        verify(ceiling).violation(ORDINARY);
+        verify(ceiling).assignmentViolation(ORDINARY);
     }
 
     @Test
     void refusesARoleManagerBindingARoleWiderThanThemselves() {
         // Assigning an existing, wider role to oneself is the same step up as writing one.
-        when(ceiling.violation(ORDINARY)).thenReturn(Optional.of("permission payroll.pay-run.view"));
+        when(ceiling.assignmentViolation(ORDINARY)).thenReturn(Optional.of("permission payroll.pay-run.view"));
         WriteContext ctx = create(ORDINARY);
 
         as(Set.of(), () -> validator.validateCreate(ctx));
@@ -119,7 +119,7 @@ class RoleBindValidatorTest {
             validator.validateCreate(b);
         });
 
-        verify(ceiling, times(1)).violation(ORDINARY);
+        verify(ceiling, times(1)).assignmentViolation(ORDINARY);
     }
 
     @Test
@@ -128,7 +128,7 @@ class RoleBindValidatorTest {
 
         as(Set.of("TENANT_ADMIN"), () -> validator.validateCreate(ctx));
 
-        verify(ceiling, never()).violation(any());
+        verify(ceiling, never()).assignmentViolation(any());
     }
 
     @Test

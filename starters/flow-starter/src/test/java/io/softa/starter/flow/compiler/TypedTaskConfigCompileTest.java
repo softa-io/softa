@@ -79,6 +79,26 @@ class TypedTaskConfigCompileTest {
                 Map.of("url", "https://example.com/hook", "method", "POST"))));
     }
 
+    /**
+     * A SendEmail node's attachments are file ids: a link pasted there is refused at publish — it would
+     * be dead by the time the mail is read. Ids and expressions publish; what an expression resolves to
+     * is checked when the node runs.
+     */
+    @Test
+    void sendEmailAttachmentsMustBeFileIds() {
+        FlowCompileException exception = assertThrows(FlowCompileException.class,
+                () -> compiler.compile(flowWithTaskNode(FlowNodeType.SEND_EMAIL, Map.of(
+                        "to", List.of("a@example.com"),
+                        "attachments", List.of("https://storage.example/report.pdf?sig=x")))));
+        assertTrue(exception.getDiagnostics().stream().anyMatch(d ->
+                        "INVALID_TASK_CONFIG".equals(d.code()) && "config.input.attachments".equals(d.field())),
+                () -> "expected INVALID_TASK_CONFIG on config.input.attachments but got: " + exception.getDiagnostics());
+
+        assertDoesNotThrow(() -> compiler.compile(flowWithTaskNode(FlowNodeType.SEND_EMAIL, Map.of(
+                "to", List.of("a@example.com"),
+                "attachments", List.of("123", 456, "{{ fileId }}")))));
+    }
+
     /** The first required field of each typed task node, as a node with no input lacks it. */
     private static final Map<FlowNodeType, String> FIRST_REQUIRED_FIELD = Map.ofEntries(
             Map.entry(FlowNodeType.CREATE_RECORD, "config.modelName"),

@@ -533,7 +533,7 @@ the summary says why.
 
 - Prefer `Filters` + `FlexQuery` + `EntityService` query methods for reads — they honor metadata-driven query rules.
 - Prefer `EntityService` CRUD methods over direct DB access; they apply defaults, validation, and lifecycle hooks defined in metadata.
-- `File` / `MultiFile` field types return `FileInfo` / `List<FileInfo>` with OSS download URLs.
+- `File` / `MultiFile` field types return `FileInfo` / `List<FileInfo>`; `url` is a site-relative address with a signed key, not an OSS link (softa-web README, File keys). Caches, tables, flow variables and mails keep file ids; backend code reads content with `FileService.downloadStream(fileId)` and never reads `url`.
 
 ### Extension
 
@@ -543,6 +543,13 @@ the summary says why.
 ### Code standards
 
 - Logging: `@Slf4j`.
+- Hashing: SHA-256 digests and HMAC-SHA256 go through `HashUtils` (softa-base `security`), lowercase hex — no
+  private `MessageDigest` / `Mac` helpers. Compare a presented MAC with `MessageDigest.isEqual`. Not for passwords:
+  a password needs a deliberately slow hash.
+- Phone numbers: stored in E.164 (`+6591234567`) and checked, normalized and split through `PhoneUtils`
+  (softa-base `utils`) — a phone field declares `pattern = PhoneUtils.E164` and `widgetType = PHONE`; no private
+  libphonenumber or dial-code-prefix helpers. Count the digits for the country (`toE164`), never refuse on assigned
+  ranges: the bundled ranges lag behind what countries open.
 - Enums: add `@JsonValue` for stable serialization.
   - **A stored code is data.** Renaming or removing an enum code that is stored — an OPTION column, or a value
     inside a JSON / DTO column such as `FlowDesign.designJson` or `FlowBundle.designJson` / `compiledJson` — ships

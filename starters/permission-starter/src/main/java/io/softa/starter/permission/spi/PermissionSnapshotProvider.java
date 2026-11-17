@@ -39,6 +39,15 @@ public interface PermissionSnapshotProvider {
     }
 
     /**
+     * What a tenant's department paths last changed to, as a mark with no meaning of its own: a snapshot being
+     * built compares it before and after, to tell whether the paths it read may have gone stale meanwhile. Kept
+     * outside {@link #CACHE_KEY_PREFIX}, so clearing the tenant's snapshots leaves it standing.
+     */
+    static String departmentPathsMarkKey(Long tenantId) {
+        return "dept-paths-mark:" + tenantId;
+    }
+
+    /**
      * @param tenantId tenant id (multi-tenant key half)
      * @param userId   user id
      * @return the user's permission snapshot; the impl builds / reads / rebuilds

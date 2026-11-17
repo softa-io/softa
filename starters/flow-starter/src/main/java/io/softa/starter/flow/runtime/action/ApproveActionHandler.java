@@ -75,7 +75,7 @@ public class ApproveActionHandler implements FlowActionHandler<FlowApproveReques
         formWriteService.applyFormData(definition, state, node, request.getFormData());
         if (lifecycleService.requiresTrackedApprover(pendingApproval)) {
             if (!StringUtils.hasText(request.getActorId())) {
-                throw new FlowActionValidationException("actorId is required to approve this approval node: " + request.getNodeId());
+                throw new FlowActionValidationException("actorId is required to approve a pending node");
             }
             actorValidator.requireNotVoted(pendingApproval, request.getActorId(), node);
             pendingApproval.getApprovedActors().add(request.getActorId());

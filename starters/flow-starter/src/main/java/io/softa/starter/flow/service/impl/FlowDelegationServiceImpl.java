@@ -126,10 +126,10 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
                 .filter(candidate -> candidate.flowId().equals(delegation.getFlowId()))
                 .findFirst()
                 .orElseThrow(() -> new FlowActionValidationException(
-                        "Flow " + delegation.getFlowId() + " is not an approval flow in use"));
+                        "The flow chosen is not an approval flow in use."));
         if (node && flow.nodes().stream().noneMatch(step -> step.nodeId().equals(delegation.getNodeId()))) {
-            throw new FlowActionValidationException("Flow '" + flow.flowName() + "' has no approval step "
-                    + delegation.getNodeId());
+            throw new FlowActionValidationException(
+                    "The step chosen is not an approval step of '" + flow.flowName() + "'.");
         }
     }
 
@@ -225,8 +225,7 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
     public void cancelDelegation(Long delegationId, String requesterId) {
         FlowDelegation delegation = this.getById(delegationId)
                 .filter(d -> requesterId != null && requesterId.equals(d.getDelegatorId()))
-                .orElseThrow(() -> new FlowAuthorizationException(
-                        "You have no delegation " + delegationId + " to cancel"));
+                .orElseThrow(() -> new FlowAuthorizationException("You have no such delegation to cancel."));
         writeInactive(delegation);
     }
 
@@ -272,7 +271,7 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
     @Override
     public void deactivate(Long delegationId) {
         FlowDelegation delegation = this.getById(delegationId)
-                .orElseThrow(() -> new FlowActionValidationException("No delegation " + delegationId + " to cancel"));
+                .orElseThrow(() -> new FlowActionValidationException("There is no such delegation to cancel."));
         writeInactive(delegation);
     }
 

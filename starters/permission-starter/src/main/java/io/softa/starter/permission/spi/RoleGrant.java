@@ -59,4 +59,34 @@ public class RoleGrant implements Serializable {
      */
     @Schema(description = "Legal entities this role reaches; null = unrestricted")
     private Set<Long> grantedCompanyIds;
+
+    /**
+     * The departments this role reaches, as the {@code idPath} of each granted root: that department and
+     * everything under it. Tri-state like {@link #grantedCompanyIds}: {@code null} unrestricted (the role has
+     * no department grant, or grants all departments), empty none, otherwise the subtrees under those paths.
+     * Paths rather than the subtrees' ids, so a department created or moved under a granted root is in the
+     * grant at once — see {@code DefaultPermissionSnapshotProvider.readGrantedDepartmentPaths}.
+     *
+     * <p>Bounds, per role, every model carrying {@code departmentId} as a to-one onto the department
+     * model, and the department model itself by its own {@code idPath}.
+     */
+    @Schema(description = "Paths of the departments this role reaches, each with its subtree; null = unrestricted")
+    private Set<String> grantedDepartmentPaths;
+
+    /**
+     * What the department grant adds for whoever holds the role, beside {@link #grantedDepartmentPaths}: any of
+     * {@code OWN_DEPARTMENT}, {@code MANAGED_DEPARTMENTS} and {@code DIRECT_REPORTS}. Kept by name rather than
+     * resolved, because it differs per holder and changes with them; the data plane reads it against the
+     * request's employee. Only read where the grant is configured, so {@link #grantedDepartmentPaths} is not
+     * {@code null}. A record has to meet any one of the two.
+     */
+    @Schema(description = "Conditions of the department grant worked out for the holder")
+    private Set<String> departmentConditions;
+
+    /**
+     * Models whose records this role views in every department: reading them is not bounded by the department
+     * grant. Changing them still is.
+     */
+    @Schema(description = "Models this role views regardless of its department grant")
+    private Set<String> departmentExemptModels;
 }

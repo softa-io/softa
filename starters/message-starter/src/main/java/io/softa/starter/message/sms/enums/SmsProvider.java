@@ -26,7 +26,11 @@ public enum SmsProvider {
     @OptionItem(description = "Alibaba Cloud SMS")
     ALIYUN("Aliyun"),
     @OptionItem(description = "Tencent Cloud SMS")
-    TENCENT("Tencent");
+    TENCENT("Tencent"),
+    @OptionItem(label = "ClickSend", description = "ClickSend SMS API")
+    CLICKSEND("ClickSend"),
+    @OptionItem(label = "BytePlus", description = "BytePlus Messaging SMS API")
+    BYTEPLUS("BytePlus");
 
     @JsonValue
     private final String code;

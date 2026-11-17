@@ -37,7 +37,8 @@ public class ApiResponseErrorDetails<T> extends ApiResponse<T> {
 
     /**
      * Field-level rejections, field name → sentence, when a write was refused by field constraints or
-     * a {@code ModelWriteValidator}. Lets a form put each message on its field instead of one toast;
+     * a {@code ModelWriteValidator}, or a request body failed its bean validation ({@code @Valid}).
+     * Lets a form put each message on its field instead of one toast;
      * absent (null) for every other error, so existing clients see the same body they always did.
      */
     @Schema(description = "Stable machine-readable error code, e.g. SESSION_EXPIRED; present only when the failure has one")

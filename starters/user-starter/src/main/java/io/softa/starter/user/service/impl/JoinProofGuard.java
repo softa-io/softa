@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 import lombok.RequiredArgsConstructor;
 
 import io.softa.framework.base.exception.BusinessException;
-import io.softa.framework.base.security.EncryptUtils;
+import io.softa.framework.base.security.HashUtils;
 import io.softa.framework.base.utils.RandomUtils;
 import io.softa.framework.orm.service.CacheService;
 
@@ -43,11 +43,11 @@ public class JoinProofGuard {
     private final CacheService cacheService;
 
     private static String key(String proof) {
-        return "join:proof:" + EncryptUtils.computeSha256(proof);
+        return "join:proof:" + HashUtils.sha256Hex(proof);
     }
 
     private static String claim(String rawToken, Long profileId) {
-        return EncryptUtils.computeSha256(rawToken) + "|" + profileId;
+        return HashUtils.sha256Hex(rawToken) + "|" + profileId;
     }
 
     /** Mint a fresh proof that {@code profileId} passed the code for invitation {@code rawToken}. */
@@ -74,7 +74,7 @@ public class JoinProofGuard {
     }
 
     private static String channelKey(String proof) {
-        return "join:proof-channel:" + EncryptUtils.computeSha256(proof);
+        return "join:proof-channel:" + HashUtils.sha256Hex(proof);
     }
 
     /**
@@ -91,7 +91,7 @@ public class JoinProofGuard {
     }
 
     private static String joinPersonKey(String rawToken) {
-        return "join:person:" + EncryptUtils.computeSha256(rawToken);
+        return "join:person:" + HashUtils.sha256Hex(rawToken);
     }
 
     /**

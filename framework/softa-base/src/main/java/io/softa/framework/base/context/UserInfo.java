@@ -20,7 +20,17 @@ public class UserInfo implements Serializable {
     private String name;
     private Language language;
     private Timezone timezone;
+
+    /** File id of the user's photo. The cached UserInfo holds this, never an address. */
+    private Long photoId;
+
+    /**
+     * Address of the user's photo: a key only this account can open, valid 30 to 31 days. Filled when
+     * the UserInfo is returned to its user and always null in the cache — an address stored there
+     * would outlive what signed it.
+     */
     private String photoUrl;
+
     private Long tenantId;
 
     /**

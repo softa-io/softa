@@ -15,7 +15,6 @@ import io.softa.framework.orm.startup.StartupSnapshot;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.starter.permission.entity.DataScopeType;
 import io.softa.starter.permission.spi.ScopeType;
-import static io.softa.starter.permission.scope.ScopeFilterTemplates.fieldRefs;
 
 /**
  * Single source of truth for "which {@link ScopeType}s can apply to a given
@@ -29,9 +28,8 @@ import static io.softa.starter.permission.scope.ScopeFilterTemplates.fieldRefs;
  * derives the same answer by reading {@code DataScopeType} by name — with no
  * dependency on this engine.
  *
- * <p>For <b>identity types</b> the applicable fields are derived from the row's
- * {@code filter} template (its LHS field references, via
- * {@link ScopeFilterTemplates#fieldRefs}) — the same template
+ * <p>For <b>identity types</b> applicability is whether
+ * {@link ScopeFilterTemplates#forModel} finds a template for the model — the same one
  * {@link IdentityScopeCompiler} compiles, so applicability and compilation can never
  * drift. Code-contributor types (DEPT_SUBTREE / MANAGED_DEPARTMENTS) have no filter
  * and keep their explicit {@code applicableFields}.
@@ -124,26 +122,21 @@ public class ScopeApplicabilityResolver implements StartupSnapshot {
     /**
      * One applicability rule, projected from a {@link DataScopeType} row.
      *
-     * <p>Identity types carry a {@code filter} template, so their applicable fields
-     * are <b>derived from the template's field references</b> ({@code filterFields},
-     * plus {@code identityFilterFields} for the {@code identityModel} model-swap) —
-     * no {@code applicableFields} on these rows. Code-contributor types
+     * <p>Identity types carry a {@code filter} template, read by
+     * {@link ScopeFilterTemplates#forModel} — no {@code applicableFields} on these rows. Code-contributor types
      * (DEPT_SUBTREE / MANAGED_DEPARTMENTS) have no filter and fall back to their
      * explicit {@code applicableFields}.
      */
     private record Rule(String code, boolean appliesToAll, boolean identity,
                         List<String> applicableFields, String identityModel,
-                        Set<String> filterFields, Set<String> identityFilterFields) {
+                        Object filter, Object identityFilter) {
 
         boolean matches(String model, Set<String> fields) {
             if (appliesToAll) {
                 return true;
             }
             if (identity) {
-                if (identityModel != null && identityModel.equals(model)) {
-                    return !identityFilterFields.isEmpty() && fields.containsAll(identityFilterFields);
-                }
-                return !filterFields.isEmpty() && fields.containsAll(filterFields);
+                return ScopeFilterTemplates.forModel(model, fields, identityModel, filter, identityFilter) != null;
             }
             for (String f : applicableFields) {
                 if (fields.contains(f)) {
@@ -163,9 +156,7 @@ public class ScopeApplicabilityResolver implements StartupSnapshot {
                     : JsonUtils.toStringList(m.get("applicableFields"));
             return new Rule(str(m.get("id")), appliesToAll, identity,
                     applicableFields == null ? List.of() : applicableFields,
-                    str(m.get("identityModel")),
-                    identity ? fieldRefs(filter) : Set.of(),
-                    identity ? fieldRefs(m.get("identityFilter")) : Set.of());
+                    str(m.get("identityModel")), filter, m.get("identityFilter"));
         }
 
         private static String str(Object v) {

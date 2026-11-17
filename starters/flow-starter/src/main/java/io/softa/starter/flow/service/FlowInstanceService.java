@@ -4,7 +4,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import io.softa.framework.orm.domain.Page;
 import io.softa.starter.flow.dto.FlowInstanceRecordView;
@@ -118,20 +118,19 @@ public interface FlowInstanceService {
     void markSuperseded(String modelName, String rowId);
 
     /**
-     * A business record's approval history, for its approval panel: the record's approval instances
-     * (one per submission), newest first, each with its status, initiator, the steps still waiting
-     * and the approvers yet to act, and its approval actions (CC reads left out), every user named.
-     * Read past the caller's permissions; {@code authorize} decides who may see it, and the users are
-     * named only once it has passed.
+     * A business record's approval, for every page that shows it: each submission of the record — the approval
+     * instance it started — newest first, with its approval steps: those it passed, those it waits on now and, for
+     * the one in progress, those still ahead as expected now ({@code FlowApprovalStepsComposer}); every user named.
+     * Read past the caller's permissions; {@code authorize} decides who may see it, before any step is built and
+     * any user named.
      *
      * @param modelName the record's model
      * @param rowId     the record
-     * @param authorize checks the history, its users still unnamed, with the approvals it was built from — so whoever
-     *                  decides who takes part in them reads neither again — and throws to refuse it
-     * @return the history; no instances when the record was never submitted
+     * @param authorize checks the submissions, each with its whole history — so whoever decides who takes part in
+     *                  them reads neither again — and throws to refuse them
+     * @return the record's approval; no submission when the record was never submitted
      */
-    FlowRecordApprovalsView recordApprovals(String modelName, String rowId,
-                                            BiConsumer<FlowRecordApprovalsView, List<RecordApproval>> authorize);
+    FlowRecordApprovalsView recordApprovals(String modelName, String rowId, Consumer<List<RecordApproval>> authorize);
 
     /** One of a record's approvals, as its approval history was built from it: its state and its whole history. */
     record RecordApproval(FlowExecutionState state, List<ApprovalActionAuditEntry> history) {

@@ -43,6 +43,15 @@ public interface MessageService {
     /** Submit 1..500 independent SMS messages atomically. */
     List<Long> sendSmsBatch(List<SendSmsDTO> messages);
 
+    /**
+     * Whether an SMS can be sent to {@code phoneNumber} now: it is a number {@link #sendSms} accepts
+     * (country code included, the right number of digits for its country), and an enabled route
+     * serves its country. For a screen about to text a code to a number the person just typed, so it
+     * can tell them before sending instead of sending into a country nobody routed. {@link #sendSms}
+     * does not refuse such a number: routing is read at delivery, and the record fails there.
+     */
+    boolean canSendSms(String phoneNumber);
+
     /** Persist one inbox notification for one recipient. */
     Long sendInbox(SendInboxDTO message);
 

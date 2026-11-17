@@ -81,10 +81,11 @@ public class ApprovalPathPreviewer {
     }
 
     /**
-     * The rest of a running approval's path: the steps it waits on now, as they stand — who approved, who
-     * is still asked — then the steps after them, worked out as a submission's path is, from the instance's
-     * own variables and approvals. Every step still waiting is assumed approved. The instance is read, never
-     * changed: the walk runs on a copy of it. Users come as ids; the caller names them.
+     * The rest of a running approval's path, for its record's approval to show the steps ahead
+     * ({@code FlowApprovalStepsComposer}): the steps it waits on now, as they stand — who is still asked — then
+     * the steps after them, worked out as a submission's path is, from the instance's own variables and
+     * approvals. Every step still waiting is assumed approved. The instance is read, never changed: the walk
+     * runs on a copy of it. Users come as ids; the caller names them.
      */
     public FlowApprovalPreview previewRemaining(CompiledFlowDefinition definition, FlowExecutionState live) {
         Walk walk = new Walk(definition, copyOf(live), Set.of());

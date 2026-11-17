@@ -9,10 +9,12 @@ import io.softa.framework.base.config.SystemConfig;
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.web.aspect.ApiExceptionAspect;
+import io.softa.framework.web.utils.SecretMasker;
 import io.softa.framework.web.wrapper.CachedBodyHttpServletRequest;
 
 /**
- * Request info handler
+ * Request info handler. Credentials in the query string and the request body are masked
+ * ({@link SecretMasker}); the parameters arrive masked from {@link ApiExceptionAspect}.
  */
 @Component
 public class RequestInfoHandler {
@@ -31,7 +33,7 @@ public class RequestInfoHandler {
             builder.append(request.getRequestURL().toString());
             String queryString = request.getQueryString();
             if (StringUtils.isNotBlank(queryString)) {
-                builder.append("?").append(queryString);
+                builder.append("?").append(SecretMasker.maskQueryString(queryString));
             }
             appendUserAndTraceId(builder);
             appendClientIp(builder);
@@ -88,7 +90,7 @@ public class RequestInfoHandler {
                 && request instanceof CachedBodyHttpServletRequest cachedBodyRequest) {
             String requestBody = cachedBodyRequest.getCachedBodyAsString();
             if (StringUtils.isNotBlank(requestBody)) {
-                builder.append("\n").append(requestBody);
+                builder.append("\n").append(SecretMasker.maskJson(requestBody));
             }
         } else {
             builder.append(" ; RequestBody: [hidden]");

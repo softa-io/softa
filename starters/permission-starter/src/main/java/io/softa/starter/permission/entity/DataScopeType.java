@@ -80,6 +80,13 @@ public class DataScopeType extends AuditableModel {
     @Field(description = "Applies to every model (ALL / CUSTOM)")
     private Boolean appliesToAll;
 
+    /**
+     * Configured once for the whole role rather than per model: the wizard offers it on no model card. A rule
+     * of this type already stored on a card still compiles.
+     */
+    @Field(description = "Offered at role level only, not on a model card")
+    private Boolean roleLevelOnly;
+
     @Field(description = "Code-contributor types (DEPT_SUBTREE / MANAGED_DEPARTMENTS): eligible on models "
             + "with ANY of these fields; identity types use filter instead")
     private List<String> applicableFields;

@@ -8,6 +8,11 @@ security:
   encryption:
     password: 12345678
     algorithm: AESEncryption
+  # Signs the keys in FileInfo.url (softa-web README, File keys). Required, the same on every
+  # instance. This value is for local development only: anywhere else set SECURITY_FILE_KEY_SECRET
+  # (openssl rand -base64 48), which overrides it.
+  file-key:
+    secret: dev-only-file-open-key-secret-do-not-use-anywhere-else
 
 spring:
   data:

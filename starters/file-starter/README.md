@@ -164,7 +164,7 @@ The `fieldName` in ImportTemplateField (or `importFieldDTOList` in dynamic impor
 - Only **single-level** cascade is supported: `deptId.code` ✅, `deptId.companyId.code` ❌
 - A direct FK field (e.g. `deptId`) and a lookup field (e.g. `deptId.code`) **must not coexist** in the same template.
 - Multiple lookup fields sharing the same root are combined as a composite business key (e.g. `deptId.code` + `deptId.name` together uniquely identify a Department).
-- **Country-partitioned targets resolve in the row's own country.** "Full Time" names a different Employment Type in every country that has one, so a business key on a `@Model(multiCountry)` target is only unique within a country — and the importer's own countries are the wrong domain when one file carries both Singapore and New Zealand employees. `RelationLookupResolver` resolves the row's company reference first (the importing model's field onto `Company` — `legalEntityId` on an employee, `companyId` on a department — whatever the column order), turns it into a country (`CompanyCountryResolver`, cached), buckets the rows by it and queries each bucket with `country = X` on top of the field's own filters. Rows naming no company resolve as before, within the caller's countries. A template that looks a partitioned target up by name without carrying a company column logs a warning at detection time (`partitionedLookupsWithoutCompanyColumn` exposes the same list for a template editor): it works for a single-country importer and fails the row as a duplicate key for a multi-country one.
+- **Country-partitioned targets resolve in the row's own country.** "Full Time" names a different Employment Type in every country that has one, so a business key on a `@Model(multiCountry)` target is only unique within a country — and the importer's own countries are the wrong domain when one file carries both Singapore and New Zealand employees. `RelationLookupResolver` resolves the row's company reference first (the importing model's field onto `Company` — `legalEntityId` on an employee, `companyId` on a department — whatever the column order), turns it into a country (`CompanyCountryResolver`, cached), buckets the rows by it and queries each bucket with `country = X` on top of the field's own filters. A row naming no company — an update that leaves the company column blank — resolves in the template's own country when the template is written for one (`ImportTemplate.country`): a Singapore template's values are Singapore's. Only a row of a template for every country resolves within the caller's countries, where a name several countries share matches twice and fails the whole file as a duplicate key. A template that looks a partitioned target up by name without carrying a company column logs a warning at detection time (`partitionedLookupsWithoutCompanyColumn` exposes the same list for a template editor): it works for a single-country importer and fails the row as a duplicate key for a multi-country one.
 - When all lookup values in a row are empty:
   - If `ignoreEmpty = true`: the FK field is skipped (not written).
   - If `ignoreEmpty = false`: the FK field is explicitly set to `null`.
@@ -259,7 +259,10 @@ by `ImportSheetStyleHandler`:
 | Column width | header length × 1.2 (bold text) + 5 (filter button) characters, clamped to 14–40; a longer header wraps |
 | Result file rows | the Failed Reason wraps, and a row grows to the lines its reason needs (estimated from the text's display width against the column width, a CJK character counting as two); the row's other cells are vertically centred |
 
-Option dropdowns and date / time column formats work as before. With `includeDescription = true` the
+Option dropdowns and date / time column formats work as before. A column onto `Company` offers only the
+companies the template's writes are granted — `getGrantedCompanyIds` for `CREATE`, `UPDATE` or both, by
+the import rule — the same way a company picker on a form is narrowed (softa-web README §Record access).
+With `includeDescription = true` the
 instruction sheet is still added (same header look, no comments / freeze / filter); the header comments
 are in addition to it. Exact colours are set as XSSF colours on POI styles after Fesod's own style fill,
 because Fesod's `WriteCellStyle` only takes palette indexes; the derived styles are cached per workbook.
@@ -742,6 +745,8 @@ Map<String, Object> data = Map.of(
 );
 FileInfo fileInfo = documentTemplateService.generateDocument(templateId, data);
 ```
+
+The returned `FileInfo.url` is a file key's address ending in `?download=1` (softa-web README, File keys): hand it to the client that asked for the document. Code that keeps the result — a flow variable, a mail — keeps `fileInfo.getFileId()`; to mail the document, attach it by its id.
 
 The `generateDocument(templateId, data)` overload skips the model data fetch step and renders the template directly with the provided `Map<String, Object>`. This is useful when:
 - The data comes from an external source or custom aggregation.

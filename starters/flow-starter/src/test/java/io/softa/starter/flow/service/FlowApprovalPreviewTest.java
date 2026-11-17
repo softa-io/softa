@@ -44,7 +44,6 @@ import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.enums.ApproverDedupStrategy;
 import io.softa.starter.flow.enums.FlowNodeType;
 import io.softa.starter.flow.enums.FlowScenario;
-import io.softa.starter.flow.enums.WithdrawPolicy;
 import io.softa.starter.flow.runtime.LeaveRequest;
 import io.softa.starter.flow.runtime.StubFlowBundleRegistry;
 import io.softa.starter.flow.runtime.TestActorAccounts;
@@ -150,13 +149,12 @@ class FlowApprovalPreviewTest {
                 .filter(instance -> Boolean.TRUE.equals(instance.getRecordApproval()))
                 .reduce((earlier, later) -> later));
 
-        launchService = new FlowLaunchServiceImpl(engine, bundleRegistry, compiler,
+        launchService = new FlowLaunchServiceImpl(engine, compiler,
                 // No status writer: a preview writes nothing.
                 ModelApprovalHandlerRegistry.of(List.of(handler)), null, new DefaultFlowTriggerRegistry(bundleRegistry),
                 instanceService, modelService, previewer,
                 new FlowInstanceAccessGuard(instanceService, auditReader, modelService),
-                new FlowUserNames(organizationProvider, modelService),
-                new WithdrawPolicyGuard(bundleRegistry, auditReader, new FailedApprovalRecords(instanceService, modelService)));
+                new FlowUserNames(organizationProvider, modelService));
     }
 
     @AfterEach
@@ -187,10 +185,9 @@ class FlowApprovalPreviewTest {
     }
 
     @Test
-    void anApprovalInProgressShowsTheStepItWaitsOnThenTheRest() {
+    void anApprovalInProgressIsNamedNotPreviewed() {
         DesignFlowDefinition design = chain("Annual leave", approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER))))),
                 approval("hr", "HR", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(HR))))));
-        design.setWithdrawPolicy(WithdrawPolicy.UNTIL_COMPLETED);
         CompiledFlowDefinition flow = publishService.publish("annual", design);
         record.put("approvalStatus", "Pending");
         FlowExecutionState state = FlowExecutionState.builder()
@@ -206,25 +203,16 @@ class FlowApprovalPreviewTest {
                 .approvalAuditDelta(new ArrayList<>())
                 .joinArrivalCounts(new HashMap<>())
                 .build();
-        // Its row as the instance table holds it, whole: the preview reads it from there.
         instances.add(FlowExecutionStateMapper.toEntity(state));
 
         FlowApprovalPreview preview = launchService.previewRecord(MODEL, ROW, SUBMITTER);
 
+        // Its steps, those ahead included, are the record's approval's to show (by-record).
         assertEquals(Status.IN_PROGRESS, preview.getStatus());
-        assertEquals(new FlowApprovalPreview.Flow("annual", "Annual leave"), preview.getFlow());
-        assertEquals(List.of("manager", "hr"), preview.getSteps().stream().map(Step::getNodeId).toList());
-        Step current = preview.getSteps().getFirst();
-        assertEquals(Boolean.TRUE, current.getCurrent());
-        assertEquals(List.of(new Actor(MANAGER, "Bob")), current.getApprovers());
-        Step next = preview.getSteps().get(1);
-        assertNull(next.getCurrent());
-        assertEquals(StepOutcome.WAITING, next.getOutcome());
-        assertEquals(List.of(new Actor(HR, "Carol")), next.getApprovers());
-        assertTrue(state.getApprovalAuditDelta().isEmpty(), "the running instance is never changed");
+        assertEquals("run-1", preview.getInstanceId());
+        assertNull(preview.getFlow());
+        assertNull(preview.getSteps());
         verify(handler, never()).validate(any());
-        assertEquals(Boolean.TRUE, preview.getWithdrawable(), "its submitter, on a flow that lets them");
-        assertEquals(Boolean.FALSE, launchService.previewRecord(MODEL, ROW, MANAGER).getWithdrawable());
     }
 
     @Test
@@ -475,17 +463,20 @@ class FlowApprovalPreviewTest {
     }
 
     @Test
-    void aRecordAlreadyInApprovalIsReportedAsRefused() {
+    void aRecordAlreadyInApprovalIsReportedInProgressWhateverItsRevision() {
         publishService.publish("annual", chain("Annual leave", approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(MANAGER)))))));
+        // Its revision gone from the registry: nothing about it is read.
         FlowInstance inProgress = new FlowInstance();
+        inProgress.setInstanceId("run-9");
         inProgress.setRecordApproval(true);
         inProgress.setStatus(FlowExecutionStatus.WAITING);
         instances.add(inProgress);
 
         FlowApprovalPreview preview = launchService.previewRecord(MODEL, ROW, SUBMITTER);
 
-        assertEquals(Status.REFUSED, preview.getStatus());
-        assertEquals("This record is already in approval.", preview.getMessage());
+        assertEquals(Status.IN_PROGRESS, preview.getStatus());
+        assertEquals("run-9", preview.getInstanceId());
+        assertNull(preview.getSteps());
     }
 
     @Test

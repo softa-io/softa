@@ -76,7 +76,8 @@ class RoleCompanyScopeValidationTest {
                 roleDataScopeService, mock(RoleSensitiveFieldSetService.class),
                 mock(UserRoleRelService.class), mock(DynamicRoleSyncJob.class),
                 mock(io.softa.starter.user.service.impl.UiContextBuilder.class),
-                mock(io.softa.starter.user.service.RoleGrantCeiling.class));
+                mock(io.softa.starter.user.service.RoleGrantCeiling.class),
+                mock(io.softa.starter.user.service.RoleTenantFacingGuard.class));
         // Injected by Spring in production; assigned directly here (same package) now that the write
         // verbs and their SystemRoleWriteGuard call live in SystemRoleGuardedController.
         controller.modelService = castModelService(modelService);

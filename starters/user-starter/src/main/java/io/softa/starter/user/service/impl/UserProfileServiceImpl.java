@@ -15,7 +15,9 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.exception.BaseException;
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.framework.base.exception.ExternalException;
 import io.softa.framework.base.exception.IllegalArgumentException;
+import io.softa.framework.base.exception.SystemException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.LambdaUtils;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +26,7 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.dto.FileInfo;
 import io.softa.framework.orm.enums.ConvertType;
+import io.softa.framework.orm.file.FileOpenKeys;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.FileService;
@@ -50,6 +53,9 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Long>
 
     @Autowired
     private FileService fileService;
+
+    @Autowired
+    private FileOpenKeys fileOpenKeys;
 
     @Autowired
     private CacheService cacheService;
@@ -277,6 +283,13 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Long>
         ctx.setSkipPermissionCheck(true);
         try {
             return ContextHolder.callWith(ctx, () -> this.getUserInfo(userId));
+        } catch (ExternalException | SystemException e) {
+            // Not "this account cannot sign in" but something broken on the way: storage, a provider,
+            // a bug. The session still ends — there is no UserInfo to run it on — but this must reach
+            // the error log and Sentry, not pass for an expired session: a storage error here once
+            // logged out everyone with a photo, and the only trace was the 500 of their next login.
+            log.error("loadUserInfo — failed to build UserInfo for userId={}", userId, e);
+            return null;
         } catch (BaseException e) {
             log.warn("loadUserInfo — cannot build UserInfo for userId={}: {}", userId, e.getMessage());
             return null;
@@ -335,10 +348,18 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Long>
         // then touches no tenant at all.
         userInfo.setTenantName(tenantInfoService == null ? null
                 : tenantInfoService.getTenantName(userInfo.getTenantId()));
-        if (profile.getPhotoId() != null) {
-            // The photo URL expires in one quarter (90 days), longer than the user info cache expiration time
-            Optional<FileInfo> fileInfoOpt = fileService.getByFileId(profile.getPhotoId(), RedisConstant.ONE_QUARTER);
-            fileInfoOpt.ifPresent(fileInfo -> userInfo.setPhotoUrl(fileInfo.getUrl()));
+        // The id, never an address: this object is cached for a month, and an address signed now
+        // would have to outlive the cache entry — a storage link cannot (seven days at most, the
+        // reason a login once failed for everyone with a photo). withPhotoUrl signs one on the way out.
+        userInfo.setPhotoId(profile.getPhotoId());
+        return userInfo;
+    }
+
+    @Override
+    public UserInfo withPhotoUrl(UserInfo userInfo) {
+        if (userInfo != null) {
+            userInfo.setPhotoUrl(userInfo.getPhotoId() == null || userInfo.getUserId() == null ? null
+                    : fileOpenKeys.userUrl(userInfo.getPhotoId(), userInfo.getUserId(), false));
         }
         return userInfo;
     }
@@ -555,8 +576,7 @@ public class UserProfileServiceImpl extends EntityServiceImpl<UserProfile, Long>
                         || photoUrl.startsWith(StringConstant.HTTPS_PREFIX))) {
             String fieldName = LambdaUtils.getAttributeName(UserProfile::getPhotoId);
             try {
-                // The photo URL expires in one quarter (90 days), longer than the user info cache expiration time
-                return fileService.uploadFromUrl(this.modelName, profileId, fieldName, photoUrl, RedisConstant.ONE_QUARTER);
+                return fileService.uploadFromUrl(this.modelName, profileId, fieldName, photoUrl);
             } catch (Exception e) {
                 log.error("Failed to upload photo from URL: {}", photoUrl, e);
             }

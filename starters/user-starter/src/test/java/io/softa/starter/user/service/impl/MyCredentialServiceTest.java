@@ -91,6 +91,7 @@ class MyCredentialServiceTest {
         ReflectionTestUtils.setField(service, "messageService", messages);
         when(messages.sendMail(any())).thenAnswer(inv -> this.recordSend(inv.getArgument(0)));
         when(messages.sendSms(any())).thenAnswer(inv -> this.recordSend(inv.getArgument(0)));
+        when(messages.canSendSms(anyString())).thenReturn(true);
         ReflectionTestUtils.setField(service, "sessionService", sessions);
         ReflectionTestUtils.setField(service, "securityLog", securityLog);
         ReflectionTestUtils.setField(service, "history", history);
@@ -320,12 +321,27 @@ class MyCredentialServiceTest {
     }
 
     @Test
-    void theDigitsAfterTheCountryCode_count_sixToFifteen() {
-        // The screen takes the country code from its own dropdown and 6 to 15 digits after it.
-        String six = signedIn(() -> service.verifyCurrentForMobile("code", "123456", null));
-        assertThat(signedIn(() -> service.checkNewMobile(six, "+65 123456"))).isNotBlank();
-        String fifteen = signedIn(() -> service.verifyCurrentForMobile("code", "123456", null));
-        assertThat(signedIn(() -> service.checkNewMobile(fifteen, "+86 123456789012345"))).isNotBlank();
+    void theNumberOfDigits_isTheOneItsCountryUses() {
+        // The screen takes the country code from its own dropdown; the digits after it are counted
+        // for that country — eight in Singapore, eleven for a mainland China mobile.
+        String singapore = signedIn(() -> service.verifyCurrentForMobile("code", "123456", null));
+        assertThat(signedIn(() -> service.checkNewMobile(singapore, "+65 8123 4567"))).isNotBlank();
+        String china = signedIn(() -> service.verifyCurrentForMobile("code", "123456", null));
+        assertThat(signedIn(() -> service.checkNewMobile(china, "+86 138 0013 8000"))).isNotBlank();
+        String tooShort = signedIn(() -> service.verifyCurrentForMobile("code", "123456", null));
+        assertThatThrownBy(() -> signedIn(() -> service.checkNewMobile(tooShort, "+65 912 3456")))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("number of digits");
+    }
+
+    @Test
+    void aNumberOfACountryNoSmsRouteServes_isRefusedBeforeACodeIsSent_andTheTicketKept() {
+        when(messages.canSendSms("+60123456789")).thenReturn(false);
+        String ticket = signedIn(() -> service.verifyCurrentForMobile("code", "123456", null));
+
+        assertThatThrownBy(() -> signedIn(() -> service.checkNewMobile(ticket, "+60 12-345 6789")))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("+60");
+        verify(codeGuard, never()).beforeSend(anyString());
+        assertThat(signedIn(() -> service.checkNewMobile(ticket, "+65 9876-5432"))).isNotBlank();
     }
 
     @Test

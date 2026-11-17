@@ -80,8 +80,8 @@ public enum CustomerTier {
 | `displayName` | String[] | `{}` | `displayName` | list-display defaults: a row's name is these fields' values joined with ` / `, blank ones left out; a relation among them reads as its own name, an option as its label (`DisplayNames`) |
 | `searchName` | String[] | `{}` | `searchName` | search-field defaults |
 | `defaultOrder` | String[] | `{}` | `defaultOrder` | one sort per entry, `"field"` or `"field:dir"`: `{"sequence", "name"}` is sequence, then name (`{"id", "desc"}` would name a field `desc` and fail the boot). Applies to paged and non-paged reads that name no order. Unset, a paged read lists the newest first (`id DESC`), the lines and tags a record's read expands (ONE_TO_MANY, MANY_TO_MANY) come in entry order (`id` ascending, then `sliceId` on a timeline model), and any other non-paged read is not sorted — so records and plain detail lines need no declaration, while master data people pick declares its order (`{"name"}`, `{"fullName", "code"}`) and lines with a business order declare it (`{"effectiveStartDate:desc"}`, `{"lineNo"}`). A paged read then appends the physical primary key, in the direction of the first sort, so pages neither repeat nor skip rows that tie |
-| `softDelete` | boolean | `false` | `softDelete` | requires a `deleted` field on the class; every read appends `deleted = false` (bypass via `FilterControl.bypassSoftDelete()`), and the starting value `false` is materialized into `sys_field.default_value` so the column DDL carries `DEFAULT FALSE` |
-| `activeControl` | boolean | `false` | `activeControl` | requires an `active` field on the class; every read appends `active = true` unless the caller's own filters name `active` (or `FilterControl.bypassActiveControl()` is set), so disabling retires a row from reads without deleting it; the starting value `true` is materialized into `sys_field.default_value` so the column DDL carries `DEFAULT TRUE` |
+| `softDelete` | boolean | `false` | `softDelete` | requires a `deleted` field on the class; every query appends `deleted = false` (bypass via `FilterControl.bypassSoftDelete()`) — a read by id (`getById` / `getByIds`) does not, and returns a deleted row too, flagged, so code that acts on a record it reads by id checks `deleted` itself; the starting value `false` is materialized into `sys_field.default_value` so the column DDL carries `DEFAULT FALSE` |
+| `activeControl` | boolean | `false` | `activeControl` | requires an `active` field on the class; every query appends `active = true` unless the caller's own filters name `active` (or `FilterControl.bypassActiveControl()` is set), so disabling retires a row from reads without deleting it — a read by id still returns it; the starting value `true` is materialized into `sys_field.default_value` so the column DDL carries `DEFAULT TRUE` |
 | `timeline` | boolean | `false` | `timeline` | effective-dated rows (see Timeline Model) |
 | `idStrategy` | `IdStrategy` | `DB_AUTO_ID` | `idStrategy` | |
 | `storageType` | `StorageType` | `RDBMS` | `storageType` | |
@@ -857,6 +857,23 @@ Every skip is silent by design: an over-eager condition empties a list the user 
 ### Cost
 
 The set is on the context before the first read — one Redis round trip for the permission snapshot, which the interceptor pays anyway. The affiliation fallback costs `CompanyCountryEnricher` one company → country lookup per request for callers with an employee record, cached in Redis for five minutes — short deliberately, because the country is an editable field on the company's own form and there is no eviction hook on the generic write path. If it cannot be resolved (a deleted company, a row with no country, an application with no company model), the fallback is simply absent and the narrowing skips for that caller.
+
+## A company's today (`CompanyClock`)
+
+Whether a dated record has started, which assignment is in effect, which change is due — each is a question about
+the company's own calendar, and a server in another zone answers it with a different date for hours every day.
+`CompanyClock` reads the date in the company's time zone:
+
+- `today(companyId)` / `zoneOf(companyId)` — the company's `timeZone` (declared on `BaseCompany`), else the tenant's
+  default time zone (`TenantInfoService.getDefaultTimezone`), else the server's zone.
+- `companiesByToday()` — every company of the tenant, disabled ones included, grouped by the day it is there now,
+  for a list that compares dates across companies in one query. Usually one day, two for the hours the zones
+  straddle.
+- `resolveZone(companyTimeZone, tenantDefault)` — the three tiers on their own.
+
+The company is read past the caller's scope: a time zone is configuration, and a caller who may not see the company
+must not be handed another calendar because of it. An application with no `Company` model, or one without its
+`timeZone`, gets the tenant's calendar.
 
 ## Startup snapshots
 

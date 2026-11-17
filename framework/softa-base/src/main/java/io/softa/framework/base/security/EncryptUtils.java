@@ -1,10 +1,6 @@
 package io.softa.framework.base.security;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
-import java.util.HexFormat;
 import java.util.Map;
 import jakarta.annotation.PostConstruct;
 import org.apache.commons.lang3.StringUtils;
@@ -13,7 +9,6 @@ import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
-import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.SystemException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.SpringContextUtils;
@@ -130,14 +125,12 @@ public class EncryptUtils {
 
     /**
      * Compute SHA-256 hash of the input content
+     *
+     * @deprecated a digest is not encryption: use {@link HashUtils#sha256Hex(String)}, which this calls and
+     * which gives the same lowercase hex.
      */
+    @Deprecated
     public static String computeSha256(String content) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(content.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(hash);
-        } catch (NoSuchAlgorithmException e) {
-            throw new BusinessException("SHA-256 algorithm not available", e);
-        }
+        return HashUtils.sha256Hex(content);
     }
 }

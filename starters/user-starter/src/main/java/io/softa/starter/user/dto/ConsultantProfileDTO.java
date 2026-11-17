@@ -6,6 +6,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 /**
@@ -47,7 +48,12 @@ public class ConsultantProfileDTO {
      */
     private Long profileId;
 
+    /**
+     * The person's full name, and its column's width. Checked here so an over-long name is refused by its
+     * own name — the column's check answered with the model and column it lands in.
+     */
     @NotBlank(message = "Username is required")
+    @Size(max = 64, message = "Username must be 64 characters or fewer")
     private String username;
 
     /**
@@ -64,9 +70,11 @@ public class ConsultantProfileDTO {
      */
     @NotBlank(message = "Please enter a valid email address")
     @Email(message = "Please enter a valid email address")
+    @Size(max = 64, message = "Email must be 64 characters or fewer")
     private String email;
 
     @NotBlank(message = "Mobile is required")
+    @Size(max = 64, message = "Mobile must be 64 characters or fewer")
     private String mobile;
 
     /** Defaults to enabled on create — a consultant is made in order to be used. */

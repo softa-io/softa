@@ -202,7 +202,8 @@ public class FlowInstanceSummaryComposer {
 
     /**
      * Flags the record approvals whose record is gone — a draft deleted after its approval was returned or
-     * withdrawn — so a list offers no link that ends in "not found", and those whose record was cancelled for good,
+     * withdrawn, softly too: the row is kept, flagged, and read by its id it still comes back — so a list offers no
+     * link that ends in "not found", and those whose record was cancelled for good,
      * so a list says so rather than the approval's last state (Returned, Withdrawn) alone. Read past the caller's
      * permissions: the question is what became of the row, not whether they may open it.
      */
@@ -220,11 +221,16 @@ public class FlowInstanceSummaryComposer {
             List<Serializable> ids = IdUtils.formatIds(modelName,
                     rows.stream().map(FlowInstanceSummaryView::getRowId).distinct().toList());
             ModelService<Serializable> records = (ModelService<Serializable>) (ModelService<?>) modelService;
-            List<String> fields = ModelManager.existField(modelName, ApprovalModel.APPROVAL_STATUS)
-                    ? List.of(ModelConstant.ID, ApprovalModel.APPROVAL_STATUS)
-                    : List.of(ModelConstant.ID);
+            List<String> fields = new ArrayList<>(List.of(ModelConstant.ID));
+            if (ModelManager.existField(modelName, ApprovalModel.APPROVAL_STATUS)) {
+                fields.add(ApprovalModel.APPROVAL_STATUS);
+            }
+            if (ModelManager.isSoftDeleted(modelName)) {
+                fields.add(ModelConstant.SOFT_DELETED_FIELD);
+            }
             Map<String, Map<String, Object>> existing = ContextUtils.withoutPermissionChecks(
                             () -> records.getByIds(modelName, ids, fields)).stream()
+                    .filter(row -> !ApprovalModel.isDeleted(modelName, row))
                     .collect(Collectors.toMap(row -> Objects.toString(row.get(ModelConstant.ID), null),
                             Function.identity(), (a, b) -> a));
             rows.forEach(view -> {

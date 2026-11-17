@@ -10,6 +10,7 @@ import tools.jackson.core.type.TypeReference;
 
 import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.constant.RedisConstant;
+import io.softa.framework.base.enums.Timezone;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.jdbc.JdbcService;
@@ -72,6 +73,15 @@ public class TenantInfoServiceImpl extends EntityServiceImpl<TenantInfo, Long> i
         }
         TenantInfo tenantInfo = getTenantInfo(tenantId);
         return tenantInfo == null ? null : tenantInfo.getDefaultCountry();
+    }
+
+    @Override
+    public Timezone getDefaultTimezone(Long tenantId) {
+        if (tenantId == null) {
+            return null;
+        }
+        TenantInfo tenantInfo = getTenantInfo(tenantId);
+        return tenantInfo == null ? null : tenantInfo.getDefaultTimezone();
     }
 
     @Override

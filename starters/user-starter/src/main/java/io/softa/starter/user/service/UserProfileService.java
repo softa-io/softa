@@ -123,4 +123,15 @@ public interface UserProfileService extends EntityService<UserProfile, Long> {
      */
     FileInfo fetchPhotoFromURL(String photoUrl, Long profileId);
 
+    /**
+     * Fill {@code photoUrl} on a UserInfo that is about to be returned to its own user: the address of
+     * a key for the photo that only this account can open, valid 30 to 31 days. Called where a
+     * UserInfo leaves for the client — never on one that is going into the cache, which holds the
+     * photoId only.
+     *
+     * @param userInfo the UserInfo being returned; may be null
+     * @return the same UserInfo
+     */
+    UserInfo withPhotoUrl(UserInfo userInfo);
+
 }

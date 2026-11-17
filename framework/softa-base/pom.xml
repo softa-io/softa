@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.softa</groupId>
         <artifactId>framework</artifactId>
-        <version>3.0.4</version>
+        <version>3.0.7</version>
     </parent>
 
     <name>Softa Base</name>
@@ -95,6 +95,12 @@
         </dependency>
 
         <!-- Jsoup pre-parser: relaxes strict XHTML requirement on HTML templates -->
+        <!-- E.164 phone numbers: parsing, country of a number, length per country (PhoneUtils). -->
+        <dependency>
+            <groupId>com.googlecode.libphonenumber</groupId>
+            <artifactId>libphonenumber</artifactId>
+            <version>9.0.43</version>
+        </dependency>
         <dependency>
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>

@@ -1,10 +1,11 @@
 # Sentry Starter
 
-Error tracking and performance tracing via [Sentry](https://sentry.io), pre-wired for the softa runtime. The starter brings three things on top of the official `sentry-spring-boot-4-starter`:
+Error tracking and performance tracing via [Sentry](https://sentry.io), pre-wired for the softa runtime. The starter brings four things on top of the official `sentry-spring-boot-4-starter`:
 
 1. **Context-aware events** — every Sentry event and transaction is tagged with `trace_id` / `tenant_id` / `user_id` from the softa `Context`, so issues can be filtered per tenant and cross-referenced with log lines carrying the same `traceId` (softa-web mirrors the Context into SLF4J's MDC for the duration of each request).
 2. **Log-based capture** — `sentry-logback` is included, so anything the application logs at ERROR level with a throwable becomes a Sentry event. This is the capture channel that works with softa's `WebExceptionHandler`, which handles every exception itself (an MVC-level interceptor would never see them). Business exceptions logged at WARN/INFO stay out by design.
 3. **Switchable JDBC spans** — per-statement database spans via P6Spy, off by default and free when off (no proxy installed).
+4. **Credentials kept out** — the request the SDK attaches to every event and transaction is masked before it is sent: the query string, softa's own credential headers and a captured body (see [PII](#pii)).
 
 ## Usage
 
@@ -81,6 +82,8 @@ Troubleshooting: set `SENTRY_DEBUG=true` and the SDK logs why events are (or are
 ## PII
 
 `send-default-pii` defaults to `false` and should stay that way for applications holding personal data. Exception *messages* still travel to Sentry — keep personal data out of them (this is good logging hygiene regardless). Server-side scrubbing rules on sentry.io are the second line of defense.
+
+Credentials stay out whatever `send-default-pii` says. The text of a log line is masked by softa-web before it is written (its README, §Error Logs). The request the SDK attaches to every event and transaction — copied from the scope, with the query string and the headers as they arrived — is masked by `SentryRequestMasker`: the query string by the same names, a captured body the same way, and the credential headers of softa that Sentry's own list does not know: `X-Session-Id` (the APP session), `X-Api-Key` / `X-Api-Secret` (RPC) and `X-Softa-Callback-Token`. Standard credential headers (`Authorization`, `Cookie`, …) follow `send-default-pii`, as Sentry decides them.
 
 ## JDBC tracing
 

@@ -45,8 +45,10 @@ import io.softa.starter.file.dto.ImportFieldDTO;
  * company reference (the importing model's field onto the company model — {@code legalEntityId} on
  * an employee, {@code companyId} on a department) is resolved first, turned into a country, and the
  * rows bucketed by it; each bucket queries with {@code country = X} on top of the field's own filters.
- * A row naming no company falls into an unbucketed group and is resolved as before, within the
- * caller's country set. See {@link #countryOfRow}.
+ * A row naming no company — an update that leaves the company column blank — is resolved in the
+ * template's own country when the template is written for one: a Singapore template's values are
+ * Singapore's. Only a row of a template for every country falls into an unbucketed group, resolved
+ * within the caller's country set. See {@link #countryOfRow}.
  *
  * <p>Rules:
  * <ul>
@@ -260,6 +262,22 @@ public class RelationLookupResolver {
      */
     public List<InFileReferences.Reference> resolveRows(String modelName, List<Map<String, Object>> rows,
                                                         List<LookupGroup> lookupGroups, boolean skipException) {
+        return resolveRows(modelName, null, rows, lookupGroups, skipException);
+    }
+
+    /**
+     * Same, for a template written for one country: a row that names no company is resolved in
+     * {@code templateCountry} rather than across every country the caller works in, where a value
+     * several countries share — a race, an employment type — matches more than one row and fails the
+     * whole file.
+     *
+     * @param templateCountry the country the template is written for; null for a template for every
+     *                        country
+     * @return the references to other rows of this file, left unresolved
+     */
+    public List<InFileReferences.Reference> resolveRows(String modelName, String templateCountry,
+                                                        List<Map<String, Object>> rows,
+                                                        List<LookupGroup> lookupGroups, boolean skipException) {
         List<InFileReferences.Reference> inFile = new ArrayList<>();
         // A group that resolves the row's company goes first, whatever the template's column order:
         // every country-partitioned lookup after it needs the company id already written back.
@@ -267,11 +285,11 @@ public class RelationLookupResolver {
         ordered.sort(Comparator.comparing((LookupGroup g) -> !ModelConstant.COMPANY_MODEL.equals(g.relatedModel())));
         for (LookupGroup group : ordered) {
             if (group.oneToOne()) {
-                resolveNestedOneToOneGroup(modelName, rows, group, skipException);
+                resolveNestedOneToOneGroup(modelName, templateCountry, rows, group, skipException);
             } else if (group.toMany()) {
                 resolveToManyGroup(modelName, rows, group, skipException);
             } else {
-                resolveToOneGroup(modelName, rows, group, skipException, inFile);
+                resolveToOneGroup(modelName, templateCountry, rows, group, skipException, inFile);
             }
         }
         return inFile;
@@ -313,7 +331,8 @@ public class RelationLookupResolver {
     }
 
     /**
-     * The country a row's values belong to: that of the company the row names, or {@code null}.
+     * The country a row's values belong to: that of the company the row names, else the country the
+     * template is written for, else {@code null}.
      *
      * <p>The company reference is the importing model's field onto the company model — found by
      * target, not by name, because the HR app calls it {@code legalEntityId} on an employee and
@@ -321,7 +340,12 @@ public class RelationLookupResolver {
      * lookup column still holding a name has not been resolved yet, which is why company groups are
      * resolved first. Rows with several company fields take the first that carries a value.
      */
-    String countryOfRow(String modelName, Map<String, Object> row) {
+    String countryOfRow(String modelName, Map<String, Object> row, String templateCountry) {
+        String named = companyCountryOf(modelName, row);
+        return named != null ? named : StringUtils.trimToNull(templateCountry);
+    }
+
+    private String companyCountryOf(String modelName, Map<String, Object> row) {
         if (companyCountryResolver == null || !ModelManager.existModel(modelName)) {
             return null;
         }
@@ -346,7 +370,7 @@ public class RelationLookupResolver {
      * before, for anything else. The result is keyed by (country, business key) so the write-back can
      * pick a row's own bucket.
      */
-    private Bucketed lookupByCountry(String modelName, String relatedModel,
+    private Bucketed lookupByCountry(String modelName, String templateCountry, String relatedModel,
                                      List<String> lookupFields, Filters relationFilters,
                                      List<Map<String, Object>> rows,
                                      java.util.function.Function<Map<String, Object>, Collection<List<Object>>> keysOf) {
@@ -362,7 +386,7 @@ public class RelationLookupResolver {
             if (keys == null || keys.isEmpty()) {
                 continue;
             }
-            String country = partitioned ? countryOfRow(modelName, row) : null;
+            String country = partitioned ? countryOfRow(modelName, row, templateCountry) : null;
             countryByRow.put(row, country);
             keysByCountry.computeIfAbsent(country, ignored -> new LinkedHashSet<>()).addAll(keys);
         }
@@ -401,11 +425,11 @@ public class RelationLookupResolver {
      * belongs to the main row, so a create must still produce one (the owning FK is typically
      * required) and an update simply relinks the sub-row already there without touching a field.
      */
-    private void resolveNestedOneToOneGroup(String modelName, List<Map<String, Object>> rows, LookupGroup group,
-                                            boolean skipException) {
+    private void resolveNestedOneToOneGroup(String modelName, String templateCountry, List<Map<String, Object>> rows,
+                                            LookupGroup group, boolean skipException) {
         // Business values first, ids after: each nested lookup is one query across every row, the
         // same bargain resolveToOneGroup strikes — per-row queries would turn a sheet into N calls.
-        Map<String, Bucketed> resolvedByPath = resolveNestedLookupValues(modelName, rows, group);
+        Map<String, Bucketed> resolvedByPath = resolveNestedLookupValues(modelName, templateCountry, rows, group);
         for (Map<String, Object> row : rows) {
             if (!row.containsKey(FileConstant.FAILED_REASON)) {
                 Map<String, Object> nested = new LinkedHashMap<>();
@@ -455,11 +479,11 @@ public class RelationLookupResolver {
      * names a different row in every country that has one; without the narrowing this lookup would be
      * wrong the day a second country seeds it.
      */
-    private Map<String, Bucketed> resolveNestedLookupValues(String modelName, List<Map<String, Object>> rows,
-                                                            LookupGroup group) {
+    private Map<String, Bucketed> resolveNestedLookupValues(String modelName, String templateCountry,
+                                                            List<Map<String, Object>> rows, LookupGroup group) {
         Map<String, Bucketed> resolvedByPath = new LinkedHashMap<>();
         for (NestedLookup nestedLookup : group.nestedLookups()) {
-            resolvedByPath.put(nestedLookup.dottedPath(), lookupByCountry(modelName, nestedLookup.relatedModel(),
+            resolvedByPath.put(nestedLookup.dottedPath(), lookupByCountry(modelName, templateCountry, nestedLookup.relatedModel(),
                     List.of(nestedLookup.lookupField()), nestedLookup.relationFilters(), rows, row -> {
                         Object raw = row.get(nestedLookup.dottedPath());
                         boolean present = raw != null && (!(raw instanceof String text) || !text.isBlank());
@@ -472,8 +496,8 @@ public class RelationLookupResolver {
     /**
      * Resolve one lookup group across all rows.
      */
-    private void resolveToOneGroup(String modelName, List<Map<String, Object>> rows, LookupGroup group,
-                                   boolean skipException, List<InFileReferences.Reference> inFile) {
+    private void resolveToOneGroup(String modelName, String templateCountry, List<Map<String, Object>> rows,
+                                   LookupGroup group, boolean skipException, List<InFileReferences.Reference> inFile) {
         Set<List<Object>> distinctKeys = new LinkedHashSet<>();
         for (Map<String, Object> row : rows) {
             if (row.containsKey(FileConstant.FAILED_REASON)) {
@@ -493,7 +517,7 @@ public class RelationLookupResolver {
 
         // Step 2: Batch query related model to get businessKey -> id mapping, per row country when the
         // target is partitioned by country (see the class comment).
-        Bucketed lookedUp = lookupByCountry(modelName, group.relatedModel(),
+        Bucketed lookedUp = lookupByCountry(modelName, templateCountry, group.relatedModel(),
                 group.lookupFields(), group.relationFilters(), rows, row -> {
                     List<Object> keys = extractKeyValues(row, group);
                     return keys == null ? List.of() : List.of(keys);

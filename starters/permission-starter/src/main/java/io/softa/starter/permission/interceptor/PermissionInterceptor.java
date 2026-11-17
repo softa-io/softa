@@ -14,6 +14,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.enums.BuiltinRole;
@@ -45,6 +46,13 @@ import io.softa.starter.permission.index.EndpointIndex;
 @Component
 @RequiredArgsConstructor
 public class PermissionInterceptor implements HandlerInterceptor {
+
+    /**
+     * The one sentence every refusal here answers with. Which check refused, and the verb and path it
+     * refused, go to the server log only: they are detail for whoever seeds the permissions, and in the
+     * body they let a caller tell an endpoint that exists from one that does not by reading 403s.
+     */
+    static final String REFUSED = "You do not have access to this resource.";
 
     private final AntPathMatcher matcher = new AntPathMatcher();
 
@@ -78,7 +86,8 @@ public class PermissionInterceptor implements HandlerInterceptor {
         // Auth context populated by upstream filter (softa-web)
         Context ctx = ContextHolder.getContext();
         if (ctx == null || ctx.getUserId() == null) {
-            throw new PermissionException("Authentication required for " + uri);
+            log.debug("Unauthenticated request denied — uri={} {}", method, uri);
+            throw new PermissionException(REFUSED);
         }
         // Require tenantId before we cache PermissionInfo by (tenantId, userId).
         // Without this, a request whose upstream forgot to populate tenantId
@@ -181,6 +190,19 @@ public class PermissionInterceptor implements HandlerInterceptor {
             return planBoundedBypass(pi, ctx, uri, method, BuiltinRole.CONSULTANT);
         }
 
+        // Platform-only endpoints are closed to everyone inside a customer tenant, whatever their grants —
+        // not only to the admins above. A tenant role's permissions can still list such an endpoint: a
+        // standard view derives the lookup endpoints of the models it references, so holding the account
+        // page's view registered the full read surface of the people the accounts point at, a shared model
+        // with no tenant column, and an ordinary user read every tenant's people through it. The platform
+        // tenant's own users keep them: they are who these endpoints are for.
+        if (!BaseConstant.PLATFORM_TENANT_ID.equals(ctx.getTenantId())
+                && matchAny(properties.getPlatformOnlyPatterns(), uri)) {
+            log.warn("Platform-only endpoint denied inside a tenant — userId={}, tenantId={}, uri={} {}",
+                    ctx.getUserId(), ctx.getTenantId(), method, uri);
+            throw new PermissionException(REFUSED);
+        }
+
         // EndpointIndex.lookup returns every permission id that lists this
         // endpoint in its `permission.endpoints` array (or matches the
         // standard CRUD derivation). The user is allowed if their permission
@@ -189,20 +211,32 @@ public class PermissionInterceptor implements HandlerInterceptor {
         // /Department/searchList used by both the Department admin page and
         // the Employee page's dept-tree panel) get reachable from multiple
         // business permissions.
+        // The platform's own endpoints stay the platform's for an ordinary user of a customer tenant
+        // too, whatever their roles name. Those roles are the tenant's to write, and a grant naming a
+        // platform permission would otherwise open shared models — every tenant's rows — to them; the
+        // snapshot already drops such grants, this refuses by URL in case one slips past it. Users of
+        // the platform tenant are the platform's staff and keep what their roles grant.
+        if (inCustomerTenant(ctx) && matchAny(properties.getPlatformOnlyPatterns(), uri)) {
+            log.warn("Platform-only endpoint denied to a tenant user — userId={}, uri={} {}",
+                    ctx.getUserId(), method, uri);
+            throw new PermissionException(REFUSED);
+        }
         Set<String> candidatePermissions = endpointIndex.lookup(uri, method);
         if (candidatePermissions == null || candidatePermissions.isEmpty()) {
-            throw new PermissionException("Endpoint not registered: " + method + " " + uri);
+            log.warn("Unregistered endpoint denied — userId={}, uri={} {}", ctx.getUserId(), method, uri);
+            throw new PermissionException(REFUSED);
         }
         Set<String> userPermissions = pi.getPermissions();
         if (userPermissions == null || Collections.disjoint(userPermissions, candidatePermissions)) {
             // Detail (required-permission set) goes to server log so ops can
-            // diagnose; the response carries only "missing permission for X"
-            // so a probing client can't enumerate the permission graph by
-            // poking endpoints and reading 403 bodies.
+            // diagnose; the response carries only the shared refusal so a
+            // probing client can't enumerate the permission graph by poking
+            // endpoints and reading 403 bodies.
             log.warn("Missing permission — userId={}, uri={} {}, required any of: {}",
                     ctx.getUserId(), method, uri, candidatePermissions);
-            throw new PermissionException("Missing permission for " + method + " " + uri);
+            throw new PermissionException(REFUSED);
         }
+        AdmittedRequest.record(req, uri, candidatePermissions);
         return true;
     }
 
@@ -294,7 +328,7 @@ public class PermissionInterceptor implements HandlerInterceptor {
         if (deniedPlatformOnly(principal) && matchAny(properties.getPlatformOnlyPatterns(), uri)) {
             log.warn("Platform-only endpoint denied to {} — userId={}, uri={} {}",
                     principal, ctx.getUserId(), method, uri);
-            throw new PermissionException("Platform-admin only: " + method + " " + uri);
+            throw new PermissionException(REFUSED);
         }
         Set<String> candidates = endpointIndex.lookup(uri, method);
         if (candidates == null || candidates.isEmpty()) {
@@ -303,12 +337,12 @@ public class PermissionInterceptor implements HandlerInterceptor {
             }
             log.warn("Unregistered endpoint denied to {} — userId={}, uri={} {}",
                     principal, ctx.getUserId(), method, uri);
-            throw new PermissionException("Endpoint not registered: " + method + " " + uri);
+            throw new PermissionException(REFUSED);
         }
         if (Collections.disjoint(pi.getPermissions(), candidates)) {
             log.warn("Module not entitled for {} — userId={}, uri={} {}, required any of: {}",
                     principal, ctx.getUserId(), method, uri, candidates);
-            throw new PermissionException("Missing permission for " + method + " " + uri);
+            throw new PermissionException(REFUSED);
         }
         return true;
     }
@@ -334,6 +368,12 @@ public class PermissionInterceptor implements HandlerInterceptor {
      */
     static boolean deniedPlatformOnly(BuiltinRole principal) {
         return principal != BuiltinRole.SUPER_ADMIN;
+    }
+
+    /** Whether the request runs inside a customer tenant — not the platform tenant, and not untenanted. */
+    static boolean inCustomerTenant(Context ctx) {
+        Long tenantId = ctx.getTenantId();
+        return tenantId != null && !BaseConstant.PLATFORM_TENANT_ID.equals(tenantId);
     }
 
     /**

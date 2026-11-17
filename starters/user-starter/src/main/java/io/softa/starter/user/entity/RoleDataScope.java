@@ -65,4 +65,11 @@ public class RoleDataScope extends AuditableModel {
      */
     @Field(description = "Optional condition (Filters JSON) AND-ed onto the scope rules; may name cascaded fields")
     private JsonNode scopeCondition;
+
+    /**
+     * The role views this model's records in every department, whatever its department grant says. Reading
+     * only: changing them stays within the grant. Only means something on a model the grant bounds.
+     */
+    @Field(description = "View this model regardless of the role's department grant", defaultValue = "false")
+    private Boolean departmentGrantExempt;
 }

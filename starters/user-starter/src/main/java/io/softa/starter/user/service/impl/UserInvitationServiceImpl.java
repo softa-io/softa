@@ -13,7 +13,7 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.message.MessageScope;
-import io.softa.framework.base.security.EncryptUtils;
+import io.softa.framework.base.security.HashUtils;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.RandomUtils;
 import io.softa.framework.orm.annotation.CrossTenant;
@@ -465,7 +465,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         invitation.setEmail(pinned ? deliverTo : account.getEmail());
         invitation.setMobile(pinned ? null : account.getMobile());
         invitation.setPurpose(purpose);
-        invitation.setTokenHash(EncryptUtils.computeSha256(rawToken));
+        invitation.setTokenHash(HashUtils.sha256Hex(rawToken));
         invitation.setStatus(InvitationStatus.PENDING);
         invitation.setInvitedBy(invitedBy);
         invitation.setReason(reason);
@@ -597,7 +597,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         // identifiers — a bare minimum-length assertion here would contradict it.
 
         UserInvitation invitation = this.searchOne(
-                        new Filters().eq(UserInvitation::getTokenHash, EncryptUtils.computeSha256(rawToken)))
+                        new Filters().eq(UserInvitation::getTokenHash, HashUtils.sha256Hex(rawToken)))
                 .orElseThrow(() -> new BusinessException("This link is invalid."));
 
         if (invitation.getStatus() != InvitationStatus.PENDING) {
@@ -714,7 +714,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         // roster's id for that person and bind without ever passing the code. See JoinProofGuard.
         proofGuard.require(proof, rawToken, profileId);
         UserInvitation invitation = this.searchOne(new Filters()
-                        .eq(UserInvitation::getTokenHash, EncryptUtils.computeSha256(rawToken)))
+                        .eq(UserInvitation::getTokenHash, HashUtils.sha256Hex(rawToken)))
                 .orElseThrow(() -> new BusinessException("This link is invalid."));
         UserAccount account = accountService.getById(invitation.getUserId())
                 .orElseThrow(() -> new BusinessException("Account not found."));
@@ -821,7 +821,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
             return Optional.empty();
         }
         return this.searchOne(new Filters()
-                        .eq(UserInvitation::getTokenHash, EncryptUtils.computeSha256(rawToken)))
+                        .eq(UserInvitation::getTokenHash, HashUtils.sha256Hex(rawToken)))
                 .flatMap(invitation -> accountService.getById(invitation.getUserId()));
     }
 
@@ -846,7 +846,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
             return JoinEntry.rejected(JoinEntry.Reason.LINK_INVALID);
         }
         Optional<UserInvitation> found = this.searchOne(new Filters()
-                .eq(UserInvitation::getTokenHash, EncryptUtils.computeSha256(rawToken)));
+                .eq(UserInvitation::getTokenHash, HashUtils.sha256Hex(rawToken)));
         // ① unknown token, or superseded by a re-send / revoke (those set status away from PENDING)
         if (found.isEmpty() || found.get().getStatus() != InvitationStatus.PENDING) {
             return JoinEntry.rejected(JoinEntry.Reason.LINK_INVALID);
@@ -889,7 +889,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
     /** Whether this join link was accepted, and by this very person: their own second tap. */
     private boolean acceptedBy(String rawToken, Long profileId) {
         return StringUtils.isNotBlank(rawToken) && this.searchOne(new Filters()
-                        .eq(UserInvitation::getTokenHash, EncryptUtils.computeSha256(rawToken)))
+                        .eq(UserInvitation::getTokenHash, HashUtils.sha256Hex(rawToken)))
                 .filter(invitation -> invitation.getStatus() == InvitationStatus.ACCEPTED
                         && invitation.getPurpose() != InvitationPurpose.PASSWORD_RESET)
                 .flatMap(invitation -> accountService.getById(invitation.getUserId()))
@@ -902,7 +902,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
     @Override
     public boolean isRebindLink(String rawToken) {
         return StringUtils.isNotBlank(rawToken) && this.searchOne(new Filters()
-                        .eq(UserInvitation::getTokenHash, EncryptUtils.computeSha256(rawToken)))
+                        .eq(UserInvitation::getTokenHash, HashUtils.sha256Hex(rawToken)))
                 .map(invitation -> invitation.getPurpose() == InvitationPurpose.REINVITE)
                 .orElse(false);
     }
@@ -940,7 +940,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
             return InvitationInfo.invalid();
         }
         Optional<UserInvitation> found = this.searchOne(
-                new Filters().eq(UserInvitation::getTokenHash, EncryptUtils.computeSha256(rawToken)));
+                new Filters().eq(UserInvitation::getTokenHash, HashUtils.sha256Hex(rawToken)));
         if (found.isEmpty()) {
             return InvitationInfo.invalid();
         }

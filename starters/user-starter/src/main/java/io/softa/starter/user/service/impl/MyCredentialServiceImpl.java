@@ -5,7 +5,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
-import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -19,7 +18,8 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.message.MessageScope;
-import io.softa.framework.base.security.EncryptUtils;
+import io.softa.framework.base.security.HashUtils;
+import io.softa.framework.base.utils.PhoneUtils;
 import io.softa.framework.base.utils.RandomUtils;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.TenantInfoService;
@@ -73,11 +73,6 @@ public class MyCredentialServiceImpl implements MyCredentialService {
      * else in, so this bounds the probing as well as the texts; trying the same number again is free.
      */
     static final int DAILY_NEW_MOBILE_LIMIT = 5;
-    /** A plus and digits: the country code and the number, as the APP sends them together. */
-    private static final Pattern INTERNATIONAL_MOBILE = Pattern.compile("\\+[0-9]+");
-    /** The number after the country code, as the screen takes it: 6 to 15 digits. */
-    static final int NATIONAL_MIN_DIGITS = 6;
-    static final int NATIONAL_MAX_DIGITS = 15;
 
     /** The step a ticket opens. */
     enum Step {
@@ -259,11 +254,15 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         // A refused step — a malformed or taken number, a send refused as too soon — puts the
         // ticket back, so the person stays on this step and can try another number.
         return this.spending(ticket, Step.NAME_NEW_MOBILE, account, held -> {
-            String mobile = LoginIdentifiers.normalize(StringUtils.trimToNull(newMobile));
-            String national = mobile == null || !INTERNATIONAL_MOBILE.matcher(mobile).matches() ? null
-                    : mobileFormat.nationalNumber(mobile);
-            if (national == null || national.length() < NATIONAL_MIN_DIGITS || national.length() > NATIONAL_MAX_DIGITS) {
-                throw new BusinessException("Enter a mobile number of 6 to 15 digits after its country code.");
+            // The country code and the number, as the screens send them together: E.164 with the
+            // right number of digits for the country, whatever separators it was typed with.
+            String mobile = PhoneUtils.toE164(newMobile);
+            // Said before the code is sent, and before the number counts toward the day's probes: a
+            // number this platform cannot text would leave the person waiting for a code that never
+            // comes. Nothing about any account is in the answer — only the routing.
+            if (!messageService.canSendSms(mobile)) {
+                throw new BusinessException("Verification codes cannot be texted to +{0} numbers yet.",
+                        PhoneUtils.split(mobile).map(PhoneUtils.Parts::countryCode).orElse(""));
             }
             this.countNewMobile(account.getProfileId(), mobile);
             this.refuseUnusable(this.identityOf(account), mobile);
@@ -502,7 +501,7 @@ public class MyCredentialServiceImpl implements MyCredentialService {
 
     private static String ticketKey(String ticket) {
         // Stored under its digest: a cache dump yields nothing a caller could present.
-        return "me:ticket:" + EncryptUtils.computeSha256(ticket);
+        return "me:ticket:" + HashUtils.sha256Hex(ticket);
     }
 
     private String issue(Step step, UserAccount account, String mobile, boolean byPassword) {

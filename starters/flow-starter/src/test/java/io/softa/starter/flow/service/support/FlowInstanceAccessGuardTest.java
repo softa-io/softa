@@ -87,7 +87,9 @@ class FlowInstanceAccessGuardTest {
     @Test
     void nonParticipantNonInitiatorIsDenied() {
         when(instanceService.findByInstanceId("i1")).thenReturn(Optional.of(instanceInitiatedBy("someoneElse")));
-        assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer("i1", "u1", false));
+        assertEquals("You do not have access to this request.",
+                assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer("i1", "u1", false))
+                        .getMessage());
     }
 
     @Test
@@ -98,7 +100,9 @@ class FlowInstanceAccessGuardTest {
 
     @Test
     void blankRequesterIsDenied() {
-        assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer("i1", "", false));
+        assertEquals("Authentication is required",
+                assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer("i1", "", false))
+                        .getMessage());
         assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer("i1", null, false));
     }
 
@@ -243,6 +247,52 @@ class FlowInstanceAccessGuardTest {
     }
 
     @Test
+    void whoTookPartInAnotherSubmissionOfTheRecordMayViewThisOne() {
+        FlowExecutionState first = FlowExecutionState.builder().instanceId("first").initiatorId("1001")
+                .recordApproval(true).modelName("ExpenseClaim").rowId("7").status(FlowExecutionStatus.RETURNED)
+                .pendingApprovals(List.of()).build();
+        FlowExecutionState second = FlowExecutionState.builder().instanceId("second").initiatorId("1001")
+                .recordApproval(true).modelName("ExpenseClaim").rowId("7").status(FlowExecutionStatus.WAITING)
+                .pendingApprovals(List.of(PendingApproval.builder().nodeId("approval").approvers(List.of("2002"))
+                        .approvedActors(List.of()).build()))
+                .build();
+        when(instanceService.recordApprovalStates("ExpenseClaim", "7")).thenReturn(List.of(second, first));
+        FlowInstance row = instanceInitiatedBy("1001");
+        row.setRecordApproval(true);
+        row.setModelName("ExpenseClaim");
+        row.setRowId("7");
+        when(instanceService.findByInstanceId("second")).thenReturn(Optional.of(row));
+        // The approver of the first submission, named there by their task alone.
+        when(modelService.searchList(eq("FlowApprovalTask"), argThat(query -> query != null && new Filters()
+                .in(FlowApprovalTask::getInstanceId, List.of("first"))
+                .eq(FlowApprovalTask::getActorId, "2001").equals(query.getFilters()))))
+                .thenReturn(List.of(Map.of("instanceId", "first")));
+
+        assertDoesNotThrow(() -> guard.requireInstanceViewer(second, "2001"));
+        assertDoesNotThrow(() -> guard.requireInstanceViewer("second", "2001", false));
+        assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer(second, "9999"));
+        assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer("second", "9999", false));
+    }
+
+    @Test
+    void whoseRolesReadAnotherSubmissionOfTheRecordMayViewThisOne() {
+        FlowExecutionState first = FlowExecutionState.builder().instanceId("first").initiatorId("1001")
+                .recordApproval(true).modelName("ExpenseClaim").rowId("7").pendingApprovals(List.of()).build();
+        FlowExecutionState second = FlowExecutionState.builder().instanceId("second").initiatorId("1001")
+                .recordApproval(true).modelName("ExpenseClaim").rowId("7").pendingApprovals(List.of()).build();
+        FlowExecutionState automation = FlowExecutionState.builder().instanceId("run").initiatorId("1001")
+                .modelName("ExpenseClaim").rowId("7").pendingApprovals(List.of()).build();
+        when(instanceService.recordApprovalStates("ExpenseClaim", "7")).thenReturn(List.of(second, first));
+        // A department's scope that reaches the first submission's row only, its subject having moved since.
+        when(modelService.searchList(eq("FlowInstance"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("instanceId", "first")));
+
+        assertDoesNotThrow(() -> guard.requireInstanceViewer(second, "hrbp"));
+        // A run of another flow on the record is not the record's approval.
+        assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer(automation, "hrbp"));
+    }
+
+    @Test
     void aReaderOfTheRecordMayViewItsApproval() {
         FlowExecutionState approval = FlowExecutionState.builder().instanceId("i1").initiatorId("someoneElse")
                 .recordApproval(true).modelName("ExpenseClaim").rowId("7").build();
@@ -304,7 +354,10 @@ class FlowInstanceAccessGuardTest {
                 .build();
 
         assertDoesNotThrow(() -> guard.requireInstanceViewer(state, "monitor"));
-        assertThrows(FlowAuthorizationException.class, () -> guard.requireRecordAccess(state, "monitor"));
+        assertEquals("Only the submitter, the people this request gives a task to and those who can read the record "
+                        + "can see the record through it.",
+                assertThrows(FlowAuthorizationException.class, () -> guard.requireRecordAccess(state, "monitor"))
+                        .getMessage());
         assertThrows(FlowAuthorizationException.class, () -> guard.requireRecordAccess(state, null));
     }
 
@@ -325,7 +378,10 @@ class FlowInstanceAccessGuardTest {
                     .thenAnswer(invocation -> invocation.getArgument(1));
             when(modelService.getById(eq("Employee"), any(), anyList())).thenReturn(Optional.of(Map.<String, Object>of("id", "42")));
 
-            assertThrows(FlowAuthorizationException.class, () -> guard.requireRecordAccess(namedFreely, "initiator"));
+            assertEquals("This instance is not a record's approval: its record is read through the record's own "
+                            + "permissions.",
+                    assertThrows(FlowAuthorizationException.class,
+                            () -> guard.requireRecordAccess(namedFreely, "initiator")).getMessage());
             assertThrows(FlowAuthorizationException.class, () -> guard.requireRecordAccess(namedFreely, "reader"));
         }
     }

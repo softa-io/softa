@@ -14,7 +14,7 @@ public class ResetPasswordByCodeDTO {
     private String identifier;
 
     @NotBlank(message = "Verification code cannot be empty!")
-    private String code;
+    private String verificationCode;
 
     @NotBlank(message = "New password cannot be empty!")
     private String newPassword;

@@ -51,9 +51,10 @@ public interface FlowLaunchService {
     /**
      * What submitting the record would do now, worked out without submitting it: the same checks and
      * the same choice of flow as {@link #submitRecord}, then the approval path that flow would take —
-     * its steps in order, each with the approvers who would be asked or why it passes on its own. For a
-     * record whose approval is in progress, the rest of that approval's path ({@code InProgress}): the
-     * step it waits on now, then those after it, from the instance's own variables.
+     * its steps in order, each with the approvers who would be asked or why it passes on its own. A
+     * record whose approval is in progress previews nothing ({@code InProgress}, with the instance's id):
+     * that approval's steps, those ahead included, are the record's approval's to show
+     * ({@link FlowInstanceService#recordApprovals}).
      * The handler's {@code validate} runs with the requester's own permissions; {@code afterSubmitted}
      * is never called, and nothing is started or written. A refusal, no applicable flow or several are
      * reported, not thrown.

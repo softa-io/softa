@@ -22,7 +22,10 @@ public class FileInfo {
     @Schema(description = "File Type")
     private FileType fileType;
 
-    @Schema(description = "Temporary Download URL")
+    @Schema(description = "Address to open the file at: a site-relative link carrying a signed key. "
+            + "For a logged-in user it opens for that account only and lasts 30 to 31 days; otherwise "
+            + "anyone holding it can open it for an hour. Append ?download=1 to download instead of "
+            + "displaying inline. Never stored: generated each time the file is returned.")
     private String url;
 
     @Schema(description = "File Size (KB)")

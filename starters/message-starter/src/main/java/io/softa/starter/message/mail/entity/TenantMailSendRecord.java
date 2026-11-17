@@ -85,6 +85,11 @@ public class TenantMailSendRecord extends AuditableModel {
     @Field(description = "Timestamp when the email was accepted by the SMTP server")
     private LocalDateTime sentAt;
 
+    @Field(label = "Send Duration (ms)", description = "How long the SMTP call of the successful attempt took, "
+            + "in milliseconds — connection setup (when no pooled connection was reused) and attachment "
+            + "streaming included. Null until the record is sent.")
+    private Integer sendDurationMs;
+
     @Field(description = "Whether a read receipt was requested for this email")
     private Boolean readReceiptRequested;
 

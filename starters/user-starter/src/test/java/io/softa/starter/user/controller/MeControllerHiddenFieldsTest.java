@@ -18,6 +18,7 @@ import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.EntitlementService;
 import io.softa.framework.orm.service.PermissionService;
 import io.softa.starter.user.dto.UiContext;
+import io.softa.starter.user.service.MyCredentialService;
 import io.softa.starter.user.service.impl.UiContextBuilder;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,7 +42,8 @@ class MeControllerHiddenFieldsTest {
         ObjectProvider<EntitlementService> entitlement = mock(ObjectProvider.class);
         ObjectProvider<PermissionService> permission = mock(ObjectProvider.class);
         when(permission.getIfAvailable()).thenReturn(permissionService);
-        MeController controller = new MeController(cache, mock(UiContextBuilder.class), entitlement, permission);
+        MeController controller = new MeController(cache, mock(UiContextBuilder.class), entitlement, permission,
+                mock(MyCredentialService.class));
         Context ctx = new Context();
         ctx.setTenantId(1L);
         ctx.setUserId(2L);

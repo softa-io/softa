@@ -253,6 +253,16 @@ class UnknownIdentifierIsIndistinguishableTest {
     }
 
     @Test
+    void aWrongPasswordForNobody_isHashedLikeARealOne() {
+        // The hash is slow on purpose (~70 ms): a refusal that skipped it would answer by its timing
+        // what every message here is worded not to say. Nobody's check goes through the same call.
+        theNthWrongPassword(1, t -> {
+            verify(identityService).matchesPassword(any(UserIdentity.class), anyString());
+            verify(identityService).matchesPassword(null, "wrong");
+        });
+    }
+
+    @Test
     void theCountdownRunsForNobodyToo() {
         // The real refusal names the attempts left from the seventh; a number that never counted
         // down would confirm it is nobody's as surely as "no such account".
@@ -283,6 +293,8 @@ class UnknownIdentifierIsIndistinguishableTest {
         sameAnswer(known, unknown);
         verify(identityService, never()).recordUnknownIdentifierFailure(anyString());
         verify(identityService, never()).recordPasswordFailure(any());
+        // And neither side hashes: a lock refused as quickly on one side as on the other.
+        verify(identityService, never()).matchesPassword(any(), any());
     }
 
     // ───────────────────────── a code: signing in, resetting ─────────────────────────

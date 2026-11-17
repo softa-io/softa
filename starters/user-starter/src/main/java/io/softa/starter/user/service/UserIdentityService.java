@@ -74,7 +74,17 @@ public interface UserIdentityService extends EntityService<UserIdentity, Long> {
      */
     Optional<UserIdentity> findByLoginIdentifier(String identifier);
 
-    /** False when the person has no stored password — that is not the same as "any password fits". */
+    /**
+     * Whether the password is this person's. False when they have no stored password — that is not
+     * the same as "any password fits" — and false for a {@code null} identity.
+     *
+     * <p>Takes as long either way: the hash is slow on purpose, and it is spent even when there is
+     * nothing to compare against, so a caller refusing an unknown identifier passes {@code null}
+     * here to answer in the same time as for a real one.
+     *
+     * <p>A match against an older kind of hash (see {@code PasswordUtils}) also stores the password
+     * again in the current one — a write, made only while the row still holds the hash that matched.
+     */
     boolean matchesPassword(UserIdentity identity, String rawPassword);
 
     /**

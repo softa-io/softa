@@ -4,6 +4,7 @@ import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FilenameUtils;
@@ -116,20 +117,45 @@ public class FileUtils {
     }
 
     /**
-     * Gets the actual fileType of the uploaded file.
+     * Gets the actual fileType of the uploaded file: what its content is, checked against what it claims to be.
+     *
+     * <p>It makes two claims, its content type and its name, and the content has to agree with either. The content
+     * type is the browser's guess, and browsers guess differently for the same file — a Word document has arrived
+     * as {@code application/zip}, {@code application/msword} or with no type at all — so a file whose content
+     * matches its own name is taken as what it is. One whose content matches neither claim is refused: that is a
+     * file renamed to pass for another type.
      *
      * @param file The uploaded file
      * @return The actual fileType
      */
     public static FileType getActualFileType(MultipartFile file) {
         String fileName = file.getOriginalFilename();
+        String contentType = file.getContentType();
+        Optional<FileType> declared = contentType == null || contentType.isBlank()
+                ? Optional.empty() : FileType.of(contentType);
+        Optional<FileType> named = extensionTypeOf(fileName);
+        if (declared.isEmpty() && named.isEmpty()) {
+            throw new BusinessException("The file {0} is not supported. Its content type is: {1}.",
+                    fileName, contentType);
+        }
+        FileType actualFileType;
         try (InputStream inputStream = file.getInputStream()) {
-            FileType seemingFileType = FileType.of(file.getContentType()).orElseThrow(() -> new BusinessException(
-                    "The file {0} is not supported. Its content type is: {1}.", fileName, file.getContentType()));
-            return getActualFileType(fileName, inputStream, seemingFileType);
+            actualFileType = getActualFileType(fileName, inputStream, null);
         } catch (IOException e) {
             throw new BusinessException("Failed to read the uploaded file!", e);
         }
+        if (named.filter(type -> isCompatible(actualFileType, type)).isPresent()) {
+            return actualFileType;
+        }
+        validateFileType(fileName, actualFileType, declared.orElseGet(named::get));
+        return actualFileType;
+    }
+
+    /** The type the file's extension names, or empty when it has none or names no supported type. */
+    private static Optional<FileType> extensionTypeOf(String fileName) {
+        String extension = fileName == null ? null : FilenameUtils.getExtension(fileName);
+        return extension == null || extension.isBlank()
+                ? Optional.empty() : FileType.ofExtension(extension.toLowerCase(Locale.ROOT));
     }
 
     /**
@@ -157,6 +183,9 @@ public class FileUtils {
                 validateFileType(fileName, actualFileType, seemingFileType);
             }
             return actualFileType;
+        } catch (BusinessException e) {
+            // The file was read: what is wrong with it is said as it is, not as a failure to read.
+            throw e;
         } catch (Throwable e) {
             throw new BusinessException("Failed to read the uploaded file!", e);
         }
@@ -195,19 +224,24 @@ public class FileUtils {
      * @param seemingFileType The seeming fileType
      */
     private static void validateFileType(String fileName, FileType actualFileType, FileType seemingFileType) {
+        AssertBusiness.isTrue(isCompatible(actualFileType, seemingFileType), """
+                The file {0} with actual type {1} does not match the uploaded file type {2}. Please contact the
+                system administrator if you have any questions.""", fileName, actualFileType, seemingFileType);
+    }
+
+    /** Whether content of {@code actualFileType} may be taken as {@code seemingFileType}. */
+    private static boolean isCompatible(FileType actualFileType, FileType seemingFileType) {
         // Allow different image types and handle cases where the image extension was modified.
         if (FileType.COMPATIBLE_IMAGE_TYPE.contains(actualFileType)
                 && FileType.COMPATIBLE_IMAGE_TYPE.contains(seemingFileType)) {
-            return;
+            return true;
         }
         // Allow different text types and handle cases where the text extension was modified.
         if (FileType.COMPATIBLE_TEXT_TYPE.contains(actualFileType)
                 && FileType.COMPATIBLE_TEXT_TYPE.contains(seemingFileType)) {
-            return;
+            return true;
         }
-        AssertBusiness.isTrue(actualFileType.equals(seemingFileType), """
-                The file {0} with actual type {1} does not match the uploaded file type {2}. Please contact the
-                system administrator if you have any questions.""", fileName, actualFileType, seemingFileType);
+        return actualFileType.equals(seemingFileType);
     }
 
     /**

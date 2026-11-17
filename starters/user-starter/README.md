@@ -56,7 +56,7 @@ hops through `profileId` first.
 | Entity | Purpose | Key fields |
 |---|---|---|
 | `UserProfile` | The person | `userId`, `fullName`, `chineseName`, `birthDate`, `gender`, `photoId`, `language`, `timezone` |
-| `UserIdentity` | The person's credentials — global, unique | `profileId`, `loginEmail`, `loginMobile`, `password`, `passwordSalt`, `passwordLockedUntil` |
+| `UserIdentity` | The person's credentials — global, unique | `profileId`, `loginEmail`, `loginMobile`, `password`, `passwordSalt` (old hashes only), `passwordLockedUntil` |
 | `UserAccount` | One membership (person × tenant) | `tenantId`, `profileId`, `consultant`, `nickname`, `username`, `email`, `mobile`, `policyId`, `status`, `activationTime`, `locked` (derived) |
 | `UserInvitation` | An issued invitation | `tenantId`, `userId`, `email`, `mobile`, `purpose`, `tokenHash`, `status`, `invitedBy`, `sentAt`, `expiresAt`, `acceptedAt` |
 | `ConsultantProfile` | Marks a person as platform consultant staff | `profileId`, `active` |
@@ -75,15 +75,45 @@ finds it in a search (`searchName`).
 
 ## Authentication & security
 
-- **Passwords** live on `UserIdentity`, hashed (BCrypt) with a per-person
-  `passwordSalt`; never stored or returned in clear text. They belong to the PERSON,
-  not to a membership — one password opens every company they belong to.
+- **Passwords** live on `UserIdentity`, never stored or returned in clear text. They
+  belong to the PERSON, not to a membership — one password opens every company they
+  belong to.
+  - **Hashed slowly**: PBKDF2-HMAC-SHA256 at 600,000 iterations, stored as one string,
+    `pbkdf2-sha256$<iterations>$<salt>$<hash>` (87 characters), the salt inside
+    (`PasswordUtils` in softa-base). About 70 ms of one core per check. The count is a
+    code constant; each hash records its own, so raising it strands nothing.
+  - **Trimmed**: surrounding spaces are not part of a password, as before; the clients
+    send what was typed.
+  - **Older hashes still sign in.** Rows written before this scheme hold one round of
+    SHA-512, with the salt in `passwordSalt`. The first successful check stores the
+    password again in the current scheme and clears `passwordSalt` — only while the
+    row still holds the hash that matched, so a password changed meanwhile on another
+    device is not overwritten. No SQL: the password is known only when typed, so a
+    person who never signs in again keeps the old hash. Rolling back to a release
+    without this scheme stops everyone already upgraded from signing in by password
+    (code sign-in and resetting by code still work).
+  - **One place each**: `UserIdentityService.setPassword` is the only write,
+    `matchesPassword` the only check (and the upgrade).
+  - **Same time whatever the answer**: an unknown identifier, a person with no
+    password yet and an old-scheme hash each spend the same hash before saying no, so
+    the time a refusal takes does not tell whether the identifier is anyone's.
 - **Login identifiers** (`loginEmail` / `loginMobile`) are **globally unique** and
   stored in one canonical spelling — trimmed, lowercased, mobile separators folded.
   `LoginIdentifiers` is that rule, and it must be applied wherever an identifier is
   stored, looked up or hashed, or a row is written in a spelling the lookups cannot
   find. Distinct from the **work contacts** on `UserAccount` (`email` / `mobile`),
   which are HR's per-company data and keep their case.
+- **Mobiles are E.164** (`+6591234567`). `UserAccount.mobile` declares
+  `pattern = PhoneUtils.E164` and the `PHONE` widget, so a form, an import and the API refuse a
+  number without its country code; `UserIdentity.loginMobile` and `UserInvitation.mobile` are
+  copies of it and carry the widget only, so a row stored before the pattern still copies.
+  `/me/mobile/checkNew` also counts the digits for the number's country, and refuses a country no
+  SMS route serves (`MessageService.canSendSms`) before a code is sent and before the number counts
+  toward the day's probes. The sign-in and join screens do not say so: they answer the same
+  whoever asks. An account whose `mobile` predates the pattern keeps it until its next edit, which
+  must give the number with its country code; find them with
+  `SELECT id, tenant_id, mobile FROM user_account WHERE mobile IS NOT NULL AND mobile !~ '^\+[1-9][0-9]{6,14}$';`
+  (PostgreSQL; MySQL `NOT REGEXP`).
 - **Sessions** are stored in Redis (`SOFTA_SESSION_<id>`). A session names one
   membership — switching company mints a new one.
 - **A session belongs to the kind of client it was issued to.** A request that sends
@@ -93,7 +123,13 @@ finds it in a search (`searchName`).
   | Client | Gets the session | Sends it back | Ignored |
   | --- | --- | --- | --- |
   | APP | `sessionToken` in the response body (no cookie) | `X-Session-Id` header | any cookie |
-  | Web / H5 | `SOFTA_SESSION_ID` cookie (never in the body) | the cookie | `X-Session-Id` |
+  | Web / H5 | `sessionId` cookie (never in the body) | the cookie | `X-Session-Id` |
+
+  The Web cookie is `HttpOnly`, `Secure` and `SameSite=Lax`, kept 30 days: page scripts
+  cannot read it, and the browser leaves it off any request another site starts (a form
+  post, a fetch, an iframe) while still sending it when the user follows a link from
+  elsewhere. A cross-site page therefore cannot act with the session; a page on another
+  subdomain of the same registrable domain still counts as the same site.
 
   A session is also checked against the client using it, on every authenticated request
   and on `/login/myTenants`, `/login/switchTenant`, `/login/leaveTenant` and
@@ -160,7 +196,17 @@ to lists, plus:
 which login also returns. Besides the person's name, language, timezone and photo it carries
 `tenantId` and `tenantName`, the tenant's display name, for the client to show which company the
 session is in. `UserInfo` is cached for a month under `user-info:{accountId}` and `tenantName` is
-cached with it, so serving a cached one reads no tenant. Two consequences:
+cached with it, so serving a cached one reads no tenant.
+
+The photo is cached as `photoId` only. `photoUrl` is filled by `UserProfileService.withPhotoUrl`
+where a `UserInfo` leaves for the client — `getMyUserInfo`, `loginByApple`, `loginByOAuth2` — as a
+file key only that account can open, valid 30 to 31 days (softa-web README, File keys); in the
+cache it is always null. An address built into the cached entry would have to outlive it: a storage
+link cannot (seven days at most), and signing one for 90 days made every login of a person with a
+photo fail once the entry was rebuilt. Entries cached before `photoId` existed carry a dead
+`photoUrl` and no `photoId`: delete the `user-info:*` keys once after upgrading.
+
+Two consequences of caching `tenantName`:
 
 - Entries cached before `tenantName` existed carry none. Delete the `user-info:*` keys once after
   upgrading; the next request rebuilds each one.
@@ -183,6 +229,23 @@ entitlement is installed. `modelHiddenFieldsMap` and `empId` are computed per re
 the cached snapshot. A field hidden only on some records is not in `modelHiddenFieldsMap`; ask
 `POST /{model}/getRecordAccess` for those. The same fields are left out of what
 `GET /metadata/getMetaModel` serves this caller (metadata-starter README).
+
+The same controller lets the signed-in person change their own password and login mobile, each a
+chain of steps over `MyCredentialService` in which every step hands back a ticket only the next step
+accepts (`{"ticket": "..."}`):
+
+| Endpoint | Body | Returns |
+| --- | --- | --- |
+| `POST /me/password/sendCode` | — | a code sent to the login mobile |
+| `POST /me/password/verifyCode` | `verificationCode` | a ticket for `/me/password/change`, ten minutes |
+| `POST /me/password/change` | `ticket`, `newPassword` | — ; every other device is signed out |
+| `POST /me/mobile/verifyCurrent` | `method` (`code` or `password`), `verificationCode` / `password` | a ticket for `/me/mobile/checkNew` |
+| `POST /me/mobile/checkNew` | `ticket`, `newMobile` | a ticket for confirming; a code is sent to the new number |
+| `POST /me/mobile/resendCode` | `ticket` | another code, same ticket |
+| `POST /me/mobile/confirm` | `ticket`, `verificationCode` | — ; the number holds in every company, every other device is signed out |
+
+They act on the caller only and carry no business permission: the application lists `/me/**` under
+`permission.authenticated-bypass-patterns`, as `uiContext` already needs.
 
 ## Push devices
 
