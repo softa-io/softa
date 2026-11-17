@@ -210,6 +210,10 @@ A change keeps these; each names the class that holds it.
   publishing (`TriggerConsistencyValidator`) and `GET /flow/cron/preview` both ask it.
 - **Identity is the server's.** `actorId`, `initiatorId` and `tenantId` are `@JsonProperty(READ_ONLY)` on every request
   and resolved from the context; `FlowClient` takes none of them as a parameter.
+- **A refusal names no id.** A `FlowActionValidationException` or `FlowAuthorizationException` reaches the person
+  refused as it is, on the web and in the app, so it says what happened in their words — this request, its
+  submitter, this record — never an instance, record, step or account id. `FlowExceptionHandler` logs each with the
+  request that met it, the ids it carried included.
 - **Bookkeeping runs past data permissions; reads are judged.** The instance store, the ledger and the projections
   ignore the caller's row scope; who may act is the action handlers' call (`ApprovalActorValidator`), who may see is
   `FlowInstanceAccessGuard`'s. The caller's own lists carry `@SkipPermissionCheck`, pinned to the caller, and a
@@ -251,7 +255,7 @@ The softa-docs pages state each rule; this is where to change it.
 | A record's approval steps — passed, waited on, ahead — and how a submission ended | `FlowApprovalStepsComposer`; the steps ahead by `ApprovalPathPreviewer.previewRemaining` |
 | A task row's current steps | `CurrentStepsReader` |
 | A subflow that cannot run | `FlowExecutionOrchestrator.executeSubflow` |
-| Refusals answered with their reason | `FlowExceptionHandler`, ordered first (`Ordered.HIGHEST_PRECEDENCE`) |
+| Refusals answered with their reason, and logged with the request that met them | `FlowExceptionHandler`, ordered first (`Ordered.HIGHEST_PRECEDENCE`), with softa-web's `RequestInfoHandler` |
 
 ## Testing
 

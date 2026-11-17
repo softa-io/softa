@@ -279,14 +279,13 @@ public class FlowDesignServiceImpl extends EntityServiceImpl<FlowDesign, String>
         }
         // What the caller asked for is wrong, not the engine: each is refused (400) with why.
         FlowBundle bundle = bundleService.findById(bundleId)
-                .orElseThrow(() -> new FlowActionValidationException("Flow bundle not found: " + bundleId));
+                .orElseThrow(() -> new FlowActionValidationException("This revision no longer exists."));
         if (bundle.getDesignJson() == null) {
-            throw new FlowActionValidationException("Bundle " + bundleId + " carries no design snapshot to restore");
+            throw new FlowActionValidationException("This revision carries no design to restore.");
         }
         // Ownership check: the bundle must belong to this design.
         if (bundle.getFlowId() == null || !bundle.getFlowId().equals(flowId)) {
-            throw new FlowActionValidationException(
-                    "Bundle " + bundleId + " does not belong to design " + flowId);
+            throw new FlowActionValidationException("This revision belongs to another flow.");
         }
         FlowDesign design = requireDesign(flowId);
         String storedModel = design.getModelName();

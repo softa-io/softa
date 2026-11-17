@@ -26,6 +26,7 @@ import io.softa.starter.flow.runtime.api.FlowStartRequest;
 import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
 import io.softa.starter.flow.runtime.engine.FlowParticipants;
 import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
+import io.softa.starter.flow.runtime.exception.FlowActionValidationException;
 import io.softa.starter.flow.runtime.handler.ApprovalNodeExecutionHandler;
 import io.softa.starter.flow.runtime.handler.DefaultNodeHandlerRegistry;
 import io.softa.starter.flow.runtime.handler.PassThroughNodeExecutionHandler;
@@ -43,6 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -95,6 +97,13 @@ class AutoCcScenarioTest {
 
         assertDoesNotThrow(() -> engine.addComment(comment(started, "cc-1")));
         assertDoesNotThrow(() -> engine.readCc(read(started, "start", "cc-1")));
+        // Read already on another page, or never sent to them: said without the step's or the person's id.
+        assertEquals("You have already marked this request as read.",
+                assertThrows(FlowActionValidationException.class,
+                        () -> engine.readCc(read(started, "start", "cc-1"))).getMessage());
+        assertEquals("This request was not copied to you at this step.",
+                assertThrows(FlowActionValidationException.class,
+                        () -> engine.readCc(read(started, "start", "cc-2"))).getMessage());
     }
 
     @Test

@@ -45,24 +45,24 @@ public class WithdrawActionHandler implements FlowActionHandler<FlowWithdrawRequ
 
         // Withdrawal takes back a submission; only an approval has one.
         if (!FlowScenario.APPROVAL.equals(definition.getScenario())) {
-            throw new FlowActionValidationException("Only an approval can be withdrawn; flow instance "
-                    + request.getInstanceId() + " is not one");
+            throw new FlowActionValidationException("Only an approval can be withdrawn.");
         }
         if (!FlowExecutionStatus.WAITING.equals(state.getStatus())) {
             throw new FlowActionValidationException(FlowActionContextService.noLongerWaiting(state.getStatus(), "withdrawn"));
         }
         if (WithdrawPolicyGuard.policyOf(definition) == WithdrawPolicy.NEVER) {
-            throw new FlowActionValidationException("Flow instance does not allow initiator withdrawal: " + request.getInstanceId());
+            throw new FlowActionValidationException(
+                    "This request cannot be withdrawn: its approval flow does not allow withdrawal.");
         }
         if (!StringUtils.hasText(state.getInitiatorId())) {
-            throw new FlowActionValidationException("Flow instance does not record an initiator and cannot be withdrawn: " + request.getInstanceId());
+            throw new FlowActionValidationException("This request cannot be withdrawn: it records no submitter.");
         }
         if (!state.getInitiatorId().equals(request.getActorId())) {
-            throw new FlowActionValidationException("Only the initiator can withdraw this flow instance: " + request.getInstanceId());
+            throw new FlowActionValidationException("Only its submitter can withdraw this request.");
         }
         if (!policyGuard.policyPermits(definition, state)) {
-            throw new FlowActionValidationException("An approver has already acted on this approval, so it can no "
-                    + "longer be withdrawn: " + request.getInstanceId());
+            throw new FlowActionValidationException("This request can no longer be withdrawn: an approver has "
+                    + "already acted on it. Refresh to see where it stands.");
         }
 
         state.getPendingApprovals().clear();

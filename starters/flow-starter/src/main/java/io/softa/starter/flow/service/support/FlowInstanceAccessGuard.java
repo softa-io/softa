@@ -56,7 +56,8 @@ import io.softa.starter.flow.service.FlowInstanceService;
  * newest of its approvals the caller took part in, whichever is current
  * ({@link #requireRecordAccess(String, String, String)}).
  *
- * <p>Every refusal is a {@link FlowAuthorizationException} (HTTP 403).
+ * <p>Every refusal is a {@link FlowAuthorizationException} (HTTP 403), said to the person refused: it names neither
+ * the instance nor the record, which {@code FlowExceptionHandler} logs with the request.
  */
 @Component
 public class FlowInstanceAccessGuard {
@@ -102,7 +103,7 @@ public class FlowInstanceAccessGuard {
      */
     public void authorizeRecordApprovals(String modelName, String rowId,
                                          List<FlowInstanceService.RecordApproval> approvals, String requesterId) {
-        requireAuthenticated(requesterId, "view the approvals of " + modelName + " " + rowId);
+        requireAuthenticated(requesterId);
         boolean named = approvals.stream()
                 .anyMatch(approval -> FlowParticipants.isParticipant(approval.state(), approval.history(), requesterId));
         if (named || canReadRecord(modelName, rowId)) {
@@ -112,7 +113,7 @@ public class FlowInstanceAccessGuard {
         if (!instancesGivingTaskTo(ids, requesterId).isEmpty() || !administrableInstanceIds(ids).isEmpty()) {
             return;
         }
-        throw new FlowAuthorizationException("User may not view the approvals of " + modelName + " " + rowId);
+        throw new FlowAuthorizationException("You do not have access to this record's approval.");
     }
 
     /**
@@ -126,11 +127,12 @@ public class FlowInstanceAccessGuard {
      * @throws FlowAuthorizationException if they cannot read the record
      */
     public void requireRecordReader(String modelName, String rowId, String requesterId) {
-        requireAuthenticated(requesterId, "preview the approval of " + modelName + " " + rowId);
+        requireAuthenticated(requesterId);
         if (canReadRecord(modelName, rowId)) {
             return;
         }
-        throw new FlowAuthorizationException("User may not preview the approval of " + modelName + " " + rowId);
+        throw new FlowAuthorizationException(
+                "You do not have access to this record, so you cannot preview its approval.");
     }
 
     /**
@@ -148,7 +150,7 @@ public class FlowInstanceAccessGuard {
      *                                    nor permitted by their roles
      */
     public void requireInstanceViewer(String instanceId, String requesterId, boolean participantInResult) {
-        requireAuthenticated(requesterId, "view instance " + instanceId);
+        requireAuthenticated(requesterId);
         if (participantInResult) {
             return;
         }
@@ -163,7 +165,7 @@ public class FlowInstanceAccessGuard {
                         instanceId, requesterId)))) {
             return;
         }
-        throw new FlowAuthorizationException("User may not view flow instance " + instanceId);
+        throw new FlowAuthorizationException("You do not have access to this request.");
     }
 
     /**
@@ -173,7 +175,7 @@ public class FlowInstanceAccessGuard {
      */
     public void requireInstanceViewer(FlowExecutionState state, String requesterId) {
         String instanceId = state == null ? null : state.getInstanceId();
-        requireAuthenticated(requesterId, "view instance " + instanceId);
+        requireAuthenticated(requesterId);
         if (state != null && (isParticipant(state, requesterId)
                 || permittedByRoles(instanceId, state.getRecordApproval(), state.getModelName(), state.getRowId())
                 || (state.isApprovalOfRecord()
@@ -181,7 +183,7 @@ public class FlowInstanceAccessGuard {
                         requesterId)))) {
             return;
         }
-        throw new FlowAuthorizationException("User may not view flow instance " + instanceId);
+        throw new FlowAuthorizationException("You do not have access to this request.");
     }
 
     /**
@@ -235,11 +237,10 @@ public class FlowInstanceAccessGuard {
      * @throws FlowAuthorizationException if the instance is not a record's approval, or the caller is none of these
      */
     public RecordAccess requireRecordAccess(FlowExecutionState state, String requesterId) {
-        String instanceId = state == null ? null : state.getInstanceId();
-        requireAuthenticated(requesterId, "read the record of instance " + instanceId);
+        requireAuthenticated(requesterId);
         if (state != null && !state.isApprovalOfRecord()) {
-            throw new FlowAuthorizationException("Flow instance " + instanceId
-                    + " is not a record's approval; its record is read through the record's own permissions");
+            throw new FlowAuthorizationException("This instance is not a record's approval: its record is read "
+                    + "through the record's own permissions.");
         }
         if (state != null && isParticipant(state, requesterId)) {
             return RecordAccess.GRANTED;
@@ -247,8 +248,8 @@ public class FlowInstanceAccessGuard {
         if (state != null && canReadRecord(state.getModelName(), state.getRowId())) {
             return RecordAccess.OWN_PERMISSIONS;
         }
-        throw new FlowAuthorizationException("Only the initiator, the people flow instance " + instanceId
-                + " gives a task to and those who can read its record may read its record through it");
+        throw new FlowAuthorizationException("Only the submitter, the people this request gives a task to and those "
+                + "who can read the record can see the record through it.");
     }
 
     /**
@@ -283,7 +284,7 @@ public class FlowInstanceAccessGuard {
      * @throws FlowAuthorizationException if the caller took part in none of its approvals and cannot read it
      */
     public RecordAdmission requireRecordAccess(String modelName, String rowId, String requesterId) {
-        requireAuthenticated(requesterId, "read " + modelName + " " + rowId + " through its approvals");
+        requireAuthenticated(requesterId);
         List<FlowExecutionState> approvals = ContextUtils.withoutPermissionChecks(
                 () -> instanceService.recordApprovalStates(modelName, rowId)).stream()
                 .filter(FlowExecutionState::isApprovalOfRecord)
@@ -295,13 +296,13 @@ public class FlowInstanceAccessGuard {
         if (canReadRecord(modelName, rowId)) {
             return new RecordAdmission(RecordAccess.OWN_PERMISSIONS, null);
         }
-        throw new FlowAuthorizationException("Only those who took part in an approval of " + modelName + " " + rowId
-                + " and those who can read it may read it through its approvals");
+        throw new FlowAuthorizationException("Only those who took part in an approval of this record and those who "
+                + "can read it can see it through its approvals.");
     }
 
-    private static void requireAuthenticated(String requesterId, String action) {
+    private static void requireAuthenticated(String requesterId) {
         if (!StringUtils.hasText(requesterId)) {
-            throw new FlowAuthorizationException("Authentication is required to " + action);
+            throw new FlowAuthorizationException("Authentication is required");
         }
     }
 
@@ -313,11 +314,11 @@ public class FlowInstanceAccessGuard {
      * @throws FlowAuthorizationException if their permissions do not reach the instance
      */
     public void requireInstanceAdministrator(String instanceId, String requesterId) {
-        requireAuthenticated(requesterId, "administer instance " + instanceId);
+        requireAuthenticated(requesterId);
         if (canReadInstance(instanceId)) {
             return;
         }
-        throw new FlowAuthorizationException("User may not administer flow instance " + instanceId);
+        throw new FlowAuthorizationException("You do not have access to administer this instance.");
     }
 
     /**

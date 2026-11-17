@@ -87,7 +87,9 @@ class FlowInstanceAccessGuardTest {
     @Test
     void nonParticipantNonInitiatorIsDenied() {
         when(instanceService.findByInstanceId("i1")).thenReturn(Optional.of(instanceInitiatedBy("someoneElse")));
-        assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer("i1", "u1", false));
+        assertEquals("You do not have access to this request.",
+                assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer("i1", "u1", false))
+                        .getMessage());
     }
 
     @Test
@@ -98,7 +100,9 @@ class FlowInstanceAccessGuardTest {
 
     @Test
     void blankRequesterIsDenied() {
-        assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer("i1", "", false));
+        assertEquals("Authentication is required",
+                assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer("i1", "", false))
+                        .getMessage());
         assertThrows(FlowAuthorizationException.class, () -> guard.requireInstanceViewer("i1", null, false));
     }
 
@@ -350,7 +354,10 @@ class FlowInstanceAccessGuardTest {
                 .build();
 
         assertDoesNotThrow(() -> guard.requireInstanceViewer(state, "monitor"));
-        assertThrows(FlowAuthorizationException.class, () -> guard.requireRecordAccess(state, "monitor"));
+        assertEquals("Only the submitter, the people this request gives a task to and those who can read the record "
+                        + "can see the record through it.",
+                assertThrows(FlowAuthorizationException.class, () -> guard.requireRecordAccess(state, "monitor"))
+                        .getMessage());
         assertThrows(FlowAuthorizationException.class, () -> guard.requireRecordAccess(state, null));
     }
 
@@ -371,7 +378,10 @@ class FlowInstanceAccessGuardTest {
                     .thenAnswer(invocation -> invocation.getArgument(1));
             when(modelService.getById(eq("Employee"), any(), anyList())).thenReturn(Optional.of(Map.<String, Object>of("id", "42")));
 
-            assertThrows(FlowAuthorizationException.class, () -> guard.requireRecordAccess(namedFreely, "initiator"));
+            assertEquals("This instance is not a record's approval: its record is read through the record's own "
+                            + "permissions.",
+                    assertThrows(FlowAuthorizationException.class,
+                            () -> guard.requireRecordAccess(namedFreely, "initiator")).getMessage());
             assertThrows(FlowAuthorizationException.class, () -> guard.requireRecordAccess(namedFreely, "reader"));
         }
     }

@@ -7,6 +7,7 @@ import java.util.List;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import io.softa.framework.base.utils.DateUtils;
 import io.softa.starter.flow.runtime.api.FlowUrgeRequest;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.engine.FlowActionContextService;
@@ -62,22 +63,21 @@ public class UrgeActionHandler implements FlowActionHandler<FlowUrgeRequest> {
         contextService.requireWaitingApproval(state, request.getInstanceId(), "urged");
         CompiledFlowDefinition definition = contextService.resolveDefinition(state.getBundleId());
         if (!administrator && !request.getActorId().equals(state.getInitiatorId())) {
-            throw new FlowAuthorizationException("Only the initiator can urge the approvers of flow instance: "
-                    + request.getInstanceId());
+            throw new FlowAuthorizationException("Only its submitter can urge the approvers of this request.");
         }
         if (!administrator && !UrgeThrottle.initiatorMayUrge(definition)) {
-            throw new FlowActionValidationException("Flow instance does not allow its initiator to urge the approvers: "
-                    + request.getInstanceId());
+            throw new FlowActionValidationException(
+                    "This request's approval flow does not let its submitter urge the approvers.");
         }
 
         LocalDateTime now = LocalDateTime.now();
         List<PendingApproval> steps = throttle.urgeable(state, now);
         if (steps.isEmpty()) {
             LocalDateTime next = throttle.status(state, now).nextUrgeAt();
+            // The time as every date of the platform is shown, nextUrgeAt in the urge status included.
             throw new FlowActionValidationException(next == null
-                    ? "No pending approvers to urge for instance: " + request.getInstanceId()
-                    : "The pending approvers of instance " + request.getInstanceId()
-                            + " were urged recently and may be urged again after " + next);
+                    ? "This request has no approvers waiting to be urged."
+                    : "A reminder was sent recently. You can urge again after " + DateUtils.formatTemporal(next) + ".");
         }
 
         String message = StringUtils.hasText(request.getComment())
