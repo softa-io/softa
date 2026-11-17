@@ -182,6 +182,57 @@ class TaskInstanceContextEnricherTest {
         verify(bundleRegistry, times(1)).getByBundleId(9L);
     }
 
+    /**
+     * The tasks of one instance, read on its own page, get what their steps say about acting on them — the flow's
+     * return switch, off here, included — and nothing else of the instance: the page has it in hand (zingkey-hcm#2752).
+     */
+    @Test
+    void oneInstancesTasksGetTheirStepsConfigurationAndNothingElse() {
+        FlowInstance instance = instance("i1", "Expense claim", "ExpenseClaim", "row-1");
+        instance.setBundleId(9L);
+        CompiledFlowDefinition definition = CompiledFlowDefinition.builder()
+                .returnEnabled(false)
+                .nodeIndex(Map.of("manager", approvalNode("manager", new ApprovalNodeConfig()),
+                        "finance", approvalNode("finance", ApprovalNodeConfig.builder()
+                                .formPermissions(Map.of("decision", FormFieldPermission.REQUIRED)).build())))
+                .build();
+        when(instanceService.findByInstanceId("i1")).thenReturn(Optional.of(instance));
+        when(bundleRegistry.getByBundleId(9L)).thenReturn(Optional.of(definition));
+
+        FlowApprovalTaskView manager = pendingTask("i1", "manager");
+        FlowApprovalTaskView finance = pendingTask("i1", "finance");
+        enricher.applyStepConfig("i1", List.of(manager, finance));
+
+        assertFalse(manager.getReturnAllowed(), "the flow allows no return, at any step");
+        assertFalse(finance.getReturnAllowed());
+        assertFalse(manager.getFillIn());
+        assertTrue(finance.getFillIn());
+        assertTrue(manager.getBatchable(), "open: pending, on an instance that waits");
+        assertNull(manager.getInstanceTitle(), "nothing else of the instance");
+        assertNull(manager.getInstanceStatus());
+        verifyNoInteractions(names);
+    }
+
+    @Test
+    void oneInstancesTasksStayAsStoredWithoutTheRevisionTheyRanOn() {
+        FlowInstance instance = instance("i1", "Expense claim", "ExpenseClaim", "row-1");
+        instance.setBundleId(9L);
+        when(instanceService.findByInstanceId("i1")).thenReturn(Optional.of(instance));
+        when(bundleRegistry.getByBundleId(9L)).thenReturn(Optional.empty());
+        when(instanceService.findByInstanceId("gone")).thenReturn(Optional.empty());
+
+        FlowApprovalTaskView task = pendingTask("i1", "manager");
+        FlowApprovalTaskView ofAGoneInstance = pendingTask("gone", "manager");
+        assertDoesNotThrow(() -> enricher.applyStepConfig("i1", List.of(task)));
+        assertDoesNotThrow(() -> enricher.applyStepConfig("gone", List.of(ofAGoneInstance)));
+        enricher.applyStepConfig("i1", List.of());
+
+        assertNull(task.getReturnAllowed());
+        assertNull(ofAGoneInstance.getReturnAllowed());
+        // No tasks, no read.
+        verify(instanceService, times(1)).findByInstanceId("i1");
+    }
+
     @Test
     void aTaskOfAnInstanceNoLongerWaitingIsNotBatchable() {
         FlowInstance instance = instance("i1", "Leave", "LeaveRequest", "row-1");
