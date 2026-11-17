@@ -1,7 +1,7 @@
 package io.softa.starter.user.service.impl;
 
-import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -9,6 +9,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.placeholder.PlaceholderUtils;
+import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.framework.web.session.SessionRevokeReason;
 import io.softa.starter.message.mail.dto.SendMailDTO;
 import io.softa.starter.message.service.MessageService;
@@ -100,8 +101,8 @@ class ResetUserTest {
         accountService.resetWorkContacts(ACCOUNT, "Verified by passport");
 
         UserSecurityLog row = logged(SecurityAction.RESET_USER);
-        assertThat(row.getOldValue()).isEqualTo("+65 911****11");
-        assertThat(row.getNewValue()).isEqualTo("+65 922****22");
+        assertThat(row.getOldValue()).isEqualTo("+65 911****111");
+        assertThat(row.getNewValue()).isEqualTo("+65 922****222");
     }
 
     @Test
@@ -116,20 +117,26 @@ class ResetUserTest {
     }
 
     @Test
-    void theNotices_carryTheTimeAsADate_soItReadsAsTheApiWritesIt() {
+    void theNotices_nameThePersonTheCompanyAndTheMaskedNewNumber_toTheMinute() {
+        TenantInfoService tenants = mock(TenantInfoService.class);
+        when(tenants.getTenantName(1L)).thenReturn("Acme Pte Ltd");
+        ReflectionTestUtils.setField(accountService, "tenantInfoService", tenants);
+        doReturn("Ada Lovelace").when(accountService).noticeNameOf(account);
+
         accountService.resetWorkContacts(ACCOUNT, "Verified by passport");
 
         ArgumentCaptor<SendSmsDTO> sms = ArgumentCaptor.forClass(SendSmsDTO.class);
         ArgumentCaptor<SendMailDTO> mail = ArgumentCaptor.forClass(SendMailDTO.class);
         verify(messageService).sendSms(sms.capture());
         verify(messageService).sendMail(mail.capture());
-        // The date itself, not its ISO toString(): the send record and the templates print it in
-        // the platform format.
-        assertThat(sms.getValue().getTemplateVariables().get("time")).isInstanceOf(LocalDateTime.class);
-        assertThat(mail.getValue().getTemplateVariables().get("time")).isInstanceOf(LocalDateTime.class);
-        assertThat(PlaceholderUtils.replacePlaceholders("changed by your HR on {{time}}.",
-                sms.getValue().getTemplateVariables()))
-                .matches("changed by your HR on \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.");
+        Map<String, Object> variables = sms.getValue().getTemplateVariables();
+        assertThat(mail.getValue().getTemplateVariables()).isEqualTo(variables);
+        assertThat(variables).containsEntry("employeeName", "Ada Lovelace")
+                .containsEntry("companyName", "Acme Pte Ltd")
+                // The old number may be in a stranger's hands: never the new one in full.
+                .containsEntry("newMobile", "+65 922****222");
+        assertThat(PlaceholderUtils.replacePlaceholders("changed on {{time}}.", variables))
+                .matches("changed on \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}\\.");
     }
 
     @Test

@@ -136,6 +136,17 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
     @Override
     @Transactional
     public void invite(Long userId, Long invitedBy) {
+        this.invite(userId, invitedBy, true);
+    }
+
+    @SkipPermissionCheck
+    @Override
+    @Transactional
+    public void inviteWithoutDeliveryCheck(Long userId, Long invitedBy) {
+        this.invite(userId, invitedBy, false);
+    }
+
+    private void invite(Long userId, Long invitedBy, boolean requireDelivery) {
         Assert.notNull(userId, "userId is required");
         UserAccount account = accountService.getById(userId)
                 .orElseThrow(() -> new BusinessException("User not found."));
@@ -160,7 +171,7 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         if (applyInviteTransition(account, hasPassword)) {
             accountService.updateOne(account);
         }
-        issue(account, InvitationPurpose.INVITE, invitedBy);
+        issue(account, InvitationPurpose.INVITE, invitedBy, null, null, requireDelivery);
     }
 
     /** Statuses a mis-binding can be corrected from with Unbind & Re-invite. */
@@ -427,15 +438,22 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         this.issue(account, purpose, invitedBy, reason, null);
     }
 
+    private void issue(UserAccount account, InvitationPurpose purpose, Long invitedBy, String reason,
+                       String deliverTo) {
+        this.issue(account, purpose, invitedBy, reason, deliverTo, false);
+    }
+
     /**
      * @param deliverTo when non-null, the ONE address the link is sent to and recorded under, in
      *                  place of the account's work email / mobile fan-out. A self-service reset
      *                  passes the login identifier that resolved the person: the address is what
      *                  proves who redeems the link, and the account's work contacts prove the
      *                  company, not the person.
+     * @param requireDelivery refuse the whole invitation — rolling back the token and the status
+     *                  change with it — when no channel could take the message
      */
     private void issue(UserAccount account, InvitationPurpose purpose, Long invitedBy, String reason,
-                       String deliverTo) {
+                       String deliverTo, boolean requireDelivery) {
         revokePending(account.getId());
 
         // Who this invitation BELONGS to: the invitee's own tenant, never the caller's. It is a record
@@ -523,18 +541,34 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         // has joined only that one, and the platform's when they have joined several.
         Long sendFor = tenantId != null || purpose != InvitationPurpose.PASSWORD_RESET ? tenantId
                 : accountService.soleJoinedTenantOf(account.getProfileId()).orElse(null);
-        Map<String, Object> variables = Map.of("link", link, "expiryDays", EXPIRY_DAYS);
+        // The company is the account's own, named for the reason the tier is taken from it above.
+        Map<String, Object> variables = Map.of("link", link, "expiryDays", EXPIRY_DAYS,
+                "companyName", this.companyNameOf(account.getTenantId()),
+                "employeeName", StringUtils.defaultString(accountService.noticeNameOf(account)));
         String mailTo = pinned ? deliverTo : account.getEmail();
+        // Whether any channel took the message. Delivery is asynchronous, so "took" means it passed
+        // the checks that can be made now — a server or provider to go out through, an address that
+        // parses — not that it arrived.
+        boolean accepted = false;
         if (StringUtils.isNotBlank(mailTo)) {
             String template = purpose == InvitationPurpose.PASSWORD_RESET ? TEMPLATE_RESET : TEMPLATE_INVITE;
-            sendIn(sendFor, () -> messageService.sendMail(
-                    SendMailDTO.ofTemplate(List.of(mailTo), template, variables, scope)));
+            accepted = sendIn(sendFor, () -> {
+                messageService.requireMailRoute(scope);
+                messageService.sendMail(SendMailDTO.ofTemplate(List.of(mailTo), template, variables, scope));
+            });
         }
         // Invitations only. A password reset is started from the login screen by typing an email,
         // so the address is known and SMS adds nothing but cost. Same tier as the mail above.
         if (!pinned && purpose != InvitationPurpose.PASSWORD_RESET && StringUtils.isNotBlank(account.getMobile())) {
-            sendIn(sendFor, () -> messageService.sendSms(
-                    SendSmsDTO.ofTemplate(account.getMobile(), TEMPLATE_INVITE, variables, scope)));
+            accepted |= sendIn(sendFor, () -> {
+                messageService.requireSmsRoute(account.getMobile());
+                messageService.sendSms(SendSmsDTO.ofTemplate(account.getMobile(), TEMPLATE_INVITE, variables, scope));
+            });
+        }
+        if (requireDelivery && !accepted) {
+            // Thrown, not returned: the token and the PENDING → INVITED change roll back with it, so
+            // the account is not left claiming an invitation nobody can receive.
+            throw new BusinessException("Failed to send. Please try again.");
         }
         // Dev aid: surface the set-password / reset link so it can be copied from the logs when SMTP
         // is not wired locally. ⚠️ The link carries a one-time credential token — lower this to debug or
@@ -545,19 +579,30 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
     /**
      * Send in the tenant named — the send is filed under it and counted against its quota — or, with
      * none, in the caller's own context: the public reset of someone in several companies, filed under
-     * the platform. A send message-starter rejects (an address on file that does not parse) is logged
-     * at ERROR: the invitation stands either way.
+     * the platform. A send message-starter rejects (an address on file that does not parse, nothing
+     * configured to carry it) is logged at ERROR and answered false; whether the invitation then stands
+     * is the caller's decision.
      */
-    private static void sendIn(Long tenantId, Runnable send) {
+    private static boolean sendIn(Long tenantId, Runnable send) {
         try {
             if (tenantId == null) {
                 send.run();
             } else {
                 ContextUtils.inTenantContext(tenantId, send);
             }
+            return true;
         } catch (BusinessException e) {
             log.error("Invitation message not sent: {}", e.getMessage());
+            return false;
         }
+    }
+
+    /** The company an invitation names: the tenant's display name, empty when it cannot be read. */
+    private String companyNameOf(Long tenantId) {
+        if (tenantId == null || tenantInfoService == null) {
+            return "";
+        }
+        return StringUtils.defaultString(tenantInfoService.getTenantName(tenantId));
     }
 
     @Override

@@ -179,13 +179,15 @@ then choose which membership to enter.
 | `inviteInfo` | What the invitation landing page may show for a token |
 | `forgetPassword` / `checkResetCode` / `resetPasswordByCode` / `resetPassword` | Verification-code password reset; `checkResetCode` checks the code on its own step without spending it, under the same attempt limits |
 
+A code send answers the same whether or not the identifier is anybody's. The send limits (one per minute, ten a day per identifier) are the exception that is said — "Too many requests. Try again later." — because they are spent before the lookup, for every identifier alike.
+
 `UserAccountController` (`/UserAccount/*`) — the generic CRUD endpoints are all
 **shadowed** here so the roster scope applies to by-id reads and writes as well as
 to lists, plus:
 
 | Endpoint | Purpose |
 |---|---|
-| `invite` / `revokeInvitation` | Send or withdraw an invitation |
+| `invite` / `revokeInvitation` | Send or withdraw an invitation; `invite` is refused with "Failed to send. Please try again." — the account staying where it was — when none of the account's channels has a mail server or SMS provider to go out through |
 | `freezeAccount` / `unfreezeAccount` / `unfreezeAccounts` | Suspend a membership (replaces the former Lock/Unlock, which collided with the password lockout) |
 | `rehire` | Revive a `DEACTIVATED` membership on its original row |
 | `resetWorkContacts` / `unbindAndReinvite` | Correct a mis-addressed or mis-bound invitation |

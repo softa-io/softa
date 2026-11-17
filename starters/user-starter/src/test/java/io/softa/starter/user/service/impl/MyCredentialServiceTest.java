@@ -290,8 +290,8 @@ class MyCredentialServiceTest {
         // Both numbers masked as shown everywhere: dial code, space, first three, four stars, last two.
         org.mockito.ArgumentCaptor<UserSecurityLog> rows = org.mockito.ArgumentCaptor.forClass(UserSecurityLog.class);
         verify(securityLog).record(rows.capture());
-        assertThat(rows.getValue().getOldValue()).isEqualTo("+65 912****67");
-        assertThat(rows.getValue().getNewValue()).isEqualTo("+65 987****32");
+        assertThat(rows.getValue().getOldValue()).isEqualTo("+65 912****567");
+        assertThat(rows.getValue().getNewValue()).isEqualTo("+65 987****432");
     }
 
     @Test
@@ -425,7 +425,7 @@ class MyCredentialServiceTest {
 
         MyAccountSummary summary = signedIn(service::summary);
 
-        assertThat(summary.maskedLoginMobile()).isEqualTo("+65 912****67");
+        assertThat(summary.maskedLoginMobile()).isEqualTo("+65 912****567");
         assertThat(summary.maskedEmail()).isEqualTo("a***@acme.com");
         assertThat(summary.tenantName()).isEqualTo("Acme");
         assertThat(summary.tenantCount()).isEqualTo(2);
@@ -454,7 +454,7 @@ class MyCredentialServiceTest {
         signedIn(() -> service.changePassword(ticket, "N3w-Passw0rd!"));
 
         assertThat(summary.tenantCount()).isEqualTo(1);
-        assertThat(summary.maskedLoginMobile()).isEqualTo("+65 912****67");
+        assertThat(summary.maskedLoginMobile()).isEqualTo("+65 912****567");
         verify(identityService).setPassword(11L, "N3w-Passw0rd!");
     }
 

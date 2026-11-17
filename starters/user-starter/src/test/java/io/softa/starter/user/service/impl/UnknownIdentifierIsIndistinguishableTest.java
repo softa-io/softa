@@ -14,11 +14,14 @@ import io.softa.framework.orm.service.CacheService;
 import io.softa.starter.message.mail.dto.SendMailDTO;
 import io.softa.starter.message.service.MessageService;
 import io.softa.starter.message.sms.dto.SendSmsDTO;
+import io.softa.starter.user.constant.AccountErrorCodes;
 import io.softa.starter.user.entity.UserIdentity;
+import io.softa.starter.user.entity.UserProfile;
 import io.softa.starter.user.service.ConsultantService;
 import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserInvitationService;
+import io.softa.starter.user.service.UserProfileService;
 import io.softa.starter.user.service.UserSessionService;
 import io.softa.starter.user.util.LoginIdentifiers;
 
@@ -57,6 +60,7 @@ class UnknownIdentifierIsIndistinguishableTest {
     private final VerificationCodeGuard codeGuard = mock(VerificationCodeGuard.class);
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final UserAccountService accountService = mock(UserAccountService.class);
+    private final UserProfileService profileService = mock(UserProfileService.class);
     private final LoginServiceImpl loginService = new LoginServiceImpl();
 
     UnknownIdentifierIsIndistinguishableTest() {
@@ -68,6 +72,7 @@ class UnknownIdentifierIsIndistinguishableTest {
         ReflectionTestUtils.setField(loginService, "history", mock(LoginHistoryRecorder.class));
         ReflectionTestUtils.setField(loginService, "cacheService", mock(CacheService.class));
         ReflectionTestUtils.setField(loginService, "sessionService", mock(UserSessionService.class));
+        ReflectionTestUtils.setField(loginService, "profileService", profileService);
         when(accountService.listAccountIdsOf(PROFILE)).thenReturn(List.of(100L));
     }
 
@@ -147,15 +152,53 @@ class UnknownIdentifierIsIndistinguishableTest {
 
     @Test
     void runningOutOfSendsLooksTheSameWhetherOrNotTheNumberExists() {
-        doThrow(new BusinessException("Too many requests")).when(codeGuard).beforeSend(anyString());
+        // Said, because it is the same refusal either way: the budget is spent before anyone is
+        // looked up, from counters every identifier has.
+        doThrow(AccountErrorCodes.refusal(AccountErrorCodes.TOO_MANY_REQUESTS, "Too many requests. Try again later."))
+                .when(codeGuard).beforeSend(anyString());
 
         somebodyHolds("alice@acme.com");
         Throwable linked = catchThrowable(() -> loginService.sendEmailCode("alice@acme.com"));
         nobodyHolds();
         Throwable unlinked = catchThrowable(() -> loginService.sendEmailCode("nobody@nowhere.test"));
 
-        assertThat(linked).as("linked threw %s; unlinked threw %s", linked, unlinked).isNull();
-        assertThat(unlinked).isNull();
+        sameAnswer(linked, unlinked);
+        assertThat(linked).hasMessage("Too many requests. Try again later.");
+        verifyNoInteractions(messageService);
+    }
+
+    @Test
+    void theSendBudgetIsSpentBeforeAnyoneIsLookedUp() {
+        doThrow(AccountErrorCodes.refusal(AccountErrorCodes.TOO_MANY_REQUESTS, "Too many requests. Try again later."))
+                .when(codeGuard).beforeSend(anyString());
+
+        catchThrowable(() -> loginService.sendMobileCode("+6591234567"));
+
+        // A lookup first would let its cost or its failure differ between a real number and none.
+        verifyNoInteractions(identityService);
+    }
+
+    @Test
+    void anEmailCodeGreetsThePersonByTheirName() {
+        somebodyHolds("alice@acme.com");
+        UserProfile profile = new UserProfile();
+        profile.setFullName("Alice Tan");
+        when(profileService.getById(PROFILE)).thenReturn(Optional.of(profile));
+
+        loginService.sendEmailCode("alice@acme.com");
+
+        ArgumentCaptor<SendMailDTO> sent = ArgumentCaptor.forClass(SendMailDTO.class);
+        verify(messageService).sendMail(sent.capture());
+        assertThat(sent.getValue().getTemplateVariables()).containsEntry("employeeName", "Alice Tan");
+    }
+
+    @Test
+    void aDeliveryRefusedAfterTheLookupStaysSilent() {
+        // Only the linked path delivers, so its refusals are the oracle and are not returned.
+        somebodyHolds("alice@acme.com");
+        when(messageService.sendMail(any(SendMailDTO.class))).thenThrow(new BusinessException("Mail send rejected"));
+
+        assertThatCode(() -> loginService.sendEmailCode("alice@acme.com")).doesNotThrowAnyException();
     }
 
     @Test

@@ -1,6 +1,8 @@
 package io.softa.starter.user.service.impl;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -13,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.softa.framework.base.config.SystemConfig;
+import io.softa.framework.base.constant.TimeConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.ContextUtils;
@@ -26,6 +29,7 @@ import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.service.CompanyClock;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.framework.web.session.SessionRevokeReason;
@@ -38,6 +42,7 @@ import io.softa.starter.user.dto.UserProfileDTO;
 import io.softa.starter.user.dto.WorkContacts;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
+import io.softa.starter.user.entity.UserProfile;
 import io.softa.starter.user.entity.UserSecurityLog;
 import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.enums.LoginEvent;
@@ -61,6 +66,9 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     private static final String ARCHIVE_USER_FIELD = "userId";
     private static final String ARCHIVE_EMAIL_FIELD = "workEmail";
     private static final String ARCHIVE_MOBILE_FIELD = "workPhone";
+    private static final String ARCHIVE_NAME_FIELD = "fullName";
+    /** The legal entity the employee is contracted with, under the company axis's name. */
+    private static final String ARCHIVE_COMPANY_FIELD = "companyId";
     private static final String ARCHIVE_PROFILE_FIELD = "employeeProfileId";
     private static final String ARCHIVE_PROFILE_MODEL = "EmployeeProfile";
     private static final String ARCHIVE_PERSONAL_MOBILE_FIELD = "personalPhone";
@@ -111,6 +119,10 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     /** Optional: the contact-change notice names the company; absent tenant-starter → blank. */
     @Autowired(required = false)
     private TenantInfoService tenantInfoService;
+
+    /** The legal entity's calendar, for the time a security notice prints. */
+    @Autowired(required = false)
+    private CompanyClock companyClock;
 
     /**
      * Every single-entity account write funnels through here, so this is the one place that has to
@@ -826,6 +838,48 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         securityLog.record(row);
     }
 
+    /** How a security notice prints when the change was made: {@code 2026-11-12 13:00}. */
+    private static final DateTimeFormatter NOTICE_TIME =
+            DateTimeFormatter.ofPattern(TimeConstant.DATE_FORMAT + " " + TimeConstant.SIMPLE_TIME_FORMAT);
+
+    /**
+     * Now, as a security notice about this account prints it — to the minute, in the time zone of the
+     * legal entity on the employee record: the notice tells the person when to look back to, on the
+     * clock they work by, and seconds only make it read like a log line.
+     */
+    String noticeTimeOf(UserAccount account) {
+        return LocalDateTime.now(this.noticeZoneOf(account)).format(NOTICE_TIME);
+    }
+
+    /**
+     * The legal entity's zone ({@link CompanyClock}: the company's own, else the tenant's default); the
+     * server's when the account has no employee record, its record names no legal entity, or the zone
+     * cannot be read.
+     */
+    private ZoneId noticeZoneOf(UserAccount account) {
+        Long companyId = companyClock == null ? null : this.archiveCompanyId(account.getId());
+        if (companyId == null) {
+            return ZoneId.systemDefault();
+        }
+        try {
+            // In the account's own tenant: the tenant default the clock falls back to is that company's
+            // tenant's, not the caller's.
+            return account.getTenantId() == null ? companyClock.zoneOf(companyId)
+                    : ContextUtils.inTenantContext(account.getTenantId(), () -> companyClock.zoneOf(companyId));
+        } catch (RuntimeException e) {
+            log.warn("Time zone of company {} unreadable for a notice to account {}", companyId, account.getId(), e);
+            return ZoneId.systemDefault();
+        }
+    }
+
+    /** The company a notice names: the tenant's display name, empty when it cannot be read. */
+    private String companyNameOf(Long tenantId) {
+        if (tenantId == null || tenantInfoService == null) {
+            return "";
+        }
+        return StringUtils.defaultString(tenantInfoService.getTenantName(tenantId));
+    }
+
     /** Reset User reminder: the login mobile was replaced, the old number no longer signs in. */
     static final String TEMPLATE_RESET_USER = "user.reset-user";
     /** The enterprise email of a joined account changed. */
@@ -890,9 +944,13 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         // can neither rewrite nor swallow the warning that its HR changed someone's login. Sent in
         // the account's company all the same: filed under it and counted against its quota.
         Long tenantId = account.getTenantId();
+        // The new number masked: the old one may be in a stranger's hands, and a notice sent there
+        // must not hand them the number that now signs the person in.
         Map<String, Object> vars = Map.of(
-                "employeeName", StringUtils.defaultString(account.getNickname()),
-                "time", LocalDateTime.now());
+                "employeeName", this.noticeNameOf(account),
+                "companyName", this.companyNameOf(tenantId),
+                "newMobile", StringUtils.defaultString(mobileFormat.mask(newMobile)),
+                "time", this.noticeTimeOf(account));
         List<String> channels = new ArrayList<>();
         List<String> results = new ArrayList<>();
         if (StringUtils.isNotBlank(oldMobile)) {
@@ -966,9 +1024,13 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         // The old address (whoever holds it should know it no longer signs in) and the person's
         // login mobile; a failed send is recorded, it does not undo the change. A platform notice,
         // like the reset-user one: the company cannot rewrite or swallow it.
+        // The new address masked, for the reason Reset User masks the new number: the old address
+        // may no longer be the person's.
         Map<String, Object> vars = Map.of(
-                "employeeName", StringUtils.defaultString(account.getNickname()),
-                "time", LocalDateTime.now());
+                "employeeName", this.noticeNameOf(account),
+                "companyName", this.companyNameOf(account.getTenantId()),
+                "newEmail", StringUtils.defaultString(ContactMasking.email(wanted)),
+                "time", this.noticeTimeOf(account));
         List<String> channels = new ArrayList<>();
         List<String> results = new ArrayList<>();
         if (StringUtils.isNotBlank(previous)) {
@@ -1179,6 +1241,71 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                     .orElse(null);
         } catch (RuntimeException e) {
             log.warn("Employee profile read failed while resolving the personal mobile of account {}", userId, e);
+            return null;
+        } finally {
+            if (ctx != null) {
+                ctx.setSkipPermissionCheck(previous);
+            }
+        }
+    }
+
+    @SkipPermissionCheck
+    @Override
+    public String noticeNameOf(UserAccount account) {
+        if (account == null) {
+            return "";
+        }
+        String name = this.archiveFullName(account.getId());
+        if (StringUtils.isBlank(name)) {
+            name = account.getNickname();
+        }
+        if (StringUtils.isBlank(name) && account.getProfileId() != null) {
+            name = profileService.getById(account.getProfileId()).map(UserProfile::getFullName).orElse(null);
+        }
+        return StringUtils.defaultString(StringUtils.trimToNull(name));
+    }
+
+    /** The full name on the employee record behind this account, or null when there is no record. */
+    private String archiveFullName(Long userId) {
+        return StringUtils.trimToNull(asString(this.archiveField(userId, ARCHIVE_NAME_FIELD)));
+    }
+
+    /** The legal entity on the employee record behind this account, or null when there is no record. */
+    private Long archiveCompanyId(Long userId) {
+        Object value = this.archiveField(userId, ARCHIVE_COMPANY_FIELD);
+        Object id = value instanceof Map<?, ?> ref ? ref.get("id") : value;
+        if (id instanceof Number number) {
+            return number.longValue();
+        }
+        try {
+            return id == null ? null : Long.valueOf(id.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * One field of the employee record behind this account, or null when there is no record or it cannot
+     * be read: what asks for it is a notice, which still goes out with the next value in line.
+     */
+    private Object archiveField(Long userId, String field) {
+        if (userId == null || !ModelManager.existModel(ARCHIVE_MODEL)) {
+            return null;
+        }
+        // Past row scope for the reason archiveWorkContacts gives: this resolves the record of the
+        // account being acted on, not a search.
+        Context ctx = ContextHolder.existContext() ? ContextHolder.getContext() : null;
+        boolean previous = ctx != null && ctx.isSkipPermissionCheck();
+        if (ctx != null) {
+            ctx.setSkipPermissionCheck(true);
+        }
+        try {
+            return modelService.searchOne(ARCHIVE_MODEL, new FlexQuery(
+                            List.of("id", field), new Filters().eq(ARCHIVE_USER_FIELD, userId)))
+                    .map(row -> row.get(field))
+                    .orElse(null);
+        } catch (RuntimeException e) {
+            log.warn("Employee read failed while resolving {} of account {}", field, userId, e);
             return null;
         } finally {
             if (ctx != null) {

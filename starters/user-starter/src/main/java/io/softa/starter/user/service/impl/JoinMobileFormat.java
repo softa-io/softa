@@ -10,11 +10,11 @@ import io.softa.starter.referencedata.service.CountryRegionService;
 
 /**
  * How the join page shows a mobile: split into its country dial code and the masked national
- * number, with the country's name (the join page shows "Singapore +65 912****67").
+ * number, with the country's name (the join page shows "Singapore +65 912****567").
  * <p>
  * The number is split by {@link PhoneUtils} — its calling code and national number as libphonenumber
- * reads them, so a NANP territory is "+1" and its area code part of the national number
- * ("+1 787****78") — and the country's name comes from the country table.
+ * reads them, so a NANP territory is "+1" and its area code part of the national number — and the
+ * country's name comes from the country table.
  */
 @Component
 @RequiredArgsConstructor
@@ -25,14 +25,14 @@ public class JoinMobileFormat {
     /**
      * @param dialCode    "+65", or null when the number does not parse
      * @param countryName the number's country, or null
-     * @param masked      "+65 912****67"; a number that does not parse is masked whole
+     * @param masked      "+65 912****567"; a number that does not parse is masked whole
      */
     public record Formatted(String dialCode, String countryName, String masked) {
     }
 
     /**
-     * The one masked form of a mobile, wherever it is shown or recorded: "+65 912****67" — the dial
-     * code, a space, the first three national digits, four stars, the last two. Null for none.
+     * The one masked form of a mobile, wherever it is shown or recorded: "+65 912****567" — the dial
+     * code, a space, the first three national digits, four stars, the last three. Null for none.
      */
     public String mask(String mobile) {
         return this.format(mobile).masked();
@@ -74,11 +74,14 @@ public class JoinMobileFormat {
         }
     }
 
-    /** First three and last two digits shown: 91234567 → 912****67. */
+    /**
+     * First three and last three digits shown: 91234567 → 912****567. Six digits or fewer keep only
+     * the last two — three and three would be the whole number.
+     */
     static String maskNational(String national) {
-        if (national.length() <= 5) {
+        if (national.length() <= 6) {
             return "****" + national.substring(Math.max(0, national.length() - 2));
         }
-        return national.substring(0, 3) + "****" + national.substring(national.length() - 2);
+        return national.substring(0, 3) + "****" + national.substring(national.length() - 3);
     }
 }

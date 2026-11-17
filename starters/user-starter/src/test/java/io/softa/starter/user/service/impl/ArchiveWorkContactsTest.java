@@ -1,5 +1,9 @@
 package io.softa.starter.user.service.impl;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -12,8 +16,12 @@ import org.mockito.MockedStatic;
 
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.service.CompanyClock;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.user.dto.WorkContacts;
+import io.softa.starter.user.entity.UserAccount;
+import io.softa.starter.user.entity.UserProfile;
+import io.softa.starter.user.service.UserProfileService;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -123,5 +131,85 @@ class ArchiveWorkContactsTest {
 
         assertThat(accountService.archiveWorkContacts(ACCOUNT).any()).isFalse();
         org.mockito.Mockito.verifyNoInteractions(modelService);
+    }
+
+    // ─────────────────────── the name a notice greets the person by ───────────────────────
+
+    private UserAccount reopenedMembership() {
+        // A membership reopened for a re-hire loses its nickname, and joining again gives none back.
+        UserAccount account = new UserAccount();
+        account.setId(ACCOUNT);
+        account.setProfileId(7L);
+        return account;
+    }
+
+    @Test
+    void aNoticeGreetsThePersonByTheNameOnTheRecord() {
+        archiveRow(Map.of("fullName", " Ada Lovelace "));
+        UserAccount account = reopenedMembership();
+        account.setNickname("ada");
+
+        assertThat(accountService.noticeNameOf(account)).isEqualTo("Ada Lovelace");
+    }
+
+    @Test
+    void withNoRecord_theNicknameAndThenThePersonsNameStandIn() {
+        archiveRow(null);
+        UserAccount account = reopenedMembership();
+        UserProfile profile = new UserProfile();
+        profile.setFullName("Ada L.");
+        UserProfileService profiles = mock(UserProfileService.class);
+        when(profiles.getById(7L)).thenReturn(Optional.of(profile));
+        ReflectionTestUtils.setField(accountService, "profileService", profiles);
+
+        assertThat(accountService.noticeNameOf(account)).isEqualTo("Ada L.");
+        account.setNickname("ada");
+        assertThat(accountService.noticeNameOf(account)).isEqualTo("ada");
+    }
+
+    @Test
+    void anUnreadableRecord_stillGivesAName_neverNull() {
+        when(modelService.searchOne(anyString(), any(FlexQuery.class))).thenThrow(new IllegalStateException("boom"));
+
+        assertThat(accountService.noticeNameOf(reopenedMembership())).isEmpty();
+        assertThat(accountService.noticeNameOf(null)).isEmpty();
+    }
+
+    // ─────────────────────── the time a notice prints ───────────────────────
+
+    /** Now in {@code zone} as a notice prints it, read before and after so a minute rollover cannot flake. */
+    private static List<String> nowIn(ZoneId zone, Runnable between) {
+        DateTimeFormatter minute = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+        String before = LocalDateTime.now(zone).format(minute);
+        between.run();
+        return List.of(before, LocalDateTime.now(zone).format(minute));
+    }
+
+    @Test
+    void aNoticePrintsTheTimeOnTheLegalEntitysClock() {
+        // Far from any server zone, so the test cannot pass on the server's clock by accident.
+        ZoneId kiritimati = ZoneId.of("Pacific/Kiritimati");
+        archiveRow(Map.of("companyId", 42L));
+        CompanyClock clock = mock(CompanyClock.class);
+        when(clock.zoneOf(42L)).thenReturn(kiritimati);
+        ReflectionTestUtils.setField(accountService, "companyClock", clock);
+        UserAccount account = reopenedMembership();
+        String[] printed = new String[1];
+
+        List<String> expected = nowIn(kiritimati, () -> printed[0] = accountService.noticeTimeOf(account));
+
+        assertThat(expected).contains(printed[0]);
+    }
+
+    @Test
+    void withNoLegalEntity_aNoticePrintsTheServersTime() {
+        archiveRow(null);
+        ReflectionTestUtils.setField(accountService, "companyClock", mock(CompanyClock.class));
+        UserAccount account = reopenedMembership();
+        String[] printed = new String[1];
+
+        List<String> expected = nowIn(ZoneId.systemDefault(), () -> printed[0] = accountService.noticeTimeOf(account));
+
+        assertThat(expected).contains(printed[0]);
     }
 }

@@ -120,8 +120,9 @@ public class AdminProvisioningService {
             grant.setSource(UserRoleSource.MANUAL);
             userRoleRelService.createOne(grant);
 
-            // Email the set-password invitation.
-            invitationService.invite(user.getUserId(), inviter);
+            // Email the set-password invitation. A tenant is not refused its first admin because no
+            // mail can go out yet: the invitation is kept and can be sent again once one can.
+            invitationService.inviteWithoutDeliveryCheck(user.getUserId(), inviter);
 
             // Announce the new admin so business modules can attach their own record (e.g. corehr builds an
             // Employee bound to this account). Fired in-tx; the AFTER_COMMIT MQ bridge means a rolled-back

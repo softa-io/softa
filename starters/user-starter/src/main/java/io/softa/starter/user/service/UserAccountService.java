@@ -242,6 +242,17 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     String archivePersonalMobile(Long userId);
 
     /**
+     * The name a notice about this account greets its person by: the full name on the employee record
+     * behind the account, else the account's nickname, else the person's own full name. Empty when none
+     * is known, never null.
+     *
+     * <p>The record comes first because it is the name the company keeps current, and the nickname is
+     * not: a membership reopened for a re-hire or an unbind loses its nickname, and joining again does
+     * not give it one back.
+     */
+    String noticeNameOf(UserAccount account);
+
+    /**
      * Why this enterprise email cannot go on this account, or null when it can: another account of
      * the same company holds it, or — once this account has been joined — a different person's
      * joined account holds it anywhere. An account not yet joined is let through on the second

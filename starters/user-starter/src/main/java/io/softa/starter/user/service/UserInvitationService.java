@@ -108,10 +108,23 @@ public interface UserInvitationService extends EntityService<UserInvitation, Lon
      * Issue (or re-issue) an INVITE token for a user and email the set-password link. Any prior
      * PENDING token for the user is revoked so only the newest link works.
      *
+     * <p>Refused with "Failed to send. Please try again." when none of the account's channels can
+     * carry the invitation as things are configured now — no mail server, no SMS provider for the
+     * number's country: nothing is written, so the account stays where it was and the screen does not
+     * claim an invitation went out. What only delivery can find out (a provider rejecting the number,
+     * a bounce) is not known here; it is on the send record.
+     *
      * @param userId    the account to invite (must have an email)
      * @param invitedBy the inviter's userId (null if system-initiated)
      */
     void invite(Long userId, Long invitedBy);
+
+    /**
+     * {@link #invite} for a caller that must not fail on delivery: an account created as part of a
+     * larger operation, such as provisioning a tenant's first admin, keeps the invitation even when no
+     * channel can carry it yet, and the link is sent again with an ordinary invite once one can.
+     */
+    void inviteWithoutDeliveryCheck(Long userId, Long invitedBy);
 
     /**
      * Unbind a membership from the person it was wrongly bound to, and re-invite it.
