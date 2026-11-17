@@ -30,6 +30,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class AuthorizationFlowTest {
 
+    /** The shared refusal {@code PermissionInterceptor} answers every endpoint refusal with. */
+    private static final String REFUSED = "You do not have access to this resource.";
+
     private PermissionFlowFixture fx;
 
     @BeforeEach
@@ -96,7 +99,8 @@ class AuthorizationFlowTest {
                     interceptor.preHandle(req("POST", "/Employee/searchList"),
                             new MockHttpServletResponse(), null))
                     .isInstanceOf(PermissionException.class)
-                    .hasMessageContaining("Missing permission");
+                    // Every endpoint refusal answers with one sentence; which check refused goes to the log.
+                    .hasMessage(REFUSED);
         });
     }
 
@@ -168,7 +172,7 @@ class AuthorizationFlowTest {
                     interceptor.preHandle(req("POST", "/Employee/somethingElse"),
                             new MockHttpServletResponse(), null))
                     .isInstanceOf(PermissionException.class)
-                    .hasMessageContaining("not registered");
+                    .hasMessage(REFUSED);
         });
     }
 
