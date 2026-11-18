@@ -539,7 +539,7 @@ This allows exporting fields from related models through ManyToOne/OneToOne asso
 3. The related model is queried with the remaining path as expand fields.
 4. For 3+ levels, the process recurses: `deptId.companyId.code` → query `Dept` with field `companyId.code` → query `Company` with field `code`.
 5. The resolved value is stored in the row map with the full dotted key (e.g. `deptId.companyId.code`).
-6. The column header: a template column's `customHeader` when set, else the **last field's label** (e.g. the label of `code`). A dynamic export, which has no `customHeader`, heads a dotted column with the label of each many-to-one on its path and then the field's — `deptId.name` is `Department › Name` — so the columns of two relations onto one model stay apart. A one-to-one hop adds nothing: `employeeProfileId.passType` is `Pass Type`, a field of the row's own sub-record (`ExportByDynamic.columnHeader`).
+6. The column header: a template column's `customHeader` when set; otherwise — and for every column of a dynamic export, which has no `customHeader` — the label of each many-to-one on its path and then the field's: `deptId.name` is `Department › Name`, `employeeId.departmentId.name` is `Employee › Department › Name`. Under the last label alone, the columns of two relations onto one model (a manager's and an HR partner's employee code) would share a header. A one-to-one hop adds nothing: `employeeProfileId.passType` is `Pass Type`, a field of the row's own sub-record. One rule for both modes (`ExportColumnHeaders`); a column that must read otherwise — a fixed outside format's — names its header in `customHeader`.
 
 **Rules:**
 - Maximum cascade depth: **4 levels** (`BaseConstant.CASCADE_LEVEL = 4`).
@@ -551,10 +551,12 @@ This allows exporting fields from related models through ManyToOne/OneToOne asso
 
 ExportTemplateField configuration:
 ```
-fieldName: "name"                customHeader: null           sequence: 1
-fieldName: "deptId.name"         customHeader: "Department"   sequence: 2
-fieldName: "deptId.managerId.name" customHeader: "Dept Manager" sequence: 3
+fieldName: "name"                  customHeader: null           sequence: 1
+fieldName: "deptId.name"           customHeader: "Department"   sequence: 2
+fieldName: "deptId.managerId.name" customHeader: null           sequence: 3
 ```
+
+Result Excel columns: `Name | Department | Department › Manager › Name`
 
 **Example — Dynamic export with cascaded fields:**
 ```bash
