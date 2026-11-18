@@ -12,8 +12,6 @@ import org.springframework.stereotype.Component;
 import io.softa.framework.base.utils.ListUtils;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.dto.FileInfo;
-import io.softa.framework.orm.enums.FieldType;
-import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.starter.file.dto.ExportResult;
 import io.softa.starter.file.dto.SheetInfo;
@@ -21,6 +19,7 @@ import io.softa.starter.file.entity.ExportHistory;
 import io.softa.starter.file.excel.export.ExcelSheetData;
 import io.softa.starter.file.vo.PivotSpec;
 import io.softa.starter.file.excel.export.support.PivotColumns;
+import io.softa.starter.file.excel.export.support.ExportColumnHeaders;
 import io.softa.starter.file.excel.export.support.ExcelUploadService;
 import io.softa.starter.file.excel.export.support.ExportDataFetcher;
 import io.softa.starter.file.excel.style.DecimalColumnFormatHandler;
@@ -34,9 +33,6 @@ public class ExportByDynamic implements ExportStrategy {
 
     /** The model that HOLDS an exported file — the history row, not the model exported. */
     private static final String HISTORY_MODEL = ExportHistory.class.getSimpleName();
-
-    /** Between a relation's label and the label of a field of its record, as the screens write it. */
-    static final String RELATION_SEPARATOR = " › ";
 
     @Autowired
     private ExportDataFetcher exportDataFetcher;
@@ -101,7 +97,7 @@ public class ExportByDynamic implements ExportStrategy {
                                                  List<String> headers) {
         List<String> exportedFields = List.copyOf(flexQuery.getFields());
         List<Map<String, Object>> rows = exportDataFetcher.fetchRows(modelName, null, flexQuery);
-        exportedFields.forEach(fieldName -> headers.add(columnHeader(modelName, fieldName)));
+        exportedFields.forEach(fieldName -> headers.add(ExportColumnHeaders.of(modelName, fieldName)));
         List<List<Object>> rowsTable = new ArrayList<>();
         for (List<Object> row : ListUtils.convertToTableData(exportedFields, rows)) {
             rowsTable.add(new ArrayList<>(row));
@@ -165,36 +161,7 @@ public class ExportByDynamic implements ExportStrategy {
         // order, with the id in it, however the fields had been picked.
         List<String> exportedFields = List.copyOf(flexQuery.getFields());
         List<Map<String, Object>> rows = exportDataFetcher.fetchRows(modelName, null, flexQuery);
-        exportedFields.forEach(fieldName -> headers.add(columnHeader(modelName, fieldName)));
+        exportedFields.forEach(fieldName -> headers.add(ExportColumnHeaders.of(modelName, fieldName)));
         return ListUtils.convertToTableData(exportedFields, rows);
-    }
-
-    /**
-     * The header of a column: the field's label, after the label of each many-to-one its path goes
-     * through — {@code departmentId.code} is "Department › Code". Under the last label alone, the
-     * columns of two relations onto one model (a manager's and an HR partner's employee code) could
-     * not be told apart. A one-to-one hop adds nothing: the row's own sub-record
-     * ({@code employeeProfileId.passType}) reads as a field of the row, as the export dialog lists it.
-     *
-     * @param modelName the model exported
-     * @param fieldName a field of it, or a dotted path through its relations
-     * @return the header the column is written under
-     */
-    static String columnHeader(String modelName, String fieldName) {
-        if (!fieldName.contains(".")) {
-            return ModelManager.getLastFieldOfCascaded(modelName, fieldName).getLabel();
-        }
-        String[] segments = StringUtils.split(fieldName, ".");
-        List<String> labels = new ArrayList<>(segments.length);
-        String model = modelName;
-        for (int i = 0; i < segments.length - 1; i++) {
-            MetaField hop = ModelManager.getModelField(model, segments[i]);
-            if (hop.getFieldType() != FieldType.ONE_TO_ONE) {
-                labels.add(hop.getLabel());
-            }
-            model = hop.getRelatedModel();
-        }
-        labels.add(ModelManager.getModelField(model, segments[segments.length - 1]).getLabel());
-        return String.join(RELATION_SEPARATOR, labels);
     }
 }
