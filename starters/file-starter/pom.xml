@@ -13,7 +13,8 @@
     <artifactId>file-starter</artifactId>
 
     <properties>
-        <docx4j.version>11.5.13</docx4j.version>
+        <docx4j.version>17.3.6</docx4j.version>
+        <openhtmltopdf.version>1.1.114</openhtmltopdf.version>
     </properties>
 
     <dependencies>
@@ -34,7 +35,7 @@
         <dependency>
             <groupId>org.apache.fesod</groupId>
             <artifactId>fesod-sheet</artifactId>
-            <version>2.0.2-incubating</version>
+            <version>2.1.0-incubating</version>
             <scope>compile</scope>
         </dependency>
 
@@ -64,12 +65,12 @@
         <dependency>
             <groupId>io.github.openhtmltopdf</groupId>
             <artifactId>openhtmltopdf-pdfbox</artifactId>
-            <version>1.1.37</version>
+            <version>${openhtmltopdf.version}</version>
         </dependency>
         <dependency>
             <groupId>io.github.openhtmltopdf</groupId>
             <artifactId>openhtmltopdf-svg-support</artifactId>
-            <version>1.1.37</version>
+            <version>${openhtmltopdf.version}</version>
         </dependency>
     </dependencies>
 </project>

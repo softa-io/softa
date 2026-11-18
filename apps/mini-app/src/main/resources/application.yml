@@ -33,14 +33,19 @@ server:
     accept-count: 600
     max-swallow-size: 20MB
 
+# CosId 5: slots are leased in Redis through the context's RedisConnectionFactory; the default
+# generator keeps CosId 3's snowflake layout (epoch 2019-12-24T16:00:00Z, 41/10/12 bits).
 cosid:
   namespace: ${spring.application.name}
-  machine:
-    enabled: true
-    distributor:
+  stores:
+    redis:
       type: redis
-  snowflake:
-    enabled: true
+  machine:
+    leased:
+      store: redis
+  generators:
+    default:
+      strategy: snowflake
 
 management:
   endpoints:

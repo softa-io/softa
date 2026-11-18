@@ -12,6 +12,22 @@
     <name>Softa AI Starter</name>
     <artifactId>ai-starter</artifactId>
 
+    <properties>
+        <spring.ai.version>2.0.2</spring.ai.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring.ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>io.softa</groupId>
@@ -23,20 +39,24 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-client-chat</artifactId>
+            <version>${spring.ai.version}</version>
         </dependency>
 
         <!-- Spring AI model providers (constructed programmatically per AiModel row; no Boot auto-config) -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-openai</artifactId>
+            <version>${spring.ai.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-deepseek</artifactId>
+            <version>${spring.ai.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-anthropic</artifactId>
+            <version>${spring.ai.version}</version>
         </dependency>
     </dependencies>
 </project>
