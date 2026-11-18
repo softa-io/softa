@@ -43,10 +43,19 @@
         </dependency>
 
         <!-- Spring AI model providers (constructed programmatically per AiModel row; no Boot auto-config) -->
+        <!-- The OpenAI and Anthropic modules bring okhttp 4.12.0, whose okhttp3 classes clash with the
+             okhttp-jvm 5.x MinIO needs: which one loads would depend on classpath order. Their HTTP clients
+             (SpringAiOpenAiHttpClient / SpringAiAnthropicHttpClient) run on OkHttp 5, so keep only okhttp-jvm. -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-openai</artifactId>
             <version>${spring.ai.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.squareup.okhttp3</groupId>
+                    <artifactId>okhttp</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.springframework.ai</groupId>
@@ -57,6 +66,17 @@
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-anthropic</artifactId>
             <version>${spring.ai.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.squareup.okhttp3</groupId>
+                    <artifactId>okhttp</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp-jvm</artifactId>
+            <version>${okhttp.version}</version>
         </dependency>
     </dependencies>
 </project>

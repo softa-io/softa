@@ -34,6 +34,8 @@
 		<commons-lang3.version>3.22.0</commons-lang3.version>
 		<jackson-bom.version>3.3.0</jackson-bom.version>
 		<jackson-2-bom.version>2.23.0</jackson-2-bom.version>
+		<!-- The one OkHttp on the classpath: okhttp-jvm (softa-orm for MinIO, ai-starter for Spring AI). Not managed by Boot. -->
+		<okhttp.version>5.5.1</okhttp.version>
 
 	</properties>
 
