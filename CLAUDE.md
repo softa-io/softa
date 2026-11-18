@@ -587,7 +587,7 @@ DRY · SOLID · KISS · YAGNI · Separation of Concerns · Composition over Inhe
 | Search | Spring Data Elasticsearch           |
 | Messaging | Apache Pulsar (Spring Boot Starter) |
 | Object Storage | MinIO 9.0.0, Aliyun OSS 3.18.5      |
-| ID Generation | CosID 3.0.5                         |
+| ID Generation | CosID 5.0.1                         |
 | Expression Engine | AviatorScript 5.4.3                 |
 | Template Engine | Pebble                              |
 | Parser Generation | ANTLR4 4.13.2                       |

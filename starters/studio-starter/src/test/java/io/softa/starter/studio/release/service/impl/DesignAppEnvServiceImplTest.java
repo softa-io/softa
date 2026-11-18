@@ -6,7 +6,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
-import me.ahoo.cosid.provider.DefaultIdGeneratorProvider;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -22,6 +21,7 @@ import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
+import io.softa.framework.orm.utils.IDGenerator;
 import io.softa.starter.metadata.dto.MetaTable;
 import io.softa.starter.studio.release.connector.Connector;
 import io.softa.starter.studio.release.connector.ConnectorFactory;
@@ -44,9 +44,9 @@ class DesignAppEnvServiceImplTest {
     @BeforeAll
     static void registerIdGenerator() {
         // applyDrift's import path mints fresh design ids via CosID (stampImportedRow); register a
-        // deterministic generator so unit tests don't depend on a configured CosID share.
+        // deterministic generator so unit tests don't depend on a configured CosID generator.
         AtomicLong counter = new AtomicLong(900_000L);
-        DefaultIdGeneratorProvider.INSTANCE.setShare(counter::incrementAndGet);
+        IDGenerator.use(counter::incrementAndGet);
     }
 
     /**

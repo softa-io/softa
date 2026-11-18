@@ -29,22 +29,13 @@
 		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
 		<spring.boot.version>4.1.2</spring.boot.version>
-		<mockito.version>5.20.0</mockito.version>
-		<spring.ai.version>2.0.0</spring.ai.version>
+		<mockito.version>5.24.0</mockito.version>
+		<h2.version>2.5.252</h2.version>
+		<commons-lang3.version>3.22.0</commons-lang3.version>
+		<jackson-bom.version>3.3.0</jackson-bom.version>
+		<jackson-2-bom.version>2.23.0</jackson-2-bom.version>
 
 	</properties>
-
-	<dependencyManagement>
-		<dependencies>
-			<dependency>
-				<groupId>org.springframework.ai</groupId>
-				<artifactId>spring-ai-bom</artifactId>
-				<version>${spring.ai.version}</version>
-				<type>pom</type>
-				<scope>import</scope>
-			</dependency>
-		</dependencies>
-	</dependencyManagement>
 
 	<dependencies>
 
@@ -71,7 +62,7 @@
 			<plugin>
 				<groupId>org.jacoco</groupId>
 				<artifactId>jacoco-maven-plugin</artifactId>
-				<version>0.8.14</version>
+				<version>0.8.16</version>
 				<executions>
 					<execution>
 						<goals>
@@ -143,7 +134,7 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-compiler-plugin</artifactId>
-				<version>3.15.0</version>
+				<version>3.16.0</version>
 				<configuration>
 					<annotationProcessorPaths>
 						<path>
@@ -157,7 +148,7 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
-				<version>3.5.5</version>
+				<version>3.6.1</version>
 				<configuration>
 					<argLine>@{argLine} -javaagent:${settings.localRepository}/org/mockito/mockito-core/${mockito.version}/mockito-core-${mockito.version}.jar</argLine>
 				</configuration>

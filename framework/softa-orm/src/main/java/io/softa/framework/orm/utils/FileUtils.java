@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.tika.Tika;
 import org.apache.tika.metadata.Metadata;
+import org.apache.tika.metadata.TikaCoreProperties;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -167,7 +168,8 @@ public class FileUtils {
     private static FileType getActualFileType(String fileName, InputStream inputStream, FileType seemingFileType) {
         try {
             Metadata fileMetadata = new Metadata();
-            fileMetadata.set("resourceName", fileName);
+            // Tika 4 reads the file name hint only under its own key (tk:resource-name), not the 3.x "resourceName".
+            fileMetadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, fileName);
             if (inputStream.markSupported()) {
                 inputStream.mark(BUFFER_SIZE);
             }

@@ -14,7 +14,7 @@
     <description>Sentry error tracking and performance tracing, enriched with the softa Context</description>
 
     <properties>
-        <sentry.version>8.53.0</sentry.version>
+        <sentry.version>8.65.0</sentry.version>
     </properties>
 
     <dependencies>

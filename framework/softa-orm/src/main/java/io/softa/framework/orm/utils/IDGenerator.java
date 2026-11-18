@@ -1,38 +1,66 @@
 package io.softa.framework.orm.utils;
 
-import lombok.NoArgsConstructor;
 import me.ahoo.cosid.IdGenerator;
-import me.ahoo.cosid.converter.Radix36IdConverter;
-import me.ahoo.cosid.converter.Radix62IdConverter;
-import me.ahoo.cosid.provider.DefaultIdGeneratorProvider;
+import me.ahoo.cosid.codec.Radix;
+import org.springframework.beans.factory.DisposableBean;
 import org.springframework.stereotype.Component;
+
+import io.softa.framework.base.utils.SpringContextUtils;
 
 /**
  * Distributed id generator based on CosId.
+ * <p>
+ * CosId 5 keeps no global generator: the generator named {@code default} ({@code cosid.generators.default})
+ * is the primary {@link IdGenerator} bean of the context. It is looked up on first use and forgotten
+ * when the context closes, so a closed context never mints ids.
  */
 @Component
-@NoArgsConstructor
-public class IDGenerator {
+public class IDGenerator implements DisposableBean {
+
+    /** Base36 / base62 text without padding, as CosId 3's Radix36IdConverter / Radix62IdConverter wrote it. */
+    private static final Radix BASE36 = Radix.of(36, Radix.maxWidth(36), false);
+    private static final Radix BASE62 = Radix.of(62, Radix.maxWidth(62), false);
 
     private static volatile IdGenerator generator;
 
     /**
-     * Get IdGenerator instance by lazy loading.
+     * Get the IdGenerator instance by lazy loading.
      */
     private static IdGenerator getGenerator() {
-        if (generator == null) {
+        IdGenerator current = generator;
+        if (current == null) {
             synchronized (IDGenerator.class) {
-                if (generator == null) {
-                    // Try to get the default IdGenerator from CosId provider
-                    IdGenerator share = DefaultIdGeneratorProvider.INSTANCE.getShare();
-                    if (share == null) {
-                        throw new IllegalStateException("CosId ShareIdGenerator is null. Please check your application.yml configuration for CosId.");
+                current = generator;
+                if (current == null) {
+                    if (!SpringContextUtils.existApplicationContext()) {
+                        throw new IllegalStateException("CosId is not started: no Spring application context.");
                     }
-                    generator = share;
+                    try {
+                        current = SpringContextUtils.getBeanByClass(IdGenerator.class);
+                    } catch (RuntimeException e) {
+                        throw new IllegalStateException("CosId has no default generator. "
+                                + "Declare cosid.generators.default in application.yml.", e);
+                    }
+                    generator = current;
                 }
             }
         }
-        return generator;
+        return current;
+    }
+
+    /**
+     * Use the given generator instead of the context's default one, e.g. a deterministic generator in unit
+     * tests; {@code null} goes back to looking up the context's.
+     *
+     * @param idGenerator the generator to use
+     */
+    public static void use(IdGenerator idGenerator) {
+        generator = idGenerator;
+    }
+
+    @Override
+    public void destroy() {
+        generator = null;
     }
 
     /**
@@ -59,7 +87,7 @@ public class IDGenerator {
      * @return distributed string id
      */
     public static String generateStringIdBase36() {
-        return Radix36IdConverter.INSTANCE.asString(generateLongId());
+        return BASE36.encode(generateLongId());
     }
 
     /**
@@ -68,6 +96,6 @@ public class IDGenerator {
      * @return distributed string id
      */
     public static String generateStringIdBase62() {
-        return Radix62IdConverter.INSTANCE.asString(generateLongId());
+        return BASE62.encode(generateLongId());
     }
 }
