@@ -29,6 +29,7 @@ import io.softa.starter.flow.service.FlowExecutionTraceService;
 import io.softa.starter.flow.service.FlowInstanceService;
 import io.softa.starter.flow.service.FlowLaunchService;
 import io.softa.starter.flow.service.query.FlowInstanceSummaryComposer;
+import io.softa.starter.flow.service.support.FlowActors;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard.RecordAdmission;
 import io.softa.starter.flow.service.support.FlowUserNames;
@@ -305,14 +306,17 @@ public class FlowInstanceController {
     @PostMapping("/search")
     @Operation(summary = "Search my flow instances",
             description = "Paged summaries of the caller's own record approvals — pinned to the authenticated "
-                    + "user, which the request's filters and orders, on stored fields of FlowInstance only, narrow "
+                    + "user: what they submitted, and what was submitted about them as an employee (a request filed "
+                    + "on their behalf), the latter never awaiting their revision nor withdrawable by them. The "
+                    + "request's filters and orders, on stored fields of FlowInstance only, narrow "
                     + "and sort within, never widen. Heavy JSON "
                     + "state columns and the trace are excluded; fetch a single instance or its overlay for detail. "
                     + "Cross-initiator monitoring lives on POST /flow/monitor/instances/search.")
     // Pinned to the caller, so row scope could only empty it: FlowInstance is granted to no business role.
     @SkipPermissionCheck
     public ApiResponse<Page<FlowInstanceSummaryView>> searchInstances(@RequestBody FlowInstanceSearchRequest request) {
-        return ApiResponse.success(summaryComposer.summarize(instanceService.searchSummaries(request, currentUserId()), currentUserId()));
+        return ApiResponse.success(summaryComposer.summarize(
+                instanceService.searchSummaries(request, currentUserId(), FlowActors.currentEmployeeId()), currentUserId()));
     }
 
     @PostMapping("/approve")

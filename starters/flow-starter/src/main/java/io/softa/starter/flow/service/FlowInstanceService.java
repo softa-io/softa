@@ -108,7 +108,23 @@ public interface FlowInstanceService {
      *                          when {@code null} every instance is searched (monitor views)
      * @return one page of instance summary rows
      */
-    Page<FlowInstance> searchSummaries(FlowInstanceSearchRequest request, String forcedInitiatorId);
+    default Page<FlowInstance> searchSummaries(FlowInstanceSearchRequest request, String forcedInitiatorId) {
+        return searchSummaries(request, forcedInitiatorId, null);
+    }
+
+    /**
+     * {@link #searchSummaries(FlowInstanceSearchRequest, String)} for a caller who is also an employee: their record
+     * approvals are the ones they submitted and the ones submitted about them — a request someone filed on their
+     * behalf, whose {@code subjectId} is them. Only their own count as awaiting their revision, since a returned
+     * request someone else filed is that person's to edit.
+     *
+     * @param request           search filters and paging
+     * @param forcedInitiatorId when non-null, pins the search to that caller's record approvals, as above
+     * @param subjectEmployeeId the caller's employee, whose record approvals are theirs too; {@code null} when the
+     *                          caller is no employee, and ignored without {@code forcedInitiatorId}
+     * @return one page of instance summary rows
+     */
+    Page<FlowInstance> searchSummaries(FlowInstanceSearchRequest request, String forcedInitiatorId, Long subjectEmployeeId);
 
     /**
      * Marks every approval of a record superseded, read and written past the caller's data

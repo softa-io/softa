@@ -15,6 +15,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.EmpInfo;
 import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.aspect.DataMaskAspect;
@@ -66,6 +67,8 @@ import io.softa.starter.flow.service.support.FlowInstanceAccessGuard.RecordAdmis
 import io.softa.starter.flow.service.support.FlowUserNames;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -260,7 +263,7 @@ class FlowInstanceApprovalPageReadsTest {
         });
         Page<FlowInstance> page = Page.of(1, 50);
         page.setRows(List.of(row));
-        when(instances.searchSummaries(any(), eq(INITIATOR))).thenReturn(page);
+        when(instances.searchSummaries(any(), eq(INITIATOR), any())).thenReturn(page);
         when(modelService.searchList(eq("FlowApprovalTask"), any(FlexQuery.class))).thenReturn(List.of(
                 Map.of("instanceId", "i1", "nodeId", "approval", "nodeLabel", "Manager", "actorId", APPROVER)));
         when(instanceStore.listByInstanceIds(any())).thenReturn(List.of(state));
@@ -282,6 +285,41 @@ class FlowInstanceApprovalPageReadsTest {
         // Ruled on first, then read past the row scope the guard ruled on, as the caller's own search reads its rows.
         verify(accessGuard).requireInstanceViewer(state, INITIATOR);
         assertEquals(List.of(true), skipped);
+    }
+
+    /**
+     * An employee's own list asks for what was filed about them as well, by their employee; a request HR filed on
+     * their behalf comes back theirs to follow but not theirs to withdraw or urge — those stay with whoever submitted it.
+     */
+    @Test
+    void aRequestFiledOnTheCallersBehalfIsListedButNotWithdrawableByThem() {
+        String employee = "3001";
+        FlowInstance filedByHr = new FlowInstance();
+        filedByHr.setInstanceId("i9");
+        filedByHr.setFlowName("Claims");
+        filedByHr.setStatus(FlowExecutionStatus.WAITING);
+        filedByHr.setRecordApproval(true);
+        filedByHr.setInitiatorId(INITIATOR);
+        filedByHr.setModelName(MODEL);
+        filedByHr.setRowId("9");
+        filedByHr.setSubjectId(42L);
+        Page<FlowInstance> page = Page.of(1, 50);
+        page.setRows(List.of(filedByHr));
+        when(instances.searchSummaries(any(), eq(employee), eq(42L))).thenReturn(page);
+        FlowInstanceController controller = controller(instances);
+
+        Context context = new Context();
+        context.setUserId(Long.valueOf(employee));
+        EmpInfo empInfo = new EmpInfo();
+        empInfo.setEmpId(42L);
+        context.setEmpInfo(empInfo);
+        FlowInstanceSummaryView row = ContextHolder.callWith(context,
+                () -> controller.searchInstances(new FlowInstanceSearchRequest(null, null, null, null, null))).getData().getRows().getFirst();
+
+        assertEquals("i9", row.getInstanceId());
+        assertFalse(Boolean.TRUE.equals(row.getWithdrawable()), "only whoever submitted it may withdraw it");
+        assertNull(row.getUrge());
+        verify(withdrawPolicyGuard, never()).withdrawable(any(), eq(employee));
     }
 
     // ---- the revision it runs ----

@@ -217,16 +217,22 @@ public class FlowInstanceServiceImpl extends EntityServiceImpl<FlowInstance, Lon
     }
 
     @Override
-    public Page<FlowInstance> searchSummaries(FlowInstanceSearchRequest request, String forcedInitiatorId) {
+    public Page<FlowInstance> searchSummaries(FlowInstanceSearchRequest request, String forcedInitiatorId, Long subjectEmployeeId) {
         CallerConditions.requireStoredFields(modelName, request.filters(), request.orders());
+        boolean awaitingRevision = Boolean.TRUE.equals(request.awaitingRevision());
         Filters filters = new Filters();
         if (forcedInitiatorId != null) {
-            // The caller's own list is what they submitted: their records' approvals. An automation run
-            // their write happened to trigger records them as initiator too, but is not theirs to follow.
-            filters.eq(FlowInstance::getInitiatorId, forcedInitiatorId)
-                    .eq(FlowInstance::getRecordApproval, true);
+            // The caller's own list is their records' approvals: what they submitted, and what was submitted about
+            // them — a request filed on their behalf names them as its subject. An automation run their write
+            // happened to trigger records them as initiator too, but is not theirs to follow. Awaiting revision is
+            // only what they submitted: a returned request someone else filed is that person's to edit.
+            Filters own = new Filters().eq(FlowInstance::getInitiatorId, forcedInitiatorId);
+            if (subjectEmployeeId != null && !awaitingRevision) {
+                own = Filters.or(own, new Filters().eq(FlowInstance::getSubjectId, subjectEmployeeId));
+            }
+            filters = Filters.and(own, new Filters().eq(FlowInstance::getRecordApproval, true));
         }
-        if (Boolean.TRUE.equals(request.awaitingRevision())) {
+        if (awaitingRevision) {
             // Returned and not replaced by a later submission: the record still waits to be edited.
             filters.eq(FlowInstance::getStatus, FlowExecutionStatus.RETURNED)
                     .ne(FlowInstance::getSuperseded, true);

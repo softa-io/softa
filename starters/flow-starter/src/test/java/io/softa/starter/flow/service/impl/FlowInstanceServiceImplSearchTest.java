@@ -50,9 +50,49 @@ class FlowInstanceServiceImplSearchTest {
     }
 
     private void runSearch(FlowInstanceSearchRequest request, String forcedInitiatorId) {
+        runSearch(request, forcedInitiatorId, null);
+    }
+
+    private void runSearch(FlowInstanceSearchRequest request, String forcedInitiatorId, Long subjectEmployeeId) {
         doReturn(Page.<FlowInstance>of(1, 50)).when(service).searchPage(any(FlexQuery.class), any());
-        service.searchSummaries(request, forcedInitiatorId);
+        service.searchSummaries(request, forcedInitiatorId, subjectEmployeeId);
         verify(service).searchPage(queryCaptor.capture(), pageCaptor.capture());
+    }
+
+    /** Me, an employee: what HR filed about me is mine too. 我是员工:HR 替我提交的也是我的。 */
+    private static final Long MY_EMPLOYEE = 7L;
+
+    @Test
+    void theCallersListHoldsWhatTheySubmittedAndWhatWasFiledAboutThem() {
+        try (MockedStatic<ModelManager> ignored = StoredFieldsFixture.mockModelManager(FlowInstance.class)) {
+            runSearch(request(null, null), "me", MY_EMPLOYEE);
+        }
+        assertEquals(List.of("hr's leave for me", "my hotel claim", "my taxi claim", "my uncoded taxi"), matched(),
+                "what HR filed about me joins what I submitted; the boss's own, HR's for someone else and my automation run stay out");
+    }
+
+    @Test
+    void anAccountThatIsNoEmployeeKeepsOnlyWhatItSubmitted() {
+        try (MockedStatic<ModelManager> ignored = StoredFieldsFixture.mockModelManager(FlowInstance.class)) {
+            runSearch(request(null, null), "me", null);
+        }
+        assertEquals(List.of("my hotel claim", "my taxi claim", "my uncoded taxi"), matched());
+    }
+
+    /** A returned request HR filed is HR's to edit, so it never awaits my revision. HR 提交被退回的单由 HR 改,不算等我修改。 */
+    @Test
+    void awaitingRevisionIsOnlyWhatTheCallerSubmitted() {
+        try (MockedStatic<ModelManager> ignored = StoredFieldsFixture.mockModelManager(FlowInstance.class)) {
+            runSearch(new FlowInstanceSearchRequest(true, null, null, null, null), "me", MY_EMPLOYEE);
+        }
+        String filters = queryCaptor.getValue().getFilters().toString();
+        assertFalse(filters.contains("subjectId"), "awaiting revision must not widen to the subject: " + filters);
+    }
+
+    @Test
+    void theSubjectNeverWidensTheMonitorSearch() {
+        runSearch(request(null, null), null, MY_EMPLOYEE);
+        assertFalse(queryCaptor.getValue().getFilters().toString().contains("subjectId"));
     }
 
     @Test
@@ -160,7 +200,9 @@ class FlowInstanceServiceImplSearchTest {
                 "my taxi automation run", instanceRow("me", false, "Taxi sync", "EXP-3"),
                 "my uncoded taxi", instanceRow("me", true, "Taxi home", "PAY-4"),
                 "boss's taxi claim", instanceRow("boss", true, "Taxi for the boss", "EXP-5"),
-                "boss's hotel claim", instanceRow("boss", true, "Hotel for the boss", "EXP-6"));
+                "boss's hotel claim", instanceRow("boss", true, "Hotel for the boss", "EXP-6"),
+                "hr's leave for me", instanceRow("hr", true, "Annual leave", "LR-7", MY_EMPLOYEE),
+                "hr's leave for someone else", instanceRow("hr", true, "Annual leave", "LR-8", 8L));
         FilterEvaluator.EvalContext now = new FilterEvaluator.EvalContext(null, null, LocalDate.now(),
                 LocalDateTime.now());
         return rows.entrySet().stream()
@@ -173,8 +215,13 @@ class FlowInstanceServiceImplSearchTest {
 
     private static Map<String, Object> instanceRow(String initiatorId, boolean recordApproval, String title,
                                                    String recordCode) {
+        return instanceRow(initiatorId, recordApproval, title, recordCode, 9L);
+    }
+
+    private static Map<String, Object> instanceRow(String initiatorId, boolean recordApproval, String title,
+                                                   String recordCode, Long subjectId) {
         return Map.of("initiatorId", initiatorId, "recordApproval", recordApproval, "title", title,
-                "recordCode", recordCode);
+                "recordCode", recordCode, "subjectId", subjectId);
     }
 
     /** A search request as a client posts it, read as the runtime reads a body. */

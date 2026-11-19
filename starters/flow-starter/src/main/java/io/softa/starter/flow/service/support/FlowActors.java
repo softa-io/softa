@@ -1,6 +1,7 @@
 package io.softa.starter.flow.service.support;
 
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.EmpInfo;
 import io.softa.starter.flow.runtime.exception.FlowAuthorizationException;
 
 /**
@@ -23,5 +24,14 @@ public final class FlowActors {
             throw new FlowAuthorizationException("Authentication is required");
         }
         return userId.toString();
+    }
+
+    /**
+     * The authenticated user's employee, as the login context resolved it; {@code null} for an account that is
+     * no employee. What a record approval's {@code subjectId} names: the employee the record is about.
+     */
+    public static Long currentEmployeeId() {
+        EmpInfo empInfo = ContextHolder.existContext() ? ContextHolder.getContext().getEmpInfo() : null;
+        return empInfo == null ? null : empInfo.getEmpId();
     }
 }
