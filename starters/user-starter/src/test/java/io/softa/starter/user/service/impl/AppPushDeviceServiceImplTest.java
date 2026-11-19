@@ -222,6 +222,15 @@ class AppPushDeviceServiceImplTest {
     }
 
     @Test
+    void theSessionKeyIsTheSameHexDigestRowsWereStoredWith() throws Exception {
+        // Rows registered before this class hashed with HashUtils were keyed by a hand-rolled SHA-256 in lowercase
+        // hex; both must give the same key, or every existing registration would stop matching its session.
+        byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(SESSION.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        assertThat(AppPushDeviceServiceImpl.sessionKey(SESSION)).isEqualTo(java.util.HexFormat.of().formatHex(digest));
+    }
+
+    @Test
     void aTokenNotShapedLikeItsPlatforms_isRefused() {
         assertThatThrownBy(() -> signedIn(() -> service.register("ios", "fcm:token_from-android", null, null, null)))
                 .isInstanceOf(BusinessException.class);
