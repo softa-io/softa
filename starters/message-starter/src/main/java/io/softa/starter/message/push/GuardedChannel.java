@@ -11,8 +11,8 @@ import lombok.extern.slf4j.Slf4j;
 
 /**
  * Keeps one platform's trouble to itself: its own limit on requests in flight, and a pause once the service stops
- * answering or says to wait. While paused every send returns at once, so a blocked network costs one timeout per
- * {@link #PAUSE}, not one per device.
+ * answering or says it is in trouble as a whole. While paused every send returns at once, so a blocked network costs
+ * one timeout per {@link #PAUSE}, not one per device. One device's rate limit pauses only that device.
  */
 @Slf4j
 final class GuardedChannel {
@@ -42,12 +42,12 @@ final class GuardedChannel {
         try {
             permits.acquire();
             try {
-                PushResult result = channel.send(request);
+                PushChannel.Sent sent = channel.send(request);
                 consecutiveFailures.set(0);
-                if (result.retryAfter() != null) {
-                    pauseFor(result.retryAfter());
+                if (sent.pausePlatform() != null) {
+                    pauseFor(sent.pausePlatform());
                 }
-                return result;
+                return sent.result();
             } finally {
                 permits.release();
             }
@@ -56,6 +56,11 @@ final class GuardedChannel {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return PushResult.retry(null, "Interrupted");
+        } catch (RuntimeException e) {
+            // A send never throws (PushSender): whatever this request carried that the channel could not handle,
+            // trying it again will not help, and the platform is fine.
+            log.warn("Push: {} could not send one notification: {}", platform, e.getClass().getSimpleName());
+            return PushResult.rejected(e.getClass().getSimpleName());
         }
     }
 

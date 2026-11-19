@@ -81,6 +81,10 @@ class PushChannelsTest {
     private KeyPair apnsKey;
 
     private DefaultPushSender apns(java.util.function.Consumer<PushProperties.Apns> tweak) throws Exception {
+        return apns(tweak, CLOCK);
+    }
+
+    private DefaultPushSender apns(java.util.function.Consumer<PushProperties.Apns> tweak, Clock clock) throws Exception {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("EC");
         generator.initialize(new ECGenParameterSpec("secp256r1"));
         apnsKey = generator.generateKeyPair();
@@ -93,7 +97,7 @@ class PushChannelsTest {
         apns.setBaseUrl(baseUrl + "/prod");
         apns.setSandboxBaseUrl(baseUrl + "/sandbox");
         tweak.accept(apns);
-        return new DefaultPushSender(properties, CLOCK);
+        return new DefaultPushSender(properties, clock);
     }
 
     @Test
@@ -166,11 +170,69 @@ class PushChannelsTest {
     }
 
     @Test
-    void anExpiredProviderTokenIsResigned() throws Exception {
-        DefaultPushSender sender = apns(a -> { });
+    void anExpiredProviderTokenSignedLongEnoughAgoIsResigned() throws Exception {
+        MutableClock clock = new MutableClock();
+        DefaultPushSender sender = apns(a -> { }, clock);
+        clock.advance(Duration.ofMinutes(25));
         answers = request -> Answer.of(403, "{\"reason\":\"ExpiredProviderToken\"}");
 
         assertThat(sender.send(request(PushPlatform.IOS, null)).outcome()).isEqualTo(Outcome.RETRY);
+
+        answers = request -> Answer.of(200, "");
+        sender.send(request(PushPlatform.IOS, null));
+        assertThat(seen.get(1).headers().getFirst("authorization"))
+                .isNotEqualTo(seen.get(0).headers().getFirst("authorization"));
+    }
+
+    @Test
+    void anExpiredProviderTokenJustSignedIsAClockProblem_notAResign() throws Exception {
+        MutableClock clock = new MutableClock();
+        DefaultPushSender sender = apns(a -> { }, clock);
+        clock.advance(Duration.ofMinutes(5));
+        answers = request -> Answer.of(403, "{\"reason\":\"ExpiredProviderToken\"}");
+
+        PushResult result = sender.send(request(PushPlatform.IOS, null));
+
+        assertThat(result.outcome()).isEqualTo(Outcome.CONFIG_ERROR);
+        assertThat(result.reason()).contains("clock");
+        answers = request -> Answer.of(200, "");
+        sender.send(request(PushPlatform.IOS, null));
+        assertThat(seen.get(1).headers().getFirst("authorization"))
+                .isEqualTo(seen.get(0).headers().getFirst("authorization"));
+    }
+
+    @Test
+    void theApnsTokenIsResignedAfterFortyMinutes() throws Exception {
+        MutableClock clock = new MutableClock();
+        DefaultPushSender sender = apns(a -> { }, clock);
+        sender.send(request(PushPlatform.IOS, null));
+        clock.advance(Duration.ofMinutes(39));
+        sender.send(request(PushPlatform.IOS, null));
+        clock.advance(Duration.ofMinutes(2));
+        sender.send(request(PushPlatform.IOS, null));
+
+        List<String> tokens = seen.stream().map(request -> request.headers().getFirst("authorization")).toList();
+        assertThat(tokens.get(1)).isEqualTo(tokens.get(0));
+        assertThat(tokens.get(2)).isNotEqualTo(tokens.get(1));
+    }
+
+    @Test
+    void sendsRacingAnExpiringTokenNeverGoOutWithoutOne() throws Exception {
+        MutableClock clock = new MutableClock();
+        DefaultPushSender sender = apns(a -> { }, clock);
+        clock.advance(Duration.ofMinutes(41));
+        List<Thread> threads = new ArrayList<>();
+        for (int i = 0; i < 16; i++) {
+            threads.add(Thread.ofVirtual().start(() -> sender.send(request(PushPlatform.IOS, null))));
+        }
+        for (Thread thread : threads) {
+            thread.join();
+        }
+
+        assertThat(seen).hasSize(16);
+        assertThat(seen).allSatisfy(request -> assertThat(request.headers().getFirst("authorization"))
+                .startsWith("bearer ey").doesNotContain("null"));
+        assertThat(seen.stream().map(request -> request.headers().getFirst("authorization")).distinct()).hasSize(1);
     }
 
     @Test
@@ -182,6 +244,23 @@ class PushChannelsTest {
 
         assertThat(result.outcome()).isEqualTo(Outcome.SENT);
         assertThat(seen).extracting(Seen::path).containsExactly("/prod/3/device/token-1", "/sandbox/3/device/token-1");
+    }
+
+    @Test
+    void anUnreachableSandboxIsARetry_thatDoesNotCountAgainstProduction() throws Exception {
+        DefaultPushSender sender = apns(a -> {
+            a.setSandboxFallback(true);
+            a.setSandboxBaseUrl("http://127.0.0.1:1");
+        });
+        answers = request -> Answer.of(400, "{\"reason\":\"BadDeviceToken\"}");
+
+        for (int i = 0; i < GuardedChannel.FAILURES_BEFORE_PAUSE + 2; i++) {
+            PushResult result = sender.send(request(PushPlatform.IOS, null));
+            assertThat(result.outcome()).isEqualTo(Outcome.RETRY);
+            assertThat(result.reason()).startsWith("Sandbox fallback");
+        }
+        // Never paused: production was asked every time.
+        assertThat(seen).hasSize(GuardedChannel.FAILURES_BEFORE_PAUSE + 2);
     }
 
     @Test
@@ -211,9 +290,9 @@ class PushChannelsTest {
     }
 
     @Test
-    void retryAfterPausesThePlatform() throws Exception {
+    void aServiceInTroublePausesThePlatform() throws Exception {
         DefaultPushSender sender = apns(a -> { });
-        answers = request -> new Answer(429, "{\"reason\":\"TooManyRequests\"}", Map.of("Retry-After", "120"));
+        answers = request -> new Answer(503, "{\"reason\":\"ServiceUnavailable\"}", Map.of("Retry-After", "120"));
 
         PushResult limited = sender.send(request(PushPlatform.IOS, null));
         assertThat(limited.outcome()).isEqualTo(Outcome.RETRY);
@@ -223,6 +302,30 @@ class PushChannelsTest {
         PushResult paused = sender.send(request(PushPlatform.IOS, null));
         assertThat(paused.outcome()).isEqualTo(Outcome.RETRY);
         assertThat(seen).hasSize(1);
+    }
+
+    @Test
+    void oneDevicesRateLimitPausesOnlyThatDevice() throws Exception {
+        DefaultPushSender sender = apns(a -> { });
+        answers = request -> new Answer(429, "{\"reason\":\"TooManyRequests\"}", Map.of("Retry-After", "120"));
+
+        PushResult limited = sender.send(request(PushPlatform.IOS, null));
+        assertThat(limited.outcome()).isEqualTo(Outcome.RETRY);
+        assertThat(limited.retryAfter()).isEqualTo(Duration.ofSeconds(120));
+
+        answers = request -> Answer.of(200, "");
+        assertThat(sender.send(request(PushPlatform.IOS, null)).outcome()).isEqualTo(Outcome.SENT);
+        assertThat(seen).hasSize(2);
+    }
+
+    @Test
+    void fcmRateLimitForOneDeviceDoesNotPauseAndroid() throws Exception {
+        DefaultPushSender sender = fcm();
+        answers = fcmAnswering(new Answer(429, fcmError("RESOURCE_EXHAUSTED", "QUOTA_EXCEEDED"), Map.of("Retry-After", "30")));
+        assertThat(sender.send(request(PushPlatform.ANDROID, null)).retryAfter()).isEqualTo(Duration.ofSeconds(30));
+
+        answers = fcmAnswering(Answer.of(200, "{}"));
+        assertThat(sender.send(request(PushPlatform.ANDROID, null)).outcome()).isEqualTo(Outcome.SENT);
     }
 
     @Test
@@ -240,6 +343,10 @@ class PushChannelsTest {
     // ---- FCM ----
 
     private DefaultPushSender fcm() throws Exception {
+        return fcm(CLOCK);
+    }
+
+    private DefaultPushSender fcm(Clock clock) throws Exception {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
         generator.initialize(2048);
         KeyPair key = generator.generateKeyPair();
@@ -251,7 +358,7 @@ class PushChannelsTest {
         properties.getFcm().setServiceAccountJson(Base64.getEncoder().encodeToString(account.getBytes(StandardCharsets.UTF_8)));
         properties.getFcm().setBaseUrl(baseUrl);
         properties.getFcm().setAndroidChannelId("approvals");
-        return new DefaultPushSender(properties, CLOCK);
+        return new DefaultPushSender(properties, clock);
     }
 
     private Function<Seen, Answer> fcmAnswering(Answer send) {
@@ -306,7 +413,8 @@ class PushChannelsTest {
         DefaultPushSender sender = fcm();
         assertFcm(sender, 404, fcmError("NOT_FOUND", "UNREGISTERED"), Outcome.TOKEN_INVALID, "UNREGISTERED");
         assertFcm(sender, 404, "<html>not found</html>", Outcome.REJECTED, "HTTP 404");
-        assertFcm(sender, 403, fcmError("PERMISSION_DENIED", "SENDER_ID_MISMATCH"), Outcome.CONFIG_ERROR, "SENDER_ID_MISMATCH");
+        assertFcm(sender, 403, fcmError("PERMISSION_DENIED", "SENDER_ID_MISMATCH"), Outcome.REJECTED, "SENDER_ID_MISMATCH");
+        assertFcm(sender, 403, fcmError("PERMISSION_DENIED", "PERMISSION_DENIED"), Outcome.CONFIG_ERROR, "PERMISSION_DENIED");
         assertFcm(sender, 400, fcmError("INVALID_ARGUMENT", "INVALID_ARGUMENT"), Outcome.REJECTED, "INVALID_ARGUMENT");
         assertFcm(sender, 500, fcmError("INTERNAL", "INTERNAL"), Outcome.RETRY, "INTERNAL");
         assertFcm(sender, 503, "<html>gateway</html>", Outcome.RETRY, "HTTP 503");
@@ -330,6 +438,38 @@ class PushChannelsTest {
         answers = request -> Answer.of(400, "{\"error\":\"invalid_grant\"}");
 
         assertThat(fcm().send(request(PushPlatform.ANDROID, null)).outcome()).isEqualTo(Outcome.CONFIG_ERROR);
+    }
+
+    @Test
+    void aRefusedKeyIsNotAskedAgainForAMinute() throws Exception {
+        MutableClock clock = new MutableClock();
+        DefaultPushSender sender = fcm(clock);
+        answers = request -> Answer.of(400, "{\"error\":\"invalid_grant\"}");
+
+        for (int i = 0; i < 5; i++) {
+            assertThat(sender.send(request(PushPlatform.ANDROID, null)).outcome()).isEqualTo(Outcome.CONFIG_ERROR);
+        }
+        assertThat(seen).hasSize(1);
+
+        clock.advance(FcmPushChannel.REFUSED_KEY_BACKOFF.plusSeconds(1));
+        answers = fcmAnswering(Answer.of(200, "{}"));
+        assertThat(sender.send(request(PushPlatform.ANDROID, null)).outcome()).isEqualTo(Outcome.SENT);
+    }
+
+    @Test
+    void anExpiredAccessTokenIsExchangedAgain() throws Exception {
+        MutableClock clock = new MutableClock();
+        DefaultPushSender sender = fcm(clock);
+        answers = fcmAnswering(Answer.of(200, "{}"));
+
+        sender.send(request(PushPlatform.ANDROID, null));
+        clock.advance(Duration.ofMinutes(54));
+        sender.send(request(PushPlatform.ANDROID, null));
+        clock.advance(Duration.ofMinutes(2));
+        sender.send(request(PushPlatform.ANDROID, null));
+
+        assertThat(seen).extracting(Seen::path).containsExactly("/token", "/v1/projects/demo/messages:send",
+                "/v1/projects/demo/messages:send", "/token", "/v1/projects/demo/messages:send");
     }
 
     @Test
@@ -417,7 +557,7 @@ class PushChannelsTest {
         int[] calls = {0};
         PushChannel flaky = request -> {
             if (++calls[0] % 9 == 0) {
-                return PushResult.sent();
+                return PushChannel.Sent.of(PushResult.sent());
             }
             throw new java.net.ConnectException("refused");
         };
@@ -445,6 +585,71 @@ class PushChannelsTest {
         apns(a -> { }).send(request(PushPlatform.IOS, "x".repeat(5000)));
 
         assertThat(seen.getFirst().body().getBytes(StandardCharsets.UTF_8).length).isLessThan(4096);
+    }
+
+    @Test
+    void aMalformedTokenIsRefused_withoutAskingTheService() throws Exception {
+        DefaultPushSender sender = apns(a -> { });
+        for (String token : List.of("a b", "abc%20", "../../x", "x?y=1", "")) {
+            PushResult result = sender.send(new PushRequest(PushPlatform.IOS, token, "t", null, null, null, null,
+                    Duration.ofHours(1)));
+            assertThat(result.outcome()).isEqualTo(Outcome.REJECTED);
+        }
+        assertThat(seen).isEmpty();
+    }
+
+    @Test
+    void whatAChannelThrowsComesBackAsARejection_andDoesNotPause() {
+        PushChannel broken = request -> {
+            throw new IllegalArgumentException("bad uri");
+        };
+        GuardedChannel channel = new GuardedChannel(PushPlatform.IOS, broken, 10, CLOCK);
+
+        for (int i = 0; i < 20; i++) {
+            assertThat(channel.send(request(PushPlatform.IOS, null)).outcome()).isEqualTo(Outcome.REJECTED);
+        }
+    }
+
+    @Test
+    void aRequestWithoutATimeToLiveKeepsTheDefault() throws Exception {
+        apns(a -> { }).send(new PushRequest(PushPlatform.IOS, "token-1", "t", null, null, null, null, null));
+
+        assertThat(seen.getFirst().headers().getFirst("apns-expiration")).isEqualTo(
+                String.valueOf(CLOCK.instant().plus(DefaultPushSender.DEFAULT_TIME_TO_LIVE).getEpochSecond()));
+    }
+
+    @Test
+    void aLongTitleReachesTheServiceCut() throws Exception {
+        apns(a -> { }).send(new PushRequest(PushPlatform.IOS, "token-1", "标题".repeat(500), null, null, null, null,
+                Duration.ofHours(1)));
+
+        Map<?, ?> alert = (Map<?, ?>) ((Map<?, ?>) JSON.readValue(seen.getFirst().body(), Map.class).get("aps")).get("alert");
+        assertThat(alert.get("title").toString().getBytes(StandardCharsets.UTF_8).length)
+                .isLessThanOrEqualTo(DefaultPushSender.MAX_TITLE_BYTES);
+    }
+
+    /** A clock the test moves on by hand. */
+    private static final class MutableClock extends Clock {
+        private volatile Instant now = CLOCK.instant();
+
+        void advance(Duration duration) {
+            now = now.plus(duration);
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
+        }
+
+        @Override
+        public java.time.ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(java.time.ZoneId zone) {
+            return this;
+        }
     }
 
     private static PushRequest request(PushPlatform platform, String body) {

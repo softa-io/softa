@@ -419,9 +419,16 @@ an application should skip the work. An unusable key logs an ERROR and leaves th
 only APNs 410 `Unregistered` and FCM `UNREGISTERED`, the two answers that say so for certain — APNs `BadDeviceToken` is
 also what a token of the other APNs environment gets, so it is `REJECTED`),
 `RETRY` (service or network trouble), `CONFIG_ERROR` (credentials or target are wrong; the token says nothing) or
-`REJECTED`. After 10 network failures in a row, or when a service says `Retry-After`, that platform pauses and sends
-return `RETRY` at once, so a blocked network costs one timeout per minute rather than one per device. The other platform
-is not affected.
+`REJECTED` (FCM `SENDER_ID_MISMATCH` among them: the token belongs to another Firebase project). After 10 network
+failures in a row, or when a service answers 5xx with `Retry-After`, that platform pauses and sends return `RETRY` at
+once, so a blocked network costs one timeout per minute rather than one per device. A 429 is one device's rate limit:
+that send is a `RETRY` with the service's `Retry-After`, and the platform carries on. The other platform is never
+affected. A token that is not shaped like one (`[A-Za-z0-9:_-]`, at most 512) is `REJECTED` without a request; a title
+is cut to 200 bytes and a body to 1000; a request without a time to live gets 24 hours. When the token endpoint
+refuses FCM's key, sends answer `CONFIG_ERROR` for a minute without asking it again. APNs' signed token is renewed every
+40 minutes; an `ExpiredProviderToken` for a token signed less than 20 minutes ago is a `CONFIG_ERROR` pointing at the
+server's clock, since re-signing sooner would only earn `TooManyProviderTokenUpdates`. `log-only` logs the platform,
+the token's last six characters and the ids at INFO, and what the notification says only at DEBUG.
 
 ### Message-starter properties
 

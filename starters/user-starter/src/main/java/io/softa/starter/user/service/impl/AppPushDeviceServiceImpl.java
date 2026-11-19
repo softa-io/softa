@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.regex.Pattern;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -13,6 +14,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -44,6 +48,10 @@ public class AppPushDeviceServiceImpl extends EntityServiceImpl<AppPushDevice, L
         implements AppPushDeviceService, PushDeviceRegistry {
 
     static final Set<String> PLATFORMS = Set.of("ios", "android");
+    /** An APNs device token: hex, 32 bytes today, longer on a simulator and possibly later. */
+    static final Pattern APNS_TOKEN = Pattern.compile("[0-9a-fA-F]{64,200}");
+    /** An FCM registration token. */
+    static final Pattern FCM_TOKEN = Pattern.compile("[A-Za-z0-9:_\\-]{1,512}");
 
     /**
      * The session the request carries says who is registering: its account, person and company.
@@ -53,12 +61,19 @@ public class AppPushDeviceServiceImpl extends EntityServiceImpl<AppPushDevice, L
     @Autowired
     private SessionStore sessionStore;
 
+    /** Absent in a unit test: the steps of a registration then run without a transaction. */
+    @Autowired(required = false)
+    private PlatformTransactionManager transactionManager;
+
     @Override
     public void register(String platform, String deviceToken, String appVersion, String deviceModel, String locale) {
         String token = StringUtils.trimToNull(deviceToken);
         String os = platform == null ? null : platform.trim().toLowerCase();
         if (token == null || !PLATFORMS.contains(os)) {
             throw new BusinessException("A device token and its platform (ios or android) are required.");
+        }
+        if (!("ios".equals(os) ? APNS_TOKEN : FCM_TOKEN).matcher(token).matches()) {
+            throw new BusinessException("The device token is not a {0} push token.", "ios".equals(os) ? "APNs" : "FCM");
         }
         String sessionId = currentSessionId();
         SessionRecord session = this.currentSession(sessionId);
@@ -78,14 +93,29 @@ public class AppPushDeviceServiceImpl extends EntityServiceImpl<AppPushDevice, L
         details.setLastSeenAt(LocalDateTime.now());
         acrossTenants(() -> {
             try {
-                this.save(details);
+                this.inOwnTransaction(() -> this.save(details));
             } catch (DuplicateKeyException e) {
                 // The APP registered the same token twice at once and the other request inserted it
                 // between this one's read and its insert: the row is there now, so this is an update.
-                this.save(details);
+                // A new transaction: on PostgreSQL the failed insert has spoiled the first one.
+                this.inOwnTransaction(() -> this.save(details));
             }
             return null;
         });
+    }
+
+    /**
+     * {@code action} in a transaction of its own, so moving a token to another company — delete, then insert — never
+     * leaves the token registered nowhere, and a retry after a duplicate key starts clean.
+     */
+    private void inOwnTransaction(Runnable action) {
+        if (transactionManager == null) {
+            action.run();
+            return;
+        }
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        template.executeWithoutResult(status -> action.run());
     }
 
     /** Insert the token, or move its row to these details. */
@@ -136,7 +166,8 @@ public class AppPushDeviceServiceImpl extends EntityServiceImpl<AppPushDevice, L
         if (StringUtils.isBlank(deviceToken) || accountId == null) {
             return;
         }
-        this.drop(new Filters().eq(AppPushDevice::getDeviceToken, deviceToken).eq(AppPushDevice::getAccountId, accountId));
+        this.drop(new Filters().eq(AppPushDevice::getDeviceToken, deviceToken).eq(AppPushDevice::getAccountId, accountId),
+                "token ..." + StringUtils.right(deviceToken, 6) + " of account " + accountId);
     }
 
     @Override
@@ -175,20 +206,21 @@ public class AppPushDeviceServiceImpl extends EntityServiceImpl<AppPushDevice, L
             return;
         }
         // Only the person's own: naming a token is not proof of holding it.
-        this.drop(new Filters().eq(AppPushDevice::getDeviceToken, token).eq(AppPushDevice::getProfileId, profileId));
+        this.drop(new Filters().eq(AppPushDevice::getDeviceToken, token).eq(AppPushDevice::getProfileId, profileId),
+                "token ..." + StringUtils.right(token, 6) + " of person " + profileId);
     }
 
     @Override
     public void unregisterPerson(Long profileId) {
         if (profileId != null) {
-            this.drop(new Filters().eq(AppPushDevice::getProfileId, profileId));
+            this.drop(new Filters().eq(AppPushDevice::getProfileId, profileId), "person " + profileId);
         }
     }
 
     @Override
     public void unregisterAccount(Long accountId) {
         if (accountId != null) {
-            this.drop(new Filters().eq(AppPushDevice::getAccountId, accountId));
+            this.drop(new Filters().eq(AppPushDevice::getAccountId, accountId), "account " + accountId);
         }
     }
 
@@ -200,13 +232,17 @@ public class AppPushDeviceServiceImpl extends EntityServiceImpl<AppPushDevice, L
     public void onSessionRevoked(SessionRevokedEvent event) {
         String key = sessionKey(event.sessionId());
         if (key != null) {
-            this.drop(new Filters().eq(AppPushDevice::getSessionKey, key));
+            this.drop(new Filters().eq(AppPushDevice::getSessionKey, key), "a revoked session");
         }
     }
 
     /**
      * The session the device registered under was renewed, so it lives on and so does the
      * registration. Renewal happens at most about once a day per client, not on every request.
+     *
+     * <p>Only {@code lastSeenAt}, and only on rows still under this session: a whole row read and written back could
+     * undo a registration made in between — the device signed out and someone else signed in on it — and give the
+     * token back to the previous account.
      */
     @EventListener
     public void onSessionRenewed(SessionRenewedEvent event) {
@@ -216,13 +252,9 @@ public class AppPushDeviceServiceImpl extends EntityServiceImpl<AppPushDevice, L
         }
         try {
             acrossTenants(() -> {
-                List<AppPushDevice> devices = this.searchList(new Filters().eq(AppPushDevice::getSessionKey, key));
-                LocalDateTime now = LocalDateTime.now();
-                devices.forEach(device -> {
-                    device.setLastSeenAt(now);
-                    this.updateOne(device, false);
-                });
-                return null;
+                AppPushDevice seen = new AppPushDevice();
+                seen.setLastSeenAt(LocalDateTime.now());
+                return this.updateByFilter(new Filters().eq(AppPushDevice::getSessionKey, key), seen);
             });
         } catch (RuntimeException e) {
             // Never fail the request that renewed the session; the registration is only stale sooner.
@@ -230,7 +262,8 @@ public class AppPushDeviceServiceImpl extends EntityServiceImpl<AppPushDevice, L
         }
     }
 
-    private void drop(Filters filters) {
+    /** {@code what} names the rows for the log, without a whole device token. */
+    private void drop(Filters filters, String what) {
         try {
             acrossTenants(() -> {
                 List<Long> ids = this.searchList(filters).stream().map(AppPushDevice::getId)
@@ -243,7 +276,7 @@ public class AppPushDeviceServiceImpl extends EntityServiceImpl<AppPushDevice, L
         } catch (RuntimeException e) {
             // A registration left behind only means a notification to a device that should no longer
             // get it; it must not fail the sign-out, freeze or reset that asked for the drop.
-            log.warn("Push devices not dropped for {}: {}", filters, e.getMessage());
+            log.warn("Push devices not dropped for {}: {}", what, e.getClass().getSimpleName());
         }
     }
 

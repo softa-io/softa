@@ -12,6 +12,9 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
 
 import io.softa.starter.user.entity.AppPushDevice;
 import io.softa.framework.base.context.Context;
@@ -47,7 +50,7 @@ class AppPushDeviceServiceImplTest {
 
     private static final Long ACCOUNT = 100L;
     private static final Long ADA = 7L;
-    private static final String TOKEN = "apns-token";
+    private static final String TOKEN = "a1b2c3d4".repeat(8);
     private static final String SESSION = "session-1";
 
     private final SessionStore sessionStore = mock(SessionStore.class);
@@ -61,6 +64,7 @@ class AppPushDeviceServiceImplTest {
         doReturn(true).when(service).updateOne(any(AppPushDevice.class), anyBoolean());
         doReturn(true).when(service).deleteByIds(anyList());
         doReturn(true).when(service).deleteById(any());
+        doReturn(1).when(service).updateByFilter(any(Filters.class), any(AppPushDevice.class));
     }
 
     @AfterEach
@@ -161,20 +165,79 @@ class AppPushDeviceServiceImplTest {
     }
 
     @Test
-    void aRenewedSession_keepsItsDevicesAlive() {
-        AppPushDevice device = new AppPushDevice();
-        device.setId(5L);
-        device.setLastSeenAt(LocalDateTime.now().minusDays(6));
-        stored(device);
+    void movingATokenToAnotherCompany_happensInOneTransaction_andTheRetryInAFreshOne() {
+        PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
+        when(transactions.getTransaction(any())).thenReturn(mock(TransactionStatus.class));
+        ReflectionTestUtils.setField(service, "transactionManager", transactions);
+        AppPushDevice elsewhere = new AppPushDevice();
+        elsewhere.setId(5L);
+        elsewhere.setDeviceToken(TOKEN);
+        elsewhere.setTenantId(2L);
+        // The delete and the first insert in one transaction; the insert loses the race, and the retry is its own.
+        doReturn(List.of(elsewhere)).doReturn(List.of()).when(service).searchList(any(Filters.class));
+        doThrow(new DuplicateKeyException("uk_app_push_device_token")).doReturn(1L)
+                .when(service).createOne(any(AppPushDevice.class));
 
+        signedIn(() -> service.register("ios", TOKEN, "1.0.1", null, null));
+
+        ArgumentCaptor<TransactionDefinition> opened = ArgumentCaptor.forClass(TransactionDefinition.class);
+        verify(transactions, org.mockito.Mockito.times(2)).getTransaction(opened.capture());
+        assertThat(opened.getAllValues()).allMatch(definition ->
+                definition.getPropagationBehavior() == TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        verify(transactions).rollback(any());
+        verify(transactions).commit(any());
+    }
+
+    @Test
+    void aRenewedSession_keepsItsDevicesAlive_byTouchingOnlyLastSeen() {
         service.onSessionRenewed(new SessionRenewedEvent(SESSION,
                 new SessionRecord(ACCOUNT, ADA, 1L, "ios", "1.0.0", null, LocalDateTime.now())));
 
         ArgumentCaptor<Filters> filters = ArgumentCaptor.forClass(Filters.class);
-        verify(service).searchList(filters.capture());
+        ArgumentCaptor<AppPushDevice> values = ArgumentCaptor.forClass(AppPushDevice.class);
+        verify(service).updateByFilter(filters.capture(), values.capture());
+        // Only rows still under this session: one handed to another account in between is left alone.
         assertThat(filters.getValue().toString()).contains(AppPushDeviceServiceImpl.sessionKey(SESSION));
-        verify(service).updateOne(device, false);
-        assertThat(device.getLastSeenAt()).isAfter(LocalDateTime.now().minusMinutes(1));
+        AppPushDevice written = values.getValue();
+        assertThat(written.getLastSeenAt()).isAfter(LocalDateTime.now().minusMinutes(1));
+        assertThat(written.getAccountId()).isNull();
+        assertThat(written.getSessionKey()).isNull();
+        assertThat(written.getTenantId()).isNull();
+        assertThat(written.getDeviceToken()).isNull();
+        verify(service, never()).updateOne(any(AppPushDevice.class), anyBoolean());
+        verify(service, never()).searchList(any(Filters.class));
+    }
+
+    @Test
+    void aRenewalRacingANewRegistrationOnTheDevice_cannotGiveTheTokenBack() {
+        // B signed in on A's device and registered: the row is B's, under B's session. A's late renewal must match
+        // nothing, so it is a conditional update on A's session, never a read-and-write of the row.
+        service.onSessionRenewed(new SessionRenewedEvent("session-of-a",
+                new SessionRecord(1L, 2L, 1L, "ios", "1.0.0", null, LocalDateTime.now())));
+
+        ArgumentCaptor<Filters> filters = ArgumentCaptor.forClass(Filters.class);
+        verify(service).updateByFilter(filters.capture(), any(AppPushDevice.class));
+        assertThat(filters.getValue().toString()).contains(AppPushDeviceServiceImpl.sessionKey("session-of-a"))
+                .doesNotContain(AppPushDeviceServiceImpl.sessionKey(SESSION));
+    }
+
+    @Test
+    void aTokenNotShapedLikeItsPlatforms_isRefused() {
+        assertThatThrownBy(() -> signedIn(() -> service.register("ios", "fcm:token_from-android", null, null, null)))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> signedIn(() -> service.register("ios", "a1b2 c3d4".repeat(8), null, null, null)))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> signedIn(() -> service.register("android", "bad/token?x", null, null, null)))
+                .isInstanceOf(BusinessException.class);
+        verify(service, never()).createOne(any(AppPushDevice.class));
+    }
+
+    @Test
+    void anAndroidToken_isRegistered() {
+        stored();
+        signedIn(() -> service.register("android", "fGx1:APA91b_abc-DEF", null, null, null));
+
+        verify(service).createOne(any(AppPushDevice.class));
     }
 
     @Test

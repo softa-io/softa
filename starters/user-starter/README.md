@@ -256,11 +256,12 @@ off: `DELETE /app/devices/{deviceToken}`, only the caller's own. An application 
 `DELETE /app/devices/*` in `app.upgrade-exempt-paths` (softa-web README) so an APP stuck on the upgrade screen can
 still stop notifications.
 
-A registration belongs to the account and the session it was made under, never to the request: one token is one
-row, moved to whoever registers it next (a token moving to another tenant gets a new row, since a row's tenant is
-fixed once written). It goes when its session does — signed out, revoked (`SessionRevokedEvent`), the account
+The token must look like its platform's: hex, 64 to 200 characters, for `ios`; `[A-Za-z0-9:_-]`, at most 512, for
+`android`. A registration belongs to the account and the session it was made under, never to the request: one token
+is one row, moved to whoever registers it next (a token moving to another tenant gets a new row, since a row's tenant
+is fixed once written; the delete and the insert share one transaction). It goes when its session does — signed out, revoked (`SessionRevokedEvent`), the account
 frozen or closed, the person reset — and a session that simply runs out announces nothing, so `lastSeenAt` moves on
-with each renewal (`SessionRenewedEvent`) and a row not seen for `SessionStore.TTL_SECONDS` is dead: `liveDevices`
+with each renewal (`SessionRenewedEvent`; only `lastSeenAt`, and only on rows still under that session) and a row not seen for `SessionStore.TTL_SECONDS` is dead: `liveDevices`
 skips it and the `DropStalePushDevices` cron (CrossTenant, nightly, in `SysCron.UserMaintenance.json`) removes it.
 
 A sender reads `AppPushDeviceService.liveDevices(accountIds)` and, when a push service says a token no longer

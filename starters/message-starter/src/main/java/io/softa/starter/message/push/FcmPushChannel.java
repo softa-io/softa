@@ -30,6 +30,13 @@ final class FcmPushChannel implements PushChannel {
     private static final String SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
     private static final String DEFAULT_TOKEN_URL = "https://oauth2.googleapis.com/token";
     private static final Duration ACCESS_TOKEN_MARGIN = Duration.ofMinutes(5);
+    /**
+     * After the token endpoint refused the key, sends answer CONFIG_ERROR at once for this long instead of asking
+     * again each time: asking happens under one lock, so every send would queue behind it.
+     */
+    static final Duration REFUSED_KEY_BACKOFF = Duration.ofMinutes(1);
+    /** The token belongs to another Firebase project: that device's, not the configuration's. */
+    private static final String SENDER_ID_MISMATCH = "SENDER_ID_MISMATCH";
 
     private final PushProperties.Fcm properties;
     private final Duration requestTimeout;
@@ -43,6 +50,7 @@ final class FcmPushChannel implements PushChannel {
     private final ReentrantLock tokenLock = new ReentrantLock();
     private volatile String accessToken;
     private volatile Instant accessTokenExpiresAt;
+    private volatile Refusal refusal;
 
     FcmPushChannel(PushProperties.Fcm properties, Duration connectTimeout, Duration requestTimeout, Clock clock)
             throws GeneralSecurityException {
@@ -64,12 +72,15 @@ final class FcmPushChannel implements PushChannel {
     }
 
     @Override
-    public PushResult send(PushRequest request) throws IOException, InterruptedException {
+    public Sent send(PushRequest request) throws IOException, InterruptedException {
+        if (request.deviceToken() == null || !TOKEN.matcher(request.deviceToken()).matches()) {
+            return Sent.of(PushResult.rejected("Malformed device token"));
+        }
         String access;
         try {
             access = currentAccessToken();
         } catch (TokenRefused e) {
-            return PushResult.configError(e.getMessage());
+            return Sent.of(PushResult.configError(e.getMessage()));
         }
         HttpResponse<String> response = client.send(HttpRequest.newBuilder(
                         URI.create(properties.getBaseUrl() + "/v1/projects/" + projectId + "/messages:send"))
@@ -81,29 +92,34 @@ final class FcmPushChannel implements PushChannel {
         return classify(response);
     }
 
-    private PushResult classify(HttpResponse<String> response) {
+    private Sent classify(HttpResponse<String> response) {
         int status = response.statusCode();
         if (status == 200) {
-            return PushResult.sent();
+            return Sent.of(PushResult.sent());
         }
         String reason = reasonOf(response.body(), status);
         if ("UNREGISTERED".equals(reason)) {
-            return PushResult.tokenInvalid(reason);
+            return Sent.of(PushResult.tokenInvalid(reason));
+        }
+        if (SENDER_ID_MISMATCH.equals(reason)) {
+            return Sent.of(PushResult.rejected(reason));
         }
         if (status == 401) {
             accessToken = null;
-            return PushResult.configError(reason);
+            return Sent.of(PushResult.configError(reason));
         }
         if (status == 403) {
-            return PushResult.configError(reason);
+            return Sent.of(PushResult.configError(reason));
         }
-        if (status == 429 || status >= 500) {
-            return PushResult.retry(response.headers().firstValue("retry-after")
-                    .filter(value -> value.matches("\\d+"))
-                    .map(value -> Duration.ofSeconds(Long.parseLong(value)))
-                    .orElse(null), reason);
+        Duration retryAfter = PushCredentials.retryAfter(response);
+        // 429 is usually one device's message rate: that device waits, the others go on.
+        if (status == 429) {
+            return Sent.of(PushResult.retry(retryAfter, reason));
         }
-        return PushResult.rejected(reason);
+        if (status >= 500) {
+            return new Sent(PushResult.retry(retryAfter, reason), retryAfter);
+        }
+        return Sent.of(PushResult.rejected(reason));
     }
 
     private String payload(PushRequest request) {
@@ -136,11 +152,21 @@ final class FcmPushChannel implements PushChannel {
     }
 
     private String currentAccessToken() throws IOException, InterruptedException, TokenRefused {
+        Refusal refused = refusal;
+        if (refused != null && clock.instant().isBefore(refused.until())) {
+            throw new TokenRefused(refused.message());
+        }
         if (accessToken == null || !clock.instant().isBefore(accessTokenExpiresAt)) {
             tokenLock.lock();
             try {
                 if (accessToken == null || !clock.instant().isBefore(accessTokenExpiresAt)) {
-                    exchangeKey();
+                    try {
+                        exchangeKey();
+                        refusal = null;
+                    } catch (TokenRefused e) {
+                        refusal = new Refusal(e.getMessage(), clock.instant().plus(REFUSED_KEY_BACKOFF));
+                        throw e;
+                    }
                 }
             } finally {
                 tokenLock.unlock();
@@ -209,6 +235,9 @@ final class FcmPushChannel implements PushChannel {
     private static String textOf(Map<?, ?> map, String key) {
         Object value = map.get(key);
         return value == null ? null : value.toString();
+    }
+
+    private record Refusal(String message, Instant until) {
     }
 
     /** The token endpoint answered and said no: the key is wrong, and asking again will not change that. */

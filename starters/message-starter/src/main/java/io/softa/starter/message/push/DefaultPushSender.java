@@ -27,6 +27,10 @@ public class DefaultPushSender implements PushSender {
 
     /** Both services take at most 4 KB, and an approval comment can be far longer. */
     static final int MAX_BODY_BYTES = 1000;
+    /** A lock screen shows a line or two of title; the rest only costs payload room. */
+    static final int MAX_TITLE_BYTES = 200;
+    /** How long the services keep trying an offline device when the request does not say. */
+    static final Duration DEFAULT_TIME_TO_LIVE = Duration.ofHours(24);
     private static final Duration CONFIG_ERROR_LOG_INTERVAL = Duration.ofMinutes(5);
 
     private final boolean logOnly;
@@ -77,13 +81,16 @@ public class DefaultPushSender implements PushSender {
 
     @Override
     public PushResult send(PushRequest request) {
-        PushRequest fitted = new PushRequest(request.platform(), request.deviceToken(), request.title(),
-                fit(request.body(), MAX_BODY_BYTES), request.data(), request.dedupeId(), request.threadId(),
-                request.timeToLive());
+        PushRequest fitted = new PushRequest(request.platform(), request.deviceToken(),
+                fit(request.title(), MAX_TITLE_BYTES), fit(request.body(), MAX_BODY_BYTES), request.data(),
+                request.dedupeId(), request.threadId(),
+                request.timeToLive() == null || request.timeToLive().isNegative() ? DEFAULT_TIME_TO_LIVE
+                        : request.timeToLive());
         if (logOnly) {
-            log.info("Push (log only): platform={} token=...{} dedupeId={} threadId={} title={} body={} data={}",
-                    fitted.platform(), StringUtils.right(fitted.deviceToken(), 6), fitted.dedupeId(), fitted.threadId(),
-                    fitted.title(), fitted.body(), fitted.data());
+            // What the notification says can be personal (an approval comment, whose payslip): only at DEBUG.
+            log.info("Push (log only): platform={} token=...{} dedupeId={} threadId={}",
+                    fitted.platform(), StringUtils.right(fitted.deviceToken(), 6), fitted.dedupeId(), fitted.threadId());
+            log.debug("Push (log only) content: title={} body={} data={}", fitted.title(), fitted.body(), fitted.data());
             return PushResult.sent();
         }
         GuardedChannel channel = channels.get(request.platform());
