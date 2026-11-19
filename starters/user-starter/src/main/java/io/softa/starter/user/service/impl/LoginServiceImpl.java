@@ -37,6 +37,7 @@ import io.softa.starter.user.service.*;
 import io.softa.starter.user.spi.PushDeviceRegistry;
 import io.softa.starter.user.util.ClientInfo;
 import io.softa.starter.user.util.LoginIdentifiers;
+import io.softa.starter.user.template.VerificationCodeVariables;
 
 /**
  * UserAccount Model Service Implementation
@@ -449,15 +450,14 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         // PLATFORM tier: a login / join code is requested BEFORE any session, so there is no tenant
         // context to render a tenant-specific template from — the platform row is the code's copy.
         SendMailDTO mail = SendMailDTO.ofTemplate(List.of(email), TEMPLATE_CODE,
-                Map.of("code", code, "expiryMinutes", CODE_EXPIRY_MINUTES,
-                        "employeeName", StringUtils.defaultString(name)), MessageScope.PLATFORM);
+                new VerificationCodeVariables(code, CODE_EXPIRY_MINUTES, name), MessageScope.PLATFORM);
         sendCode(tenantId, () -> messageService.sendMail(mail));
     }
 
     /** Text an issued code to a normalised number. */
     private void textCode(String mobile, String code, Long tenantId) {
         SendSmsDTO sms = SendSmsDTO.ofTemplate(mobile, TEMPLATE_CODE,
-                Map.of("code", code, "expiryMinutes", CODE_EXPIRY_MINUTES), MessageScope.PLATFORM);
+                new VerificationCodeVariables(code, CODE_EXPIRY_MINUTES), MessageScope.PLATFORM);
         sendCode(tenantId, () -> messageService.sendSms(sms));
     }
 

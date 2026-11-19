@@ -3,12 +3,17 @@ package io.softa.starter.message.mail.validation;
 import java.util.Set;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
+import io.softa.framework.base.placeholder.TemplateBlocks;
+import io.softa.framework.base.placeholder.TemplateEngine;
 import io.softa.framework.orm.service.validation.ModelWriteValidator;
 import io.softa.framework.orm.service.validation.WriteContext;
 import io.softa.starter.message.mail.service.MailSendServerConfigService;
 import io.softa.starter.message.mail.service.PlatformMailSendServerService;
 import io.softa.starter.message.mail.service.PlatformMailTemplateService;
+import io.softa.starter.message.template.TemplateSourceRules;
+import io.softa.starter.message.template.TemplateUsage;
 
 /**
  * The two template rules no field declaration can express, on every write path (the template pages,
@@ -22,6 +27,12 @@ import io.softa.starter.message.mail.service.PlatformMailTemplateService;
  *       tenant's send servers, a platform template one of the platform's — the two tables never mix.
  *       A tenant's server is looked up within the writing tenant, so another tenant's id is "not
  *       found".</li>
+ *   <li><b>The content fits its source and can be compiled.</b> A template that names where its
+ *       variables come from — {@code variablesName}, a declared set, or {@code modelName}, a model's
+ *       record — may only use what that source has ({@link TemplateSourceRules}); a name it does not
+ *       have could only ever print nothing. And whatever the source, a body the template engine
+ *       cannot compile is refused here rather than at the first send. Checked on create, and on an
+ *       update that touches the source or the content.</li>
  * </ul>
  */
 @Component
@@ -33,7 +44,16 @@ public class MailTemplateWriteValidator implements ModelWriteValidator {
     static final String CODE = "code";
     static final String PREFERRED_SERVER = "preferredServerConfigId";
 
+    static final String VARIABLES_NAME = "variablesName";
+    static final String MODEL_NAME = "modelName";
+    static final String SUBJECT = "subject";
+    static final String BODY_HTML = "bodyHtml";
+    static final String BODY_TEXT = "bodyText";
+
     private static final Set<String> MODELS = Set.of(TENANT_MODEL, PLATFORM_MODEL);
+
+    /** The columns whose change calls for the content to be checked again. */
+    private static final Set<String> CONTENT = Set.of(VARIABLES_NAME, MODEL_NAME, SUBJECT, BODY_HTML, BODY_TEXT);
 
     private final PlatformMailTemplateService platformTemplateService;
 
@@ -41,12 +61,16 @@ public class MailTemplateWriteValidator implements ModelWriteValidator {
 
     private final PlatformMailSendServerService platformSendServerService;
 
+    private final TemplateSourceRules sourceRules;
+
     public MailTemplateWriteValidator(PlatformMailTemplateService platformTemplateService,
                                       MailSendServerConfigService sendServerService,
-                                      PlatformMailSendServerService platformSendServerService) {
+                                      PlatformMailSendServerService platformSendServerService,
+                                      TemplateSourceRules sourceRules) {
         this.platformTemplateService = platformTemplateService;
         this.sendServerService = sendServerService;
         this.platformSendServerService = platformSendServerService;
+        this.sourceRules = sourceRules;
     }
 
     @Override
@@ -58,6 +82,7 @@ public class MailTemplateWriteValidator implements ModelWriteValidator {
     public void validateCreate(WriteContext ctx) {
         checkCode(ctx);
         checkPreferredServer(ctx);
+        checkContent(ctx);
     }
 
     @Override
@@ -68,6 +93,40 @@ public class MailTemplateWriteValidator implements ModelWriteValidator {
         if (ctx.patch().containsKey(PREFERRED_SERVER)) {
             checkPreferredServer(ctx);
         }
+        if (ctx.patch().keySet().stream().anyMatch(CONTENT::contains)) {
+            checkContent(ctx);
+        }
+    }
+
+    private void checkContent(WriteContext ctx) {
+        String variablesName = text(ctx.row().get(VARIABLES_NAME));
+        // A platform template has no model: it is always filled by code.
+        String modelName = TENANT_MODEL.equals(ctx.modelName()) ? text(ctx.row().get(MODEL_NAME)) : null;
+        String bodyHtml = text(ctx.row().get(BODY_HTML));
+        String bodyText = text(ctx.row().get(BODY_TEXT));
+        TemplateUsage usage = TemplateUsage.ofMail(text(ctx.row().get(SUBJECT)), bodyHtml, bodyText);
+        if (usage.blockError() != null) {
+            ctx.reject(BODY_HTML, usage.blockError());
+        } else {
+            rejectUncompilable(ctx, BODY_HTML, TemplateBlocks.toPebble(bodyHtml));
+        }
+        rejectUncompilable(ctx, BODY_TEXT, bodyText);
+        String sourceField = StringUtils.hasText(modelName) && !StringUtils.hasText(variablesName)
+                ? MODEL_NAME : VARIABLES_NAME;
+        for (String problem : sourceRules.problems(variablesName, modelName, usage)) {
+            ctx.reject(sourceField, problem);
+        }
+    }
+
+    private static void rejectUncompilable(WriteContext ctx, String field, String template) {
+        String problem = TemplateEngine.syntaxProblem(template);
+        if (problem != null) {
+            ctx.reject(field, "The template cannot be read: " + problem);
+        }
+    }
+
+    private static String text(Object raw) {
+        return raw == null ? null : raw.toString();
     }
 
     private void checkCode(WriteContext ctx) {

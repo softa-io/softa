@@ -48,6 +48,12 @@ public class SmsTemplate extends AuditableModel {
     @Field(length = 500)
     private String description;
 
+    /** As on a mail template: the {@code @TemplateVariables} set the content is written against. */
+    @Field(length = 100,
+            description = "Name of the declared set of template variables this template is written "
+                    + "against, e.g. user.verification-code. Empty = unchecked.")
+    private String variablesName;
+
     @Field(fieldType = FieldType.TEXT,
             description = "SMS body template with {{ variable }} placeholders")
     private String content;

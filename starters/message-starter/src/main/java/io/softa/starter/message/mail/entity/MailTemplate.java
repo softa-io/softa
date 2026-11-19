@@ -33,4 +33,14 @@ public class MailTemplate extends AbstractMailTemplate {
 
     @Field(label = "Tenant ID")
     private Long tenantId;
+
+    /**
+     * Where the template's variables come from when a record fills them: the model whose fields it
+     * prints. A send then names the record ({@code SendMailDTO.ofRecord}) instead of passing values.
+     * At most one of this and {@code variablesName} is set. Tenant templates only — a platform
+     * template is always filled by code.
+     */
+    @Field(description = "Model whose record fills this template; its fields are the template's "
+            + "variables. Empty = the template is filled by the sender.")
+    private String modelName;
 }

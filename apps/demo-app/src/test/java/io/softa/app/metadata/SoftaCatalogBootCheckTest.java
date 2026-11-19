@@ -1,9 +1,14 @@
 package io.softa.app.metadata;
 
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
+import io.softa.framework.orm.meta.TemplateVariablesRegistry;
+import io.softa.framework.orm.meta.TemplateVariablesScanner;
 import io.softa.starter.metadata.scanner.CatalogBootCheck;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 /**
  * Every softa model, put through the checks an application makes when it loads its catalog at
@@ -22,5 +27,22 @@ class SoftaCatalogBootCheckTest {
     @Test
     void everySoftaModelPassesTheBootChecks() {
         CatalogBootCheck.validate(List.of("io.softa"), true);
+    }
+
+    /**
+     * Every {@code @TemplateVariables} set softa declares, registered the way an application
+     * registers them at boot. A name declared twice — by two starters that never meet in each
+     * other's tests — or a set that cannot be described stops every application there, so it is
+     * caught here first. An application adds its own sets and repeats this check over its packages.
+     */
+    @Test
+    void everySoftaTemplateVariablesSetRegisters() {
+        Set<Class<?>> declared = TemplateVariablesScanner.scan(Set.of("io.softa"));
+        try {
+            TemplateVariablesRegistry.register(declared);
+            assertFalse(TemplateVariablesRegistry.names().isEmpty(), "softa declares template variables");
+        } finally {
+            TemplateVariablesRegistry.register(Set.of());
+        }
     }
 }

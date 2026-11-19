@@ -1,6 +1,7 @@
 package io.softa.starter.message.service.internal;
 
 import java.util.List;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -82,6 +83,12 @@ public class MessageServiceImpl implements MessageService {
             throw new BusinessException("SMS send rejected: phoneNumber is required");
         }
         smsProviderDispatcher.resolveProviders(phoneNumber);
+    }
+
+    @Override
+    @Transactional(noRollbackFor = BusinessException.class)
+    public Optional<String> mailTemplateModel(String templateCode) {
+        return mailHandler.modelOf(templateCode);
     }
 
     @Override

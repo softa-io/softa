@@ -38,6 +38,12 @@ items, join the caller's transaction, and return record IDs in input order. A
 mail DTO may address multiple `to` recipients in one MIME message; an SMS DTO
 always contains exactly one phone number.
 
+A templated send is built with `SendMailDTO.ofTemplate` / `SendSmsDTO.ofTemplate` —
+from a map, or from an object of a declared set of template variables — or, for a
+template bound to a model, with `SendMailDTO.ofRecord`; see *Where a template's
+variables come from*. `mailTemplateModel(code)` tells a sender holding a record whether
+a tenant template is bound to a model.
+
 Delivery is asynchronous, so a send that cannot go out as configured is only
 known on its record. A caller that must tell its user at once — "Failed to
 send" rather than a success that never arrives — asks first with
@@ -402,6 +408,28 @@ provider. Route rows of equal priority are ordered by config id.
   are dropped by the scanner where `scanner-scope` covers message-starter; elsewhere
   they stay, nullable and unread, and can be dropped with the release. No data moves.
 
+### Upgrading to template variable sources
+
+Four nullable columns, no data to move:
+
+| Table | Column |
+|---|---|
+| `mail_template` | `variables_name VARCHAR(100)`, `model_name VARCHAR(64)` |
+| `platform_mail_template` | `variables_name VARCHAR(100)` |
+| `sms_template` | `variables_name VARCHAR(100)` |
+
+A runtime with a non-empty `scanner-scope` adds them at boot; elsewhere the deploying
+application ships the `ALTER TABLE`s, **before the new jar** — the new entities read
+the columns on every template query.
+
+Nothing changes until a template names a source: an empty `variables_name` /
+`model_name` is a template that is not checked. An application then backfills
+`variables_name` on its existing system templates by code — the platform's rows once,
+each tenant's copies per tenant — at any time after the jar. A tenant may have edited
+its copy to use a variable the set does not have; such a row keeps sending as before
+(a send is checked against the set's name, not the content) but is refused the next
+time it is saved, so list those rows before backfilling.
+
 ### Message-starter properties
 
 Bound under `softa.message` from `MessageProperties` and the DLQ `@Value` keys.
@@ -494,6 +522,91 @@ time variable is passed as the object itself (`LocalDateTime.now()`, never its
 local time, no zone. The record keeps the variables as JSON, so the template
 receives that text; another format names it:
 `{{ time | date("dd/MM/yyyy", existingFormat="yyyy-MM-dd HH:mm:ss") }}`.
+
+#### Where a template's variables come from
+
+A template may name the source of its variables, in one of two columns; at most one
+is set, and a template that sets neither takes whatever map it is sent with, as before.
+
+| | `variablesName` | `modelName` |
+|---|---|---|
+| Names | a set of variables code fills — a record carrying `@TemplateVariables` | a model whose record fills the template |
+| On | `MailTemplate`, `PlatformMailTemplate`, `SmsTemplate` | `MailTemplate` only |
+| A send passes | the object: `SendMailDTO.ofTemplate(to, code, variables, scope)` | the record's id: `SendMailDTO.ofRecord(to, code, id, scope)` |
+| The editor offers | the set's fields (`GET /TemplateVariables/get?name=`) | the model's fields (model metadata) |
+
+**Declaring a set.** A record, one component per variable; label, description and
+sample value come from the component's `@Schema` (`title` / `description` /
+`example`). A component is text, a number, a boolean, a date or time, an enum, a
+nested record (`sender.fullName`) or a list of records (a loop).
+
+```java
+@TemplateVariables(name = "flow.approval-notice", label = "Approval notice")
+public record ApprovalNoticeVariables(
+        @Schema(title = "Record code", example = "LR-0012") String recordCode,
+        @Schema(title = "Link", description = "Opens the request") String link) {}
+```
+
+Sets are collected at startup into `TemplateVariablesRegistry` (softa-orm) and held
+in memory — nothing is stored. Two classes declaring one name, a class that is not a
+record, or a component of another type stop the application, naming the class.
+`SoftaCatalogBootCheckTest` registers every softa set; an application repeats that
+check over its own packages so a duplicate name fails in CI, not at deployment.
+
+**On save** (`MailTemplateWriteValidator`, `SmsTemplateWriteValidator` — every
+write path, seed loading included), a template that names a source may only use what
+the source has (`TemplateSourceRules`): an unknown variable, a path the model cannot
+read, a loop over something that is not a list, a condition that does not fit its
+field's type are refused, listing what is wrong. For a model, a sensitive field the
+saving user has no access to is refused too — the picker never offers it, and a
+template is the place that is checked, not the send. Whatever the source, a mail
+body the template engine cannot compile is refused. Only what can be recognised as a
+name is checked: `{{ a + b }}` is not, `{{ name | upper }}` is.
+
+**On send**, an object sent through a template that names another set — or one bound
+to a model — is refused at acceptance with a `BusinessException`; nothing is stored.
+A plain map is never checked. A record is read at acceptance (`TemplateRecordReader`):
+exactly the fields the template uses, as display values (an option's label, a
+relation's display name), **as the system and unmasked** — who triggers the send must
+not change what the mail says. The values are stored on the send record like any
+other variables, so a retry sends what was read then. A field the model no longer has
+prints blank. `SendMailDTO.recordId` and `variablesName` are set by code only and are
+never read from a request body.
+
+In an SMS a component left null is not sent at all, instead of sent empty: a provider
+that fills its own registered template is handed the variables, some by position.
+
+#### Blocks: loop tables and conditions
+
+A mail body may carry two blocks, written by the template editor as plain HTML with
+attributes and translated into the engine's `for` / `if` just before rendering
+(`TemplateBlocks`, softa-base):
+
+```html
+<table data-tpl-loop="lines">
+  <thead><tr><th data-tpl-field="name">Name</th></tr></thead>
+  <tbody><tr><td>{{name}}</td></tr></tbody>
+</table>
+<div data-tpl-if="amount" data-tpl-op="gt" data-tpl-value="1000" data-tpl-value-type="number">…</div>
+```
+
+They are attributes rather than `{% %}` because a rich-text editor — any HTML parser —
+moves a `{% for %}` out from between `<tbody>` and `<tr>`, and writes a `>` in a
+condition back as `&gt;`, which the engine refuses. Comparisons: `isTrue`, `isFalse`,
+`isEmpty`, `isNotEmpty`, `eq`, `ne`, `gt`, `ge`, `lt`, `le`; the condition is built
+from the three attributes, so an author cannot put an expression of their own into a
+template through it. The comparison is decided in code (`TemplateCondition.holds`), not by
+the engine's operators: a number or boolean that arrives as text — from a preview form, a
+mapped flow variable — is compared as what it spells, and a value that is no number is
+simply not greater, rather than an error that fails the send. A condition compares the field's stored value (an option's code,
+a real boolean) while `{{ }}` prints its display value; a send from a record supplies
+both, the former under `_raw`.
+
+Hand-written `{% %}` and `{{ }}` may sit beside the blocks: they are held aside while
+the HTML is parsed and put back byte for byte. A body without blocks is not parsed at
+all. A field inserted by the editor is a `<span data-tpl-field … data-tpl-label …>`
+around `{{ name }}`; the two attributes are for the editor only, and a mail goes out
+with them.
 
 #### Body modes
 

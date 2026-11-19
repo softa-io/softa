@@ -1,23 +1,31 @@
 package io.softa.starter.message.service.internal;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.starter.message.mail.dto.SendMailDTO;
+import io.softa.starter.message.mail.entity.AbstractMailTemplate;
 import io.softa.starter.message.mail.entity.MailSendRecord;
+import io.softa.starter.message.mail.entity.MailTemplate;
 import io.softa.starter.message.mail.enums.MailSendStatus;
 import io.softa.starter.message.mail.service.MailSendRecordService;
 import io.softa.starter.message.mail.service.impl.MailDeliveryProcessor;
 import io.softa.starter.message.mail.support.MailAddresses;
 import io.softa.starter.message.mail.support.MailBodies;
+import io.softa.starter.message.mail.support.MailTemplateLocator;
 import io.softa.starter.message.shared.TenantScopes;
+import io.softa.starter.message.template.TemplateRecordReader;
+import io.softa.starter.message.template.TemplateUsage;
 
 /**
  * Internal acceptance handler for one email message. Acceptance checks only what the caller got wrong
@@ -38,6 +46,10 @@ import io.softa.starter.message.shared.TenantScopes;
 final class MailMessageHandler {
 
     private final MailSendRecordService recordService;
+
+    private final MailTemplateLocator templateLocator;
+
+    private final TemplateRecordReader recordReader;
 
     Long send(SendMailDTO dto) {
         return insert(accept(dto));
@@ -75,6 +87,7 @@ final class MailMessageHandler {
         if (hasBody) {
             MailBodies.requireWithinLimit(html, text);
         }
+        Map<String, Object> variables = sourcedVariables(dto);
 
         MailSendRecord record = new MailSendRecord();
         record.setPlatformScope(dto.getScope() == MessageScope.PLATFORM);
@@ -89,8 +102,8 @@ final class MailMessageHandler {
         // enabled or not) and wins over templateCode, which resolves in the scope's tier.
         record.setTemplateId(dto.getTemplateId());
         record.setTemplateCode(StringUtils.hasText(dto.getTemplateCode()) ? dto.getTemplateCode() : null);
-        record.setTemplateVariables(CollectionUtils.isEmpty(dto.getTemplateVariables())
-                ? null : JsonUtils.objectToJsonNode(dto.getTemplateVariables()));
+        record.setTemplateVariables(CollectionUtils.isEmpty(variables)
+                ? null : JsonUtils.objectToJsonNode(variables));
         record.setTraceId(ContextHolder.getContext().getTraceId());
         record.setServerConfigId(dto.getServerConfigId());
         record.setToAddresses(to);
@@ -108,6 +121,83 @@ final class MailMessageHandler {
         record.setRetryCount(0);
         record.setVersion(0L);
         return record;
+    }
+
+    /**
+     * The variables the template is rendered from. A plain map is taken as it is. The two sends that
+     * name where their values come from are checked against the template here, where a mistake is
+     * still the caller's to hear about:
+     * <ul>
+     *   <li>an <b>object</b> of a {@code @TemplateVariables} set, when the template names a set, must
+     *       be of that set — otherwise the wrong values would render as blanks and go out;</li>
+     *   <li>a <b>record</b> needs a template bound to a model; its fields are read now, so the record
+     *       as it is at this moment is what a retry sends too.</li>
+     * </ul>
+     * A template that cannot be found is left to the first delivery attempt, which records the send
+     * as failed with the reason — except for a record, which cannot be read without it.
+     */
+    private Map<String, Object> sourcedVariables(SendMailDTO dto) {
+        boolean fromObject = StringUtils.hasText(dto.getVariablesName());
+        boolean fromRecord = dto.getRecordId() != null;
+        if (!fromObject && !fromRecord) {
+            return dto.getTemplateVariables();
+        }
+        AbstractMailTemplate template;
+        try {
+            // The template is the platform's or the tenant's configuration, not something the person
+            // whose action sends the mail needs a permission on.
+            template = ContextUtils.withoutPermissionChecks(
+                    () -> templateLocator.find(dto.getTemplateId(), dto.getTemplateCode(), dto.getScope()));
+        } catch (BusinessException e) {
+            if (fromRecord) {
+                throw new BusinessException("Mail send rejected: {0}", e.getMessage());
+            }
+            return dto.getTemplateVariables();
+        }
+        if (template == null) {
+            if (fromRecord) {
+                throw new BusinessException("Mail send rejected: a record is rendered through a template — name one.");
+            }
+            return dto.getTemplateVariables();
+        }
+        String set = trimToNull(template.getVariablesName());
+        String model = template instanceof MailTemplate tenantTemplate ? trimToNull(tenantTemplate.getModelName()) : null;
+        if (fromRecord) {
+            if (model == null) {
+                throw new BusinessException("Mail send rejected: template ''{0}'' is not bound to a model, "
+                        + "so no record can fill it.", template.getCode());
+            }
+            return recordReader.read(model, dto.getRecordId(),
+                    TemplateUsage.ofMail(template.getSubject(), template.getBodyHtml(), template.getBodyText()));
+        }
+        if (model != null) {
+            throw new BusinessException("Mail send rejected: template ''{0}'' is filled from a {1} record, "
+                    + "not from template variables — send it with SendMailDTO.ofRecord.", template.getCode(), model);
+        }
+        if (set != null && !set.equals(dto.getVariablesName().trim())) {
+            throw new BusinessException("Mail send rejected: template ''{0}'' is written against the template "
+                    + "variables ''{1}'', but was sent ''{2}''.", template.getCode(), set, dto.getVariablesName().trim());
+        }
+        return dto.getTemplateVariables();
+    }
+
+    /** The model the tenant template of that code is bound to; empty when it is bound to none or not found. */
+    Optional<String> modelOf(String templateCode) {
+        if (!StringUtils.hasText(templateCode)) {
+            return Optional.empty();
+        }
+        try {
+            AbstractMailTemplate template = ContextUtils.withoutPermissionChecks(
+                    () -> templateLocator.find(null, templateCode, MessageScope.TENANT));
+            return template instanceof MailTemplate tenantTemplate
+                    ? Optional.ofNullable(trimToNull(tenantTemplate.getModelName())) : Optional.empty();
+        } catch (BusinessException notFound) {
+            return Optional.empty();
+        }
+    }
+
+    private static String trimToNull(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
     }
 
     private static <T> List<T> immutableCopy(List<T> values) {

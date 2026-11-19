@@ -20,13 +20,13 @@ import io.softa.starter.message.mail.enums.BodyMode;
 import io.softa.starter.message.mail.enums.MailServerOwner;
 import io.softa.starter.message.mail.service.MailSendRecordService;
 import io.softa.starter.message.mail.service.MailTemplateService;
-import io.softa.starter.message.mail.service.PlatformMailTemplateService;
 import io.softa.starter.message.mail.smtp.SmtpMailRequest;
 import io.softa.starter.message.mail.smtp.SmtpMailTransport;
 import io.softa.starter.message.mail.smtp.SmtpSendResult;
 import io.softa.starter.message.mail.support.MailAddresses;
 import io.softa.starter.message.mail.support.MailBodies;
 import io.softa.starter.message.mail.support.MailServerDispatcher;
+import io.softa.starter.message.mail.support.MailTemplateLocator;
 import io.softa.starter.message.mail.support.MailServerDispatcher.SendServer;
 import io.softa.starter.message.shared.ErrorClassifier;
 import io.softa.starter.message.shared.SendQuotaGuard;
@@ -65,7 +65,7 @@ public class MailDeliveryProcessor {
     private MailTemplateService templateService;
 
     @Autowired
-    private PlatformMailTemplateService platformTemplateService;
+    private MailTemplateLocator templateLocator;
 
     @Autowired
     private SendQuotaGuard quotaGuard;
@@ -161,65 +161,13 @@ public class MailDeliveryProcessor {
         return server;
     }
 
-    /**
-     * The template the request named, in the tier its scope names: the tenant's for {@code TENANT}, the
-     * platform's for {@code PLATFORM}. {@code templateId} addresses the exact row (editor test sends: what
-     * you preview is what goes out, enabled or not); {@code templateCode} resolves enabled rows only. A
-     * code that lives in the other tier fails with a message saying so — one code, one tier, no fallback.
-     * With multi-tenancy off there is one owner: the deployment's own templates, then the platform
-     * table's.
-     */
+    /** The template the request named ({@link MailTemplateLocator}); a miss is a rejection of the send. */
     private AbstractMailTemplate loadTemplate(MailSendRecord record, MessageScope scope) {
-        Long id = record.getTemplateId();
-        String code = record.getTemplateCode();
-        if (id == null && !StringUtils.hasText(code)) {
-            return null;
-        }
         try {
-            if (!TenantScopes.multiTenancyEnabled()) {
-                return loadSingleOwner(id, code);
-            }
-            if (scope == MessageScope.PLATFORM) {
-                if (id != null) {
-                    return platformTemplateService.getRequiredById(id);
-                }
-                try {
-                    return platformTemplateService.resolve(code);
-                } catch (BusinessException notPlatform) {
-                    throw templateService.anyTenantHasCode(code) ? tierMismatch(code, scope) : notPlatform;
-                }
-            }
-            if (id != null) {
-                return templateService.getRequiredById(id);
-            }
-            try {
-                return templateService.resolve(code);
-            } catch (BusinessException notTenant) {
-                throw platformTemplateService.findAnyByCode(code).isPresent() ? tierMismatch(code, scope) : notTenant;
-            }
+            return templateLocator.find(record.getTemplateId(), record.getTemplateCode(), scope);
         } catch (BusinessException e) {
             throw new SendRejection(ErrorClassifier.TEMPLATE_NOT_RESOLVABLE, e.getMessage());
         }
-    }
-
-    /** One owner (multi-tenancy off): the deployment's own template, then the platform table's. */
-    private AbstractMailTemplate loadSingleOwner(Long id, String code) {
-        if (id != null) {
-            return templateService.getById(id).<AbstractMailTemplate>map(t -> t)
-                    .orElseGet(() -> platformTemplateService.getRequiredById(id));
-        }
-        try {
-            return templateService.resolve(code);
-        } catch (BusinessException notOwn) {
-            return platformTemplateService.resolve(code);
-        }
-    }
-
-    private static BusinessException tierMismatch(String code, MessageScope scope) {
-        return new BusinessException(scope == MessageScope.PLATFORM
-                ? "Mail template ''{0}'' is a tenant template, not a platform one: send it with scope TENANT."
-                : "Mail template ''{0}'' is a platform template, not a tenant one: send it with scope PLATFORM.",
-                code);
     }
 
     /**

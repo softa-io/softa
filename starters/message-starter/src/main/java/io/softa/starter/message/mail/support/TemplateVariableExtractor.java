@@ -15,6 +15,7 @@ import io.softa.framework.base.constant.StringConstant;
 import io.softa.framework.base.placeholder.PlaceholderKind;
 import io.softa.framework.base.placeholder.PlaceholderToken;
 import io.softa.framework.base.placeholder.PlaceholderUtils;
+import io.softa.framework.base.placeholder.TemplateBlocks;
 import io.softa.starter.message.mail.dto.MailTemplateVariableDTO;
 import io.softa.starter.message.mail.dto.TemplateVariableKind;
 import io.softa.starter.message.mail.entity.AbstractMailTemplate;
@@ -81,24 +82,66 @@ public final class TemplateVariableExtractor {
     }
 
     public static List<MailTemplateVariableDTO> extract(AbstractMailTemplate template) {
-        List<String> pebbleColumns = new ArrayList<>();
-        if (StringUtils.hasText(template.getBodyHtml())) {
-            pebbleColumns.add(template.getBodyHtml());
-        }
-        if (StringUtils.hasText(template.getBodyText())) {
-            pebbleColumns.add(template.getBodyText());
-        }
+        return extract(template.getSubject(), template.getBodyHtml(), template.getBodyText());
+    }
 
+    /**
+     * The tokens of a template given as its three columns.
+     *
+     * <p>The HTML body is read with its blocks written out ({@link TemplateBlocks#toPebble}): a loop
+     * table then surfaces its list as a {@link TemplateVariableKind#COLLECTION} and keeps the item
+     * fields of its row out, exactly as a hand-written {@code {% for %}} does; the field a condition
+     * block compares surfaces as a variable. A body whose blocks cannot be translated is read as
+     * written — saying what is wrong with it is the save's job, not this method's.
+     */
+    public static List<MailTemplateVariableDTO> extract(String subject, String bodyHtml, String bodyText) {
+        String html = bodyHtml;
+        List<TemplateBlocks.Condition> conditions = List.of();
+        if (TemplateBlocks.hasBlocks(bodyHtml)) {
+            try {
+                html = TemplateBlocks.toPebble(bodyHtml);
+                conditions = TemplateBlocks.conditions(bodyHtml);
+            } catch (IllegalArgumentException untranslatable) {
+                html = bodyHtml;
+            }
+        }
+        Map<String, TemplateVariableKind> entries = scan(subject, html, bodyText);
+        for (TemplateBlocks.Condition condition : conditions) {
+            if (SIMPLE_NAME.matcher(condition.field()).matches()) {
+                merge(entries, condition.field(), TemplateVariableKind.VARIABLE);
+            }
+        }
+        return toList(entries);
+    }
+
+    /**
+     * The tokens of the three columns exactly as given: no block is translated and nothing is added
+     * for one. For a caller that has already written the blocks out and reads them itself.
+     */
+    public static List<MailTemplateVariableDTO> extractWritten(String subject, String bodyHtml, String bodyText) {
+        return toList(scan(subject, bodyHtml, bodyText));
+    }
+
+    private static Map<String, TemplateVariableKind> scan(String subject, String bodyHtml, String bodyText) {
+        List<String> pebbleColumns = new ArrayList<>();
+        if (StringUtils.hasText(bodyHtml)) {
+            pebbleColumns.add(bodyHtml);
+        }
+        if (StringUtils.hasText(bodyText)) {
+            pebbleColumns.add(bodyText);
+        }
         Set<String> locals = collectLocals(pebbleColumns);
         Map<String, TemplateVariableKind> entries = new LinkedHashMap<>();
-
-        if (StringUtils.hasText(template.getSubject())) {
-            scanPlaceholders(template.getSubject(), locals, entries);
+        if (StringUtils.hasText(subject)) {
+            scanPlaceholders(subject, locals, entries);
         }
         for (String column : pebbleColumns) {
             scanPebble(column, locals, entries);
         }
+        return entries;
+    }
 
+    private static List<MailTemplateVariableDTO> toList(Map<String, TemplateVariableKind> entries) {
         return entries.entrySet().stream()
                 .map(e -> new MailTemplateVariableDTO(e.getKey(), e.getValue()))
                 .toList();

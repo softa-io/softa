@@ -1,12 +1,15 @@
 package io.softa.starter.message.mail.dto;
 
+import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.orm.dto.FileInfo;
+import io.softa.framework.orm.meta.TemplateVariablesRegistry;
 import io.softa.starter.message.mail.enums.BodyMode;
 import io.softa.starter.message.mail.enums.MailPriority;
 
@@ -89,6 +92,24 @@ public class SendMailDTO {
             + "serverConfigId and templateId are looked up in the scope's table.")
     private MessageScope scope;
 
+    /**
+     * The {@code @TemplateVariables} set the variables were taken from, when the sender handed over
+     * an object ({@link #ofTemplate(List, String, Object, MessageScope)}). A template that names a
+     * set refuses the object of another one. Set by code only: never read from a request body.
+     */
+    @JsonIgnore
+    @Schema(hidden = true)
+    private String variablesName;
+
+    /**
+     * The record that fills a model-bound template ({@link #ofRecord}): its fields are read when the
+     * send is accepted, as the system, and become the template variables. Set by code only: a
+     * request body naming a record would have the server read it on the caller's say-so.
+     */
+    @JsonIgnore
+    @Schema(hidden = true)
+    private Serializable recordId;
+
     /** A templated mail: the template's code and variables, sent in {@code scope}. */
     public static SendMailDTO ofTemplate(List<String> to, String templateCode, Map<String, Object> variables,
                                          MessageScope scope) {
@@ -96,6 +117,36 @@ public class SendMailDTO {
         mail.setTo(to);
         mail.setTemplateCode(templateCode);
         mail.setTemplateVariables(variables);
+        mail.setScope(scope);
+        return mail;
+    }
+
+    /**
+     * A templated mail filled from a {@code @TemplateVariables} object. The object is turned into the
+     * template's variables — a missing value becomes empty — and its set is remembered, so a template
+     * written against another set refuses it.
+     *
+     * @param variables a record carrying {@code @TemplateVariables}
+     */
+    public static SendMailDTO ofTemplate(List<String> to, String templateCode, Object variables,
+                                         MessageScope scope) {
+        SendMailDTO mail = ofTemplate(to, templateCode, TemplateVariablesRegistry.toMap(variables), scope);
+        mail.setVariablesName(TemplateVariablesRegistry.nameOf(variables));
+        return mail;
+    }
+
+    /**
+     * A templated mail filled from a record: the template names the model ({@code modelName}), the
+     * caller the record. The fields the template uses are read when the send is accepted.
+     *
+     * @param recordId id of a record of the template's model
+     */
+    public static SendMailDTO ofRecord(List<String> to, String templateCode, Serializable recordId,
+                                       MessageScope scope) {
+        SendMailDTO mail = new SendMailDTO();
+        mail.setTo(to);
+        mail.setTemplateCode(templateCode);
+        mail.setRecordId(recordId);
         mail.setScope(scope);
         return mail;
     }

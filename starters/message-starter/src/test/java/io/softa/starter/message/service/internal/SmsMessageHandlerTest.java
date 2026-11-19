@@ -17,6 +17,7 @@ import io.softa.starter.message.sms.entity.SmsProviderConfig;
 import io.softa.starter.message.sms.entity.SmsSendRecord;
 import io.softa.starter.message.sms.enums.SmsSendStatus;
 import io.softa.starter.message.sms.service.SmsSendRecordService;
+import io.softa.starter.message.sms.service.SmsTemplateService;
 import io.softa.starter.message.sms.support.SmsProviderDispatcher;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -41,13 +42,15 @@ class SmsMessageHandlerTest {
 
     private SmsSendRecordService recordService;
     private SmsProviderDispatcher providerDispatcher;
+    private SmsTemplateService templateService;
     private SmsMessageHandler handler;
 
     @BeforeEach
     void setUp() {
         recordService = mock(SmsSendRecordService.class);
         providerDispatcher = mock(SmsProviderDispatcher.class);
-        handler = new SmsMessageHandler(recordService, providerDispatcher);
+        templateService = mock(SmsTemplateService.class);
+        handler = new SmsMessageHandler(recordService, providerDispatcher, templateService);
         when(recordService.createOne(any(SmsSendRecord.class))).thenReturn(55L);
     }
 

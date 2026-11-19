@@ -1,9 +1,7 @@
 package io.softa.starter.flow.runtime.spi.impl;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
@@ -166,12 +164,9 @@ public class MessageApprovalNotificationService implements ApprovalNotificationS
 
     /** The emails the notice makes, to the recipients' account emails, as a write to run once the action commits. */
     private Runnable email(FlowExecutionState state, Notice notice, List<Long> recipients) {
-        Map<String, Object> variables = new LinkedHashMap<>();
-        variables.put("subject", ApprovalNotices.subjectOf(state));
-        variables.put("content", notice.content() == null ? "" : notice.content());
-        variables.put("flowName", state.getFlowName() == null ? "" : state.getFlowName());
-        variables.put("recordCode", state.getRecordCode() == null ? "" : state.getRecordCode());
-        variables.put("link", link(state.getInstanceId()));
+        // A missing value goes out empty: the object's own conversion sees to it.
+        ApprovalNoticeVariables variables = new ApprovalNoticeVariables(ApprovalNotices.subjectOf(state),
+                notice.content(), state.getFlowName(), state.getRecordCode(), link(state.getInstanceId()));
         return () -> channel("email", state, () -> {
             if (!ModelManager.existModel(USER_MODEL)) {
                 log.debug("Approval email not sent: instance={}, no user accounts", state.getInstanceId());
@@ -182,13 +177,7 @@ public class MessageApprovalNotificationService implements ApprovalNotificationS
                     .map(user -> Objects.toString(user.get(EMAIL_FIELD), null))
                     .filter(StringUtils::hasText)
                     .distinct()
-                    .map(email -> {
-                        SendMailDTO mail = new SendMailDTO();
-                        mail.setTo(List.of(email));
-                        mail.setTemplateCode(notice.mailTemplate());
-                        mail.setTemplateVariables(variables);
-                        return mail;
-                    })
+                    .map(email -> SendMailDTO.ofTemplate(List.of(email), notice.mailTemplate(), variables, null))
                     .toList();
             if (!mails.isEmpty()) {
                 newTransaction.executeWithoutResult(status -> messageService.sendMailBatch(mails));

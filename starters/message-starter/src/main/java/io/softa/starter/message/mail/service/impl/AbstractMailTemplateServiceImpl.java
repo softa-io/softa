@@ -1,11 +1,13 @@
 package io.softa.starter.message.mail.service.impl;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.placeholder.PlaceholderUtils;
+import io.softa.framework.base.placeholder.TemplateBlocks;
 import io.softa.framework.base.placeholder.TemplateEngine;
 import io.softa.framework.orm.domain.FilterControl;
 import io.softa.framework.orm.domain.Filters;
@@ -87,10 +89,24 @@ public abstract class AbstractMailTemplateServiceImpl<T extends AbstractMailTemp
         return PlaceholderUtils.replacePlaceholders(template.getSubject(), variables);
     }
 
+    /**
+     * The HTML body, with its blocks written out first ({@link TemplateBlocks#toPebble}): a loop
+     * table repeats its row, a condition block shows or hides its content. A condition compares the
+     * values under {@link TemplateBlocks#RAW_ROOT}; a send from a record supplies them, and for any
+     * other send they are the variables themselves.
+     */
     @Override
     public String renderBodyHtml(AbstractMailTemplate template, Map<String, Object> variables) {
-        return template.getBodyHtml() == null
-                ? null : TemplateEngine.renderHtml(template.getBodyHtml(), variables);
+        String html = template.getBodyHtml();
+        if (html == null) {
+            return null;
+        }
+        if (!TemplateBlocks.hasBlocks(html)) {
+            return TemplateEngine.renderHtml(html, variables);
+        }
+        Map<String, Object> context = new HashMap<>(variables == null ? Map.of() : variables);
+        context.putIfAbsent(TemplateBlocks.RAW_ROOT, variables == null ? Map.of() : variables);
+        return TemplateEngine.renderHtml(TemplateBlocks.toPebble(html), context);
     }
 
     @Override

@@ -1,6 +1,7 @@
 package io.softa.starter.message.service;
 
 import java.util.List;
+import java.util.Optional;
 
 import io.softa.framework.base.message.MessageScope;
 
@@ -73,6 +74,18 @@ public interface MessageService {
      * does not refuse such a number: routing is read at delivery, and the record fails there.
      */
     boolean canSendSms(String phoneNumber);
+
+    /**
+     * The model a mail template is bound to — the one whose record fills it — or empty when the
+     * template takes its values from the sender, or does not exist. Looked up among the current
+     * tenant's templates: only those can be bound to a model.
+     *
+     * <p>For a sender that has a record at hand and needs to know whether to send it
+     * ({@link SendMailDTO#ofRecord}) or to send values of its own.
+     *
+     * @param templateCode a tenant mail template's code
+     */
+    Optional<String> mailTemplateModel(String templateCode);
 
     /** Persist one inbox notification for one recipient. */
     Long sendInbox(SendInboxDTO message);

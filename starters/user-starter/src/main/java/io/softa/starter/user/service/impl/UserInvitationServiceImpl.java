@@ -37,6 +37,7 @@ import io.softa.starter.user.enums.*;
 import io.softa.starter.user.service.*;
 import io.softa.starter.user.spi.PushDeviceRegistry;
 import io.softa.starter.user.util.LoginIdentifiers;
+import io.softa.starter.user.template.AccountLinkVariables;
 
 /**
  * {@link UserInvitationService} — token issuance + acceptance. Runs under {@link SkipPermissionCheck}
@@ -542,9 +543,8 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         Long sendFor = tenantId != null || purpose != InvitationPurpose.PASSWORD_RESET ? tenantId
                 : accountService.soleJoinedTenantOf(account.getProfileId()).orElse(null);
         // The company is the account's own, named for the reason the tier is taken from it above.
-        Map<String, Object> variables = Map.of("link", link, "expiryDays", EXPIRY_DAYS,
-                "companyName", this.companyNameOf(account.getTenantId()),
-                "employeeName", StringUtils.defaultString(accountService.noticeNameOf(account)));
+        AccountLinkVariables variables = new AccountLinkVariables(link, EXPIRY_DAYS,
+                this.companyNameOf(account.getTenantId()), accountService.noticeNameOf(account));
         String mailTo = pinned ? deliverTo : account.getEmail();
         // Whether any channel took the message. Delivery is asynchronous, so "took" means it passed
         // the checks that can be made now — a server or provider to go out through, an address that
