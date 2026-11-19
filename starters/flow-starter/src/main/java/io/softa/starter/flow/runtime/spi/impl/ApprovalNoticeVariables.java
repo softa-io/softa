@@ -14,8 +14,12 @@ import io.softa.framework.base.annotation.TemplateVariables;
 public record ApprovalNoticeVariables(
         @Schema(title = "Subject", description = "What the request is about", example = "Leave request LR-0012")
         String subject,
-        @Schema(title = "Content", description = "The notice's own text, as the flow's settings word it",
-                example = "Alex Chen approved your request.")
+        @Schema(title = "Summary", description = "One line saying what the record asks for, as the approval "
+                + "lists show it; empty for a record that words none",
+                example = "Annual Leave · 12 Nov 2026 – 14 Nov 2026 · 3 days")
+        String summary,
+        @Schema(title = "Content", description = "The comment or reason given with the action, when there is one",
+                example = "Please attach the medical certificate.")
         String content,
         @Schema(title = "Flow name", example = "Leave approval")
         String flowName,

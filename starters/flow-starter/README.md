@@ -105,7 +105,7 @@ the approval fields `ApprovalModel` declares, and on a field for the employee th
 many-to-one onto `Employee`; `subject()` names that field (the instance's `subjectId`), and
 `null` — the default — means `employeeId`.
 `submission` (required) works from the record alone, and its `summary` names no sensitive field: everyone the
-approval reaches sees it. `validate` and `validateCancel` run as the user. `afterSubmitted`, `afterApproverEdit` and
+approval reaches sees it, in the lists and in the approval mails (their `summary` variable). `validate` and `validateCancel` run as the user. `afterSubmitted`, `afterApproverEdit` and
 `afterOutcome` run in the action's transaction with permission checks off, so throwing vetoes the action; they write
 to this database only and leave external effects to after the commit. `effectStatuses` reads the records, never
 guesses from dates.

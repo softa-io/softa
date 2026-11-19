@@ -45,8 +45,9 @@ import io.softa.starter.message.service.MessageService;
  *       later by people whose own language the action does not know.</li>
  *   <li>Email: the notices that name a mail template, to each recipient's account email, on a flow whose
  *       {@code emailNotification} setting is not turned off. The tenant's template of that code words the email; its
- *       variables are {@code subject} (what the approval is about), {@code content} (the comment or reason, when there
- *       is one), {@code flowName}, {@code recordCode} and {@code link} — the approval's page, {@code system.site-url}
+ *       variables are {@code subject} (what the approval is about), {@code summary} (the line the approval lists
+ *       show under it, when the record words one), {@code content} (the comment or reason, when there is one),
+ *       {@code flowName}, {@code recordCode} and {@code link} — the approval's page, {@code system.site-url}
  *       + {@code /home/approvals/{instanceId}} (the frontend's Home module). A recipient without an email is
  *       skipped.</li>
  * </ul>
@@ -166,7 +167,8 @@ public class MessageApprovalNotificationService implements ApprovalNotificationS
     private Runnable email(FlowExecutionState state, Notice notice, List<Long> recipients) {
         // A missing value goes out empty: the object's own conversion sees to it.
         ApprovalNoticeVariables variables = new ApprovalNoticeVariables(ApprovalNotices.subjectOf(state),
-                notice.content(), state.getFlowName(), state.getRecordCode(), link(state.getInstanceId()));
+                state.getSummary(), notice.content(), state.getFlowName(), state.getRecordCode(),
+                link(state.getInstanceId()));
         return () -> channel("email", state, () -> {
             if (!ModelManager.existModel(USER_MODEL)) {
                 log.debug("Approval email not sent: instance={}, no user accounts", state.getInstanceId());
