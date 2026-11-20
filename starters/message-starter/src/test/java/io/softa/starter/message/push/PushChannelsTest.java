@@ -269,6 +269,22 @@ class PushChannelsTest {
     }
 
     @Test
+    void aSandboxInTroubleIsAFailure_thatDoesNotCountAgainstProduction() throws Exception {
+        DefaultPushSender sender = apns(a -> a.setSandboxFallback(true));
+        answers = request -> request.path().startsWith("/prod")
+                ? Answer.of(400, "{\"reason\":\"BadDeviceToken\"}")
+                : Answer.of(503, "{\"reason\":\"ServiceUnavailable\"}");
+
+        for (int i = 0; i < GuardedChannel.FAILURES_BEFORE_PAUSE + 2; i++) {
+            PushResult result = sender.send(request(PushPlatform.IOS, null));
+            assertThat(result.outcome()).isEqualTo(Outcome.FAILED);
+            assertThat(result.reason()).isEqualTo("Sandbox fallback: HTTP 503 ServiceUnavailable");
+        }
+        // Never paused: both environments were asked every time.
+        assertThat(seen).hasSize(2 * (GuardedChannel.FAILURES_BEFORE_PAUSE + 2));
+    }
+
+    @Test
     void withoutFallbackABadTokenIsNotSentTwice() throws Exception {
         answers = request -> Answer.of(400, "{\"reason\":\"BadDeviceToken\"}");
 
@@ -472,6 +488,25 @@ class PushChannelsTest {
         clock.advance(FcmPushChannel.REFUSED_KEY_BACKOFF.plusSeconds(1));
         answers = fcmAnswering(Answer.of(200, "{}"));
         assertThat(sender.send(request(PushPlatform.ANDROID, null)).outcome()).isEqualTo(Outcome.SENT);
+    }
+
+    @Test
+    void sendsRacingTheFirstExchangeAllGoOutWithTheToken() throws Exception {
+        answers = fcmAnswering(Answer.of(200, "{}"));
+        DefaultPushSender sender = fcm();
+        List<Thread> threads = new ArrayList<>();
+        for (int i = 0; i < 16; i++) {
+            threads.add(Thread.ofVirtual().start(() -> sender.send(request(PushPlatform.ANDROID, null))));
+        }
+        for (Thread thread : threads) {
+            thread.join();
+        }
+
+        assertThat(seen.stream().filter(request -> request.path().equals("/token"))).hasSize(1);
+        assertThat(seen.stream().filter(request -> !request.path().equals("/token")))
+                .hasSize(16)
+                .allSatisfy(request -> assertThat(request.headers().getFirst("authorization"))
+                        .isEqualTo("Bearer access-1"));
     }
 
     @Test

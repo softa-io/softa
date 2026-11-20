@@ -499,12 +499,12 @@ it is still that account's — the token may just have moved to whoever signed i
 
 #### Upgrading
 
-The device registrations, their endpoints and the nightly cleanup came from user-starter: `AppPushDevice`,
-`AppPushDeviceService` and `AppDeviceController` are now in `io.softa.starter.message.push`, the model, table and
-paths unchanged, so existing rows carry on. `PushDeviceRegistry` is gone; user-starter calls `AppPushDeviceService`.
-The `DropStalePushDevices` cron row moved, with the same id, to `data-system/SysCron.MessageMaintenance.json`, which
-an application with a seed manifest lists. An application that pushed by listening for `InboxNotificationsCreated`
-itself drops that listener and sets `push` on the messages it sends instead.
+No earlier release had any of this: the device registrations (`AppPushDevice`, `AppPushDeviceService`), their
+endpoints (`AppDeviceController`), the nightly `DropStalePushDevices` cleanup and the push pipeline are new, all in
+`io.softa.starter.message.push`, and the `app_push_device` table is created by the scanner. An application with a
+seed manifest lists `data-system/SysCron.MessageMaintenance.json` for the cleanup. An application that pushed by
+listening for `InboxNotificationsCreated` itself, with device registrations of its own, drops both, sets `push` on
+the messages it sends instead and has its APP register through the endpoints above.
 
 ### Message-starter properties
 

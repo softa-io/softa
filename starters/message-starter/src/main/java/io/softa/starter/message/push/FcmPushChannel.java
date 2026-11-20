@@ -51,8 +51,8 @@ final class FcmPushChannel implements PushChannel {
     private final String tokenUrl;
     private final PrivateKey key;
     private final ReentrantLock tokenLock = new ReentrantLock();
-    private volatile String accessToken;
-    private volatile Instant accessTokenExpiresAt;
+    /** Read and replaced whole, so a reader never sees a token without its expiry. */
+    private volatile AccessToken accessToken;
     private volatile Refusal refusal;
 
     FcmPushChannel(PushProperties.Fcm properties, Duration connectTimeout, Duration requestTimeout, Clock clock)
@@ -156,14 +156,17 @@ final class FcmPushChannel implements PushChannel {
 
     private String currentAccessToken() throws IOException, InterruptedException, TokenRefused {
         backingOff();
-        if (accessToken == null || !clock.instant().isBefore(accessTokenExpiresAt)) {
+        AccessToken current = accessToken;
+        if (!usable(current)) {
             tokenLock.lock();
             try {
                 // Whoever held the lock may have just failed: those queued behind it fail with it, not one by one.
                 backingOff();
-                if (accessToken == null || !clock.instant().isBefore(accessTokenExpiresAt)) {
+                current = accessToken;
+                if (!usable(current)) {
                     try {
-                        exchangeKey();
+                        current = exchangeKey();
+                        accessToken = current;
                         refusal = null;
                     } catch (TokenRefused e) {
                         refusal = new Refusal(e.getMessage(), false, clock.instant().plus(REFUSED_KEY_BACKOFF));
@@ -180,7 +183,11 @@ final class FcmPushChannel implements PushChannel {
                 tokenLock.unlock();
             }
         }
-        return accessToken;
+        return current.value();
+    }
+
+    private boolean usable(AccessToken token) {
+        return token != null && clock.instant().isBefore(token.expiresAt());
     }
 
     /** Fails at once while the last exchange's failure stands: a refused key as such, an unreachable endpoint as I/O. */
@@ -194,7 +201,7 @@ final class FcmPushChannel implements PushChannel {
         }
     }
 
-    private void exchangeKey() throws IOException, InterruptedException, TokenRefused {
+    private AccessToken exchangeKey() throws IOException, InterruptedException, TokenRefused {
         long now = clock.instant().getEpochSecond();
         Map<String, Object> header = new LinkedHashMap<>();
         header.put("alg", "RS256");
@@ -225,8 +232,7 @@ final class FcmPushChannel implements PushChannel {
             throw new TokenRefused("The FCM token endpoint refused the key: HTTP " + response.statusCode());
         }
         long expiresIn = body.get("expires_in") instanceof Number seconds ? seconds.longValue() : 3600;
-        accessToken = (String) token;
-        accessTokenExpiresAt = clock.instant().plusSeconds(expiresIn).minus(ACCESS_TOKEN_MARGIN);
+        return new AccessToken((String) token, clock.instant().plusSeconds(expiresIn).minus(ACCESS_TOKEN_MARGIN));
     }
 
     /** The most specific code the error carries: FCM's own in {@code details}, otherwise the general status. */
@@ -254,6 +260,9 @@ final class FcmPushChannel implements PushChannel {
     private static String textOf(Map<?, ?> map, String key) {
         Object value = map.get(key);
         return value == null ? null : value.toString();
+    }
+
+    private record AccessToken(String value, Instant expiresAt) {
     }
 
     private record Refusal(String message, boolean unreachable, Instant until) {

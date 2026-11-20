@@ -67,15 +67,14 @@ final class ApnsPushChannel implements PushChannel {
         Answer answer = post(baseUrl, request);
         // A token from a build of the other environment reads as bad here, though it is good there.
         if (BAD_DEVICE_TOKEN.equals(answer.reason) && !sandbox && properties.isSandboxFallback()) {
-            Answer fallback;
+            PushResult classified;
             try {
-                fallback = post(properties.getSandboxBaseUrl(), request);
+                classified = classify(post(properties.getSandboxBaseUrl(), request));
             } catch (IOException e) {
-                // Production answered, so its network is fine: a sandbox that cannot be reached must not count
-                // towards pausing production.
+                // Production answered, so its network is fine: a sandbox that cannot be reached, or in trouble
+                // (ServiceTrouble is an IOException), fails this send without counting towards pausing production.
                 return PushResult.failed("Sandbox fallback: " + GuardedChannel.describe(e));
             }
-            PushResult classified = classify(fallback);
             // Refused by both environments says the configuration is in doubt, not that the token is gone.
             return classified.outcome() == PushResult.Outcome.TOKEN_INVALID
                     ? PushResult.rejected(classified.reason()) : classified;
