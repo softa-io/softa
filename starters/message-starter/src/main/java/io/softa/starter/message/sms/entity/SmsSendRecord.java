@@ -76,8 +76,9 @@ public class SmsSendRecord extends AuditableModel {
             + "every delivery attempt runs and logs under it")
     private String traceId;
 
-    @Field(label = "Provider Config ID", description = "SMS provider config that carries this message: the "
-            + "caller's choice, else the one the first delivery attempt routed the number to")
+    @Field(label = "Provider", fieldType = FieldType.MANY_TO_ONE, relatedModel = SmsProviderConfig.class,
+            description = "SMS provider config that carries this message: the caller's choice, else the one "
+                    + "the first delivery attempt routed the number to")
     private Long providerConfigId;
 
     @Field(description = "Provider type used for this send (Twilio, Infobip, etc.); "

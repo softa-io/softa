@@ -46,7 +46,8 @@ public class SmsTemplateProviderBinding extends AuditableModel {
     @Field(label = "Template ID", required = true, description = "FK → sms_template.id")
     private Long templateId;
 
-    @Field(label = "Provider Config ID", required = true, description = "FK → sms_provider_config.id")
+    @Field(label = "Provider", required = true, fieldType = FieldType.MANY_TO_ONE,
+            relatedModel = SmsProviderConfig.class, description = "The provider this binding applies to")
     private Long providerConfigId;
 
     @Field(fieldType = FieldType.MANY_TO_ONE, relatedModel = CountryRegion.class,

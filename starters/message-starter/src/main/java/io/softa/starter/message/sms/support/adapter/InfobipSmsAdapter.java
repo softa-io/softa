@@ -90,8 +90,9 @@ public class InfobipSmsAdapter extends AbstractSmsProviderAdapter {
     }
 
     /**
-     * Infobip v3 error body: {@code errorCode}, {@code description}, and for a bad request
-     * {@code violations[]} naming the offending {@code property}.
+     * An HTTP error: the code stays {@code HTTP_<status>}, which is what the retry decision reads,
+     * and the message carries what the v3 error body says — {@code errorCode}, {@code description}
+     * and, for a bad request, the first of {@code violations[]} naming the offending property.
      */
     @Override
     protected SmsSendResult handleHttpError(RestClientResponseException e) {
@@ -101,14 +102,17 @@ public class InfobipSmsAdapter extends AbstractSmsProviderAdapter {
             if (errorCode == null && description == null) {
                 return defaultHttpError(e);
             }
-            StringBuilder message = new StringBuilder(
-                    description != null ? description : "Infobip API error");
+            StringBuilder message = new StringBuilder();
+            if (errorCode != null) {
+                message.append('[').append(errorCode).append("] ");
+            }
+            message.append(description != null ? description : "Infobip API error");
             JsonNode violation = err.path("violations").path(0);
             if (!violation.isMissingNode()) {
                 message.append(": ").append(violation.path("property").asString(""))
                         .append(" ").append(violation.path("violation").asString(""));
             }
-            return SmsSendResult.failure(errorCode, message.toString().trim());
+            return SmsSendResult.failure(defaultHttpError(e).getErrorCode(), message.toString().trim());
         });
     }
 

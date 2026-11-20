@@ -1,12 +1,14 @@
 package io.softa.starter.message.sms.entity;
 
 import java.io.Serial;
+import java.util.List;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 import io.softa.framework.orm.enums.MaskingType;
 import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Model;
+import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.starter.message.sms.enums.SmsProvider;
@@ -75,11 +77,13 @@ public class SmsProviderConfig extends AuditableModel {
     private String extConfig;
 
     @Field(length = 50,
-            description = "Sender phone number (E.164 format)")
+            description = "Numeric sender: a long number in E.164 (e.g. +6591234567) or a short code "
+                    + "(e.g. a New Zealand 4–6 digit code), entered as the provider issued it")
     private String senderNumber;
 
     @Field(label = "Sender ID", length = 50,
-            description = "Alphanumeric sender ID (alternative to phone number)")
+            description = "Alphanumeric sender ID such as a brand name (alternative to a sender number); "
+                    + "some countries require it to be registered first (Singapore: SSIR)")
     private String senderId;
 
     @Field(description = "Max SMS per minute")
@@ -96,4 +100,8 @@ public class SmsProviderConfig extends AuditableModel {
      */
     @Field(renamedFrom = "isEnabled")
     private Boolean active;
+
+    /** The countries this provider serves — edited on the provider's page, queried by country on its own. */
+    @Field(label = "Country Routing", fieldType = FieldType.ONE_TO_MANY, relatedField = "providerConfigId")
+    private List<SmsProviderRegion> regions;
 }

@@ -696,7 +696,32 @@ A failed SMTP send is coded with the server's reply when it has one:
 `SMTP_451`…; without one the code is `SMTP_` + the exception type
 (`SMTP_MailAuthenticationException` for a failed login). `ErrorClassifier` reads
 an SMTP reply by its class: 4xx TRANSIENT, 5xx PERMANENT, except 552
-(message too large) INVALID_INPUT and 530 / 534 / 535 / 538 AUTH. Error codes
+(message too large) INVALID_INPUT and 530 / 534 / 535 / 538 AUTH.
+
+A failed SMS send is coded by its adapter. An HTTP error response is coded
+`HTTP_<status>` unless the adapter reads a provider code from the body (the
+Infobip adapter keeps `HTTP_<status>` and puts Infobip's `errorCode`,
+`description` and first violation in the message). `ErrorClassifier` reads
+`HTTP_<status>` by the status — 401 / 403 AUTH, 429 QUOTA, 400 / 404 / 413 / 422
+INVALID_INPUT, 408 and 5xx TRANSIENT — and Infobip's refusal statuses by name:
+the account's (`REJECTED_SOURCE`, `REJECTED_NOT_ENOUGH_CREDITS`,
+`REJECTED_ROUTE_NOT_AVAILABLE`, …) CONFIG, the number's or content's
+(`REJECTED_PREFIX_MISSING`, `REJECTED_DESTINATION`, `MISSING_TO`, …)
+INVALID_INPUT, a blocked recipient or sender (`REJECTED_DND`,
+`REJECTED_DESTINATION_BLOCKLISTED`, `REJECTED_FLOODING_FILTER`, …) PERMANENT,
+and only Infobip's platform failures (`REJECTED_SYSTEM_ERROR`,
+`UNDELIVERABLE_REJECTED_PLATFORM`) TRANSIENT. Other providers' codes go through
+the word heuristics (LIMIT, AUTH, INVALID…), and an unmatched code is UNKNOWN,
+which is retried.
+
+Logging is once per outcome, not per attempt. An adapter logs a failed attempt
+at WARN (ERROR, with the stack, only for an exception it did not expect);
+`SendFailureHandler` logs a retry at WARN and every terminal outcome — FAILED or
+DEAD_LETTER, whatever the category — at ERROR. With sentry-starter, those ERROR
+lines are the Sentry events, one per record that will not go out, and while
+they are logged the channel, provider, category and code are `tag.*` MDC
+entries, so the events carry the tags `message_channel`, `message_provider`,
+`error_category` and `error_code` to filter and alert on. Error codes
 and messages are cut to their columns (100 / 1000 characters, ending in "…")
 before a transition writes them, so an over-long provider message cannot fail
 the write that records the failure; `dead_letter_message.last_error_msg` is
@@ -1128,10 +1153,20 @@ country of a number.
 Two tables intentionally — one provider account commonly serves N countries
 (Twilio US/CA/MX/UK/AU/…). 1-to-N relationship is normalised into a routing
 table; per-region priority is a column on the routing row, not on the config.
+The relation is declared both ways: `SmsProviderRegion.providerConfigId` is a
+many-to-one onto `SmsProviderConfig` with `onDelete = CASCADE` (deleting a
+provider deletes its routes), and `SmsProviderConfig.regions` is the
+one-to-many, so a provider's page edits its routes as its own rows while the
+routing list queries them by country. `uk_sms_provider_region`
+(provider, country) refuses a second route for the same pair with a message of
+its own; it counts disabled routes too — re-enable one instead. The provider
+references on `SmsTemplateProviderBinding` and `SmsSendRecord` are many-to-one
+as well (no delete strategy), so lists show the provider's name.
 
 `region_code` is the ISO 3166-1 alpha-2 country code (`CN`, `TW`, `US`, …),
-validated at write time against `country_region.code` in
-`reference-data-starter`. The reference table holds all 249 ISO 3166-1
+validated on every write path — the routing page, a provider's page, import,
+seed, a direct call — against `country_region.code` in
+`reference-data-starter` by `SmsProviderRegionWriteValidator`. The reference table holds all 249 ISO 3166-1
 territories with English name, alpha-3 code, E.164 dial code, default
 currency, continent, EEA flag, and subdivisions flag. **`reference-data-starter`
 must be on the classpath** for SMS provider routing to function — `message-starter`

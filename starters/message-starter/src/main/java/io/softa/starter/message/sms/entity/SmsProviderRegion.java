@@ -9,6 +9,7 @@ import io.softa.framework.orm.annotation.Index;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.framework.orm.enums.OnDelete;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.starter.referencedata.entity.CountryRegion;
 
@@ -40,7 +41,8 @@ import io.softa.starter.referencedata.entity.CountryRegion;
         defaultOrder = {"regionCode", "priority"}
 )
 @Index(indexName = "idx_region_active", fields = {"regionCode", "active"})
-@Index(indexName = "uk_sms_provider_region", fields = {"providerConfigId", "regionCode"}, unique = true)
+@Index(indexName = "uk_sms_provider_region", fields = {"providerConfigId", "regionCode"}, unique = true,
+        message = "This provider already has a route for this country; edit or re-enable that route instead.")
 @EqualsAndHashCode(callSuper = true)
 public class SmsProviderRegion extends AuditableModel {
 
@@ -50,7 +52,10 @@ public class SmsProviderRegion extends AuditableModel {
     @Field(label = "ID")
     private Long id;
 
-    @Field(label = "Provider Config ID", required = true, description = "FK → sms_provider_config.id")
+    // onDelete = CASCADE: routes are owned by the provider — deleting the provider removes its routes.
+    @Field(label = "Provider", required = true, fieldType = FieldType.MANY_TO_ONE,
+            relatedModel = SmsProviderConfig.class, onDelete = OnDelete.CASCADE,
+            description = "The provider this route sends through")
     private Long providerConfigId;
 
     @Field(required = true, fieldType = FieldType.MANY_TO_ONE, relatedModel = CountryRegion.class,

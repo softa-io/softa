@@ -1,6 +1,7 @@
 package io.softa.starter.message.shared;
 
 import java.util.Locale;
+import java.util.Map;
 import org.springframework.stereotype.Component;
 
 /**
@@ -8,8 +9,8 @@ import org.springframework.stereotype.Component;
  * <p>
  * Implementation is intentionally defensive: when in doubt, return
  * {@link ErrorCategory#UNKNOWN} so retry keeps running. Specific provider
- * code tables can be folded in over time (SendGrid / Twilio / Aliyun) without
- * changing callers.
+ * code tables are folded in here without changing callers: SMTP reply codes,
+ * HTTP statuses ({@code HTTP_<status>}) and Infobip's status names so far.
  */
 @Component
 public class ErrorClassifier {
@@ -28,6 +29,39 @@ public class ErrorClassifier {
 
     /** The prepared content cannot go out: empty, over the size cap, or a malformed Reply-To. */
     public static final String CONTENT_INVALID = "CONTENT_INVALID";
+
+    /** Prefix of the code an SMS adapter gives an HTTP error response: {@code HTTP_401}. */
+    public static final String HTTP_PREFIX = "HTTP_";
+
+    /**
+     * Infobip message statuses an SMS send can be refused with at submission, by name
+     * (<a href="https://www.infobip.com/docs/developer-resources/api-fundamentals/message-status-codes">status codes</a>).
+     * Only the platform's own failures heal by retrying; the rest need the account, the sender,
+     * the number or the content fixed first.
+     */
+    private static final Map<String, ErrorCategory> INFOBIP_STATUSES = Map.ofEntries(
+            // The account cannot send this: sender not registered, no credit, no route, test-only account.
+            Map.entry("REJECTED_SOURCE", ErrorCategory.CONFIG),
+            Map.entry("REJECTED_NOT_ENOUGH_CREDITS", ErrorCategory.CONFIG),
+            Map.entry("REJECTED_PREPAID_PACKAGE_EXPIRED", ErrorCategory.CONFIG),
+            Map.entry("REJECTED_ROUTE_NOT_AVAILABLE", ErrorCategory.CONFIG),
+            Map.entry("REJECTED_NETWORK", ErrorCategory.CONFIG),
+            Map.entry("REJECTED_DESTINATION_NOT_REGISTERED", ErrorCategory.CONFIG),
+            // The number or the content is wrong.
+            Map.entry("REJECTED_PREFIX_MISSING", ErrorCategory.INVALID_INPUT),
+            Map.entry("REJECTED_DESTINATION", ErrorCategory.INVALID_INPUT),
+            Map.entry("MISSING_TO", ErrorCategory.INVALID_INPUT),
+            Map.entry("REJECTED_MESSAGE_TOO_LONG", ErrorCategory.INVALID_INPUT),
+            Map.entry("REJECTED_INVALID_UDH", ErrorCategory.INVALID_INPUT),
+            // The recipient or the sender is blocked: do-not-disturb, blocklists, flooding, anti-fraud.
+            Map.entry("REJECTED_DND", ErrorCategory.PERMANENT),
+            Map.entry("REJECTED_DESTINATION_BLOCKLISTED", ErrorCategory.PERMANENT),
+            Map.entry("REJECTED_SENDER", ErrorCategory.PERMANENT),
+            Map.entry("REJECTED_FLOODING_FILTER", ErrorCategory.PERMANENT),
+            Map.entry("SIGNALS_BLOCKED", ErrorCategory.PERMANENT),
+            // Infobip's own platform failed; its docs say to submit again.
+            Map.entry("REJECTED_SYSTEM_ERROR", ErrorCategory.TRANSIENT),
+            Map.entry("UNDELIVERABLE_REJECTED_PLATFORM", ErrorCategory.TRANSIENT));
 
     public ErrorCategory classify(String errorCode, String errorMessage) {
         if (errorCode != null) {
@@ -52,6 +86,15 @@ public class ErrorClassifier {
         }
         if (code.equals(CONTENT_INVALID)) {
             return ErrorCategory.INVALID_INPUT;
+        }
+        // An HTTP error response no adapter could read a provider code from: "HTTP_<status>".
+        if (code.startsWith(HTTP_PREFIX)) {
+            ErrorCategory byStatus = classifyHttpStatus(code.substring(HTTP_PREFIX.length()));
+            if (byStatus != null) return byStatus;
+        }
+        ErrorCategory infobip = INFOBIP_STATUSES.get(code);
+        if (infobip != null) {
+            return infobip;
         }
         // SMTP reply codes from SmtpMailTransport: "SMTP_<ExceptionType>".
         if (code.startsWith("SMTP_")) {
@@ -118,6 +161,25 @@ public class ErrorClassifier {
             case 530, 534, 535, 538 -> ErrorCategory.AUTH;
             case 552 -> ErrorCategory.INVALID_INPUT;
             default -> reply >= 500 && reply < 600 ? ErrorCategory.PERMANENT : ErrorCategory.UNKNOWN;
+        };
+    }
+
+    /**
+     * An HTTP status: credentials refused (401 / 403), rate-limited (429), a request the provider
+     * will never accept (400 / 404 / 413 / 422), or the provider failing (408, 5xx). Any other
+     * status falls through to the heuristics.
+     */
+    private static ErrorCategory classifyHttpStatus(String status) {
+        if (status.length() != 3 || !status.chars().allMatch(Character::isDigit)) {
+            return null;
+        }
+        int s = Integer.parseInt(status);
+        return switch (s) {
+            case 401, 403 -> ErrorCategory.AUTH;
+            case 429 -> ErrorCategory.QUOTA;
+            case 400, 404, 413, 422 -> ErrorCategory.INVALID_INPUT;
+            case 408 -> ErrorCategory.TRANSIENT;
+            default -> s >= 500 && s < 600 ? ErrorCategory.TRANSIENT : null;
         };
     }
 

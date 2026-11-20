@@ -47,6 +47,34 @@ class ErrorClassifierTest {
     }
 
     @Test
+    void httpStatusCodes_mapByStatus() {
+        // An SMS adapter codes an HTTP error it could not read a provider code from as HTTP_<status>.
+        assertEquals(ErrorCategory.AUTH, classifier.classify("HTTP_401", null));
+        assertEquals(ErrorCategory.AUTH, classifier.classify("HTTP_403", null));
+        assertEquals(ErrorCategory.QUOTA, classifier.classify("HTTP_429", null));
+        assertEquals(ErrorCategory.INVALID_INPUT, classifier.classify("HTTP_400", "Request cannot be processed."));
+        assertEquals(ErrorCategory.INVALID_INPUT, classifier.classify("HTTP_422", null));
+        assertEquals(ErrorCategory.TRANSIENT, classifier.classify("HTTP_408", null));
+        assertEquals(ErrorCategory.TRANSIENT, classifier.classify("HTTP_503", null));
+        // A status with no rule of its own falls through to the message.
+        assertEquals(ErrorCategory.UNKNOWN, classifier.classify("HTTP_409", "conflict"));
+    }
+
+    @Test
+    void infobipStatusNames_mapToWhatFixesThem() {
+        assertEquals(ErrorCategory.CONFIG, classifier.classify("REJECTED_SOURCE", "Sender ID not registered"));
+        assertEquals(ErrorCategory.CONFIG, classifier.classify("REJECTED_NOT_ENOUGH_CREDITS", null));
+        assertEquals(ErrorCategory.CONFIG, classifier.classify("REJECTED_ROUTE_NOT_AVAILABLE", null));
+        assertEquals(ErrorCategory.INVALID_INPUT, classifier.classify("REJECTED_PREFIX_MISSING", null));
+        assertEquals(ErrorCategory.INVALID_INPUT, classifier.classify("MISSING_TO", null));
+        assertEquals(ErrorCategory.PERMANENT, classifier.classify("REJECTED_DND", null));
+        assertEquals(ErrorCategory.PERMANENT, classifier.classify("REJECTED_FLOODING_FILTER", null));
+        // Only Infobip's own platform failures are worth another attempt.
+        assertEquals(ErrorCategory.TRANSIENT, classifier.classify("REJECTED_SYSTEM_ERROR", null));
+        assertEquals(false, classifier.classify("REJECTED_SOURCE", null).isRetryable());
+    }
+
+    @Test
     void unmatchedCodeAndMessage_fallBackToUnknown() {
         assertEquals(ErrorCategory.UNKNOWN, classifier.classify("X999", "something odd"));
         assertEquals(ErrorCategory.UNKNOWN, classifier.classify(null, null));
