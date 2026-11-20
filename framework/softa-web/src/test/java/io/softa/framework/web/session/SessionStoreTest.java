@@ -38,7 +38,7 @@ class SessionStoreTest {
     private final SessionStore store = new SessionStore(cacheService, publisher);
 
     private static SessionRecord record(Long accountId) {
-        return new SessionRecord(accountId, PROFILE, 1L, "ios", "1.2.0", null, LocalDateTime.now());
+        return new SessionRecord(accountId, PROFILE, 1L, "ios", "1.2.0", null, null, LocalDateTime.now());
     }
 
     private void live(String sessionId, Long accountId, long secondsLeft) {
@@ -49,7 +49,7 @@ class SessionStoreTest {
 
     @Test
     void create_writesTheRecordForSevenDays_andIndexesItUnderTheAccount() {
-        String sessionId = store.create(ACCOUNT, PROFILE, 1L, "android", "1.0.0", "Pixel 8");
+        String sessionId = store.create(ACCOUNT, PROFILE, 1L, "android", "1.0.0", "Pixel 8", "15");
 
         ArgumentCaptor<Object> value = ArgumentCaptor.forClass(Object.class);
         verify(cacheService).save(eq(RedisConstant.SESSION + sessionId), value.capture(), eq(RedisConstant.ONE_WEEK));
@@ -57,6 +57,8 @@ class SessionStoreTest {
         assertThat(saved.accountId()).isEqualTo(ACCOUNT);
         assertThat(saved.profileId()).isEqualTo(PROFILE);
         assertThat(saved.platform()).isEqualTo("android");
+        assertThat(saved.deviceModel()).isEqualTo("Pixel 8");
+        assertThat(saved.osVersion()).isEqualTo("15");
         verify(cacheService).addToSet("account-sessions:" + ACCOUNT, sessionId, RedisConstant.ONE_WEEK);
     }
 
@@ -103,7 +105,7 @@ class SessionStoreTest {
         when(cacheService.getSetMembers("account-sessions:" + ACCOUNT)).thenReturn(java.util.Set.of("gone", "alive"));
         when(cacheService.hasKey(RedisConstant.SESSION + "alive")).thenReturn(true);
 
-        store.create(ACCOUNT, 7L, 1L, null, null, null);
+        store.create(ACCOUNT, 7L, 1L, null, null, null, null);
 
         verify(cacheService).removeFromSet("account-sessions:" + ACCOUNT, "gone");
         verify(cacheService, never()).removeFromSet("account-sessions:" + ACCOUNT, "alive");
@@ -171,8 +173,8 @@ class SessionStoreTest {
 
     @Test
     void aSessionServesOnlyTheKindOfClientItWasIssuedTo() {
-        SessionRecord appSession = new SessionRecord(ACCOUNT, 7L, 1L, "ios", "1.0.0", null, LocalDateTime.now());
-        SessionRecord webSession = new SessionRecord(ACCOUNT, 7L, 1L, null, null, null, LocalDateTime.now());
+        SessionRecord appSession = new SessionRecord(ACCOUNT, 7L, 1L, "ios", "1.0.0", null, null, LocalDateTime.now());
+        SessionRecord webSession = new SessionRecord(ACCOUNT, 7L, 1L, null, null, null, null, LocalDateTime.now());
         MockHttpServletRequest app = new MockHttpServletRequest();
         app.addHeader(SessionStore.APP_PLATFORM_HEADER, "android");
         MockHttpServletRequest web = new MockHttpServletRequest();
@@ -182,7 +184,7 @@ class SessionStoreTest {
         assertThat(SessionStore.sameClient(webSession, app)).isFalse();
         assertThat(SessionStore.sameClient(appSession, web)).isFalse();
         // Only a version said, no platform: still the APP, on both sides.
-        SessionRecord versionOnly = new SessionRecord(ACCOUNT, 7L, 1L, null, "1.0.0", null, LocalDateTime.now());
+        SessionRecord versionOnly = new SessionRecord(ACCOUNT, 7L, 1L, null, "1.0.0", null, null, LocalDateTime.now());
         assertThat(versionOnly.isApp()).isTrue();
     }
 

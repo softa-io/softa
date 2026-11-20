@@ -38,4 +38,11 @@ public class SendInboxDTO {
 
     @Schema(description = "Optional expiry time")
     private LocalDateTime expiredAt;
+
+    /**
+     * Also push it to the recipient's phones, where the application sends pushes; off unless set. Not stored: it only
+     * decides whether the message is queued for a push once it is written.
+     */
+    @Schema(description = "Also push it to the recipient's APP devices; defaults to false")
+    private Boolean push;
 }

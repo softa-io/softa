@@ -107,9 +107,9 @@ class AcceptTokenTest {
         // As a reset by code does: whoever knew the old password may be signed in somewhere.
         tokenFor(AccountStatus.ACTIVE, "hash");
         io.softa.starter.user.service.UserSessionService sessions = mock(io.softa.starter.user.service.UserSessionService.class);
-        io.softa.starter.user.spi.PushDeviceRegistry devices = mock(io.softa.starter.user.spi.PushDeviceRegistry.class);
+        io.softa.starter.message.push.service.AppPushDeviceService devices = mock(io.softa.starter.message.push.service.AppPushDeviceService.class);
         org.springframework.test.util.ReflectionTestUtils.setField(invitationService, "sessionService", sessions);
-        org.springframework.test.util.ReflectionTestUtils.setField(invitationService, "pushDeviceRegistry", devices);
+        org.springframework.test.util.ReflectionTestUtils.setField(invitationService, "pushDeviceService", devices);
 
         invitationService.acceptToken("raw-token", "Str0ng!Passw0rd");
 

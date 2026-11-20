@@ -143,6 +143,11 @@ finds it in a search (`searchName`).
   version), not a security boundary: any caller can send or omit those headers. The
   source (`APP` / `WEB`) and device model recorded in the security log and the login
   history are what the client said about itself.
+- **Device headers.** Besides `X-App-Platform` / `X-App-Version` the APP sends
+  `X-Device-Model` (the hardware identifier, e.g. `iPhone12,3`) and `X-OS-Version` (the
+  operating system's version, e.g. `18.1`) on every call. `ClientInfo` reads them; the
+  session and the login history keep both (the push device keeps its own `deviceModel`
+  from the registration body, in message-starter). Either may be absent.
 - **Password lockout** lives on the credential (`UserIdentity.passwordLockedUntil`),
   so it is linked across every company the person belongs to. `UserAccount.locked`
   is a **derived, read-only** projection of it for the account list — writes that
@@ -247,6 +252,12 @@ accepts (`{"ticket": "..."}`):
 
 They act on the caller only and carry no business permission: the application lists `/me/**` under
 `permission.authenticated-bypass-patterns`, as `uiContext` already needs.
+
+## Push devices
+
+The APP's push-device registrations (`AppPushDevice`, `/app/devices`) live in message-starter (its README, *Push
+devices*). The account flows here drop them: logout naming its token (`unregisterDevice`), Reset User and password
+reset (`unregisterPerson`), an account frozen or closed (`unregisterAccount`); a revoked session drops its own.
 
 ## Consultants
 

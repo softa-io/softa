@@ -93,6 +93,7 @@ class MessageApprovalNotificationServiceTest {
         assertEquals(NotificationType.WORKFLOW, sent.getFirst().getNotificationType());
         assertEquals("FlowInstance", sent.getFirst().getSourceModel());
         assertEquals("i1", sent.getFirst().getSourceId());
+        assertEquals(Boolean.TRUE, sent.getFirst().getPush(), "an approval's messages go to the phones too");
     }
 
     @Test
@@ -227,6 +228,7 @@ class MessageApprovalNotificationServiceTest {
                 "admin-1 is not a numeric account id, so only the initiator is addressable");
         assertEquals("Approval failed: Leave of Alice", sent.getFirst().getTitle());
         assertEquals("No approver found", sent.getFirst().getContent());
+        assertEquals(Boolean.FALSE, sent.getFirst().getPush(), "a failure's system error stays in the inbox");
         assertEquals(1, administratorQueries.get(), "the administrators are looked up once for both channels");
     }
 

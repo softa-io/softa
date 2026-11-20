@@ -126,10 +126,10 @@ public class SessionStore {
      * @return the new session id, which is also the session token handed to the client
      */
     public String create(Long accountId, Long profileId, Long tenantId,
-                         String platform, String appVersion, String deviceModel) {
+                         String platform, String appVersion, String deviceModel, String osVersion) {
         String sessionId = UUIDUtils.shortUUID22();
         SessionRecord session = new SessionRecord(accountId, profileId, tenantId,
-                platform, appVersion, deviceModel, LocalDateTime.now());
+                platform, appVersion, deviceModel, osVersion, LocalDateTime.now());
         cacheService.save(sessionKey(sessionId), session, TTL_SECONDS);
         // Sessions that expired on their own are dropped from the index here, so it holds roughly
         // the live sessions instead of every session the account ever had.

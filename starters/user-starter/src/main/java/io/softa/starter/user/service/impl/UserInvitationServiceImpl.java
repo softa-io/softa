@@ -35,7 +35,7 @@ import io.softa.starter.user.entity.UserInvitation;
 import io.softa.starter.user.entity.UserSecurityLog;
 import io.softa.starter.user.enums.*;
 import io.softa.starter.user.service.*;
-import io.softa.starter.user.spi.PushDeviceRegistry;
+import io.softa.starter.message.push.service.AppPushDeviceService;
 import io.softa.starter.user.util.LoginIdentifiers;
 
 /**
@@ -86,9 +86,9 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
     @Autowired
     private UserSessionService sessionService;
 
-    /** Optional: present only where APP push is deployed. */
+    /** message-starter's push-device registrations; optional so a unit test may leave them out. */
     @Autowired(required = false)
-    private PushDeviceRegistry pushDeviceRegistry;
+    private AppPushDeviceService pushDeviceService;
 
     public UserInvitationServiceImpl(UserAccountService accountService,
                                      UserIdentityService identityService,
@@ -689,8 +689,8 @@ public class UserInvitationServiceImpl extends EntityServiceImpl<UserInvitation,
         // receiving their notifications.
         Long profileId = identity.get().getProfileId();
         sessionService.revokePerson(profileId, null, SessionRevokeReason.PASSWORD_RESET);
-        if (pushDeviceRegistry != null) {
-            pushDeviceRegistry.unregisterPerson(profileId);
+        if (pushDeviceService != null) {
+            pushDeviceService.unregisterPerson(profileId);
         }
         securityLog.record(securityLog.entry(SecurityAction.PASSWORD_RESET, SecurityLogSource.WEB, account, profileId));
 

@@ -120,7 +120,7 @@ class LoginControllerLeaveTenantTest {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setCookies(new Cookie(BaseConstant.SESSION_ID, SESSION));
         when(cacheService.get("session:" + SESSION, SessionRecord.class))
-                .thenReturn(new SessionRecord(accountId, PROFILE, 1L, null, null, null, LocalDateTime.now()));
+                .thenReturn(new SessionRecord(accountId, PROFILE, 1L, null, null, null, null, LocalDateTime.now()));
         return request;
     }
 

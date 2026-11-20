@@ -12,8 +12,8 @@ import io.softa.framework.web.session.SessionStore;
  * version and device model. Recorded on sessions, login history and the security log.
  *
  * <p>{@code X-App-Platform} ({@code ios} / {@code android}) and {@code X-App-Version} are the APP's
- * standard headers; {@code X-Device-Model} is optional. Web and H5 send none of them, so all three
- * are null there.
+ * standard headers; {@code X-Device-Model} and {@code X-OS-Version} are optional. Web and H5 send
+ * none of them, so all four are null there.
  *
  * <p><b>Self-reported, all of it.</b> Telling the APP from Web by these headers is a product rule —
  * consultants and platform accounts on the Web only, the source and device recorded in the security
@@ -29,14 +29,17 @@ import io.softa.framework.web.session.SessionStore;
  * @param platform    {@code X-App-Platform}, lower-cased
  * @param appVersion  {@code X-App-Version}
  * @param deviceModel {@code X-Device-Model}
+ * @param osVersion   {@code X-OS-Version}, the operating system's version ("18.1", "15")
  */
-public record ClientInfo(String ip, String userAgent, String platform, String appVersion, String deviceModel) {
+public record ClientInfo(String ip, String userAgent, String platform, String appVersion, String deviceModel,
+                         String osVersion) {
 
     public static final String PLATFORM_HEADER = SessionStore.APP_PLATFORM_HEADER;
     public static final String APP_VERSION_HEADER = SessionStore.APP_VERSION_HEADER;
     public static final String DEVICE_MODEL_HEADER = "X-Device-Model";
+    public static final String OS_VERSION_HEADER = "X-OS-Version";
 
-    private static final ClientInfo NONE = new ClientInfo(null, null, null, null, null);
+    private static final ClientInfo NONE = new ClientInfo(null, null, null, null, null, null);
 
     /** Proxies that append to {@code X-Forwarded-For}; set from configuration at startup. */
     private static volatile int trustedProxies = 1;
@@ -75,7 +78,8 @@ public record ClientInfo(String ip, String userAgent, String platform, String ap
                 StringUtils.abbreviate(StringUtils.trimToNull(request.getHeader("User-Agent")), 255),
                 platform == null ? null : platform.toLowerCase(),
                 StringUtils.trimToNull(request.getHeader(APP_VERSION_HEADER)),
-                StringUtils.trimToNull(request.getHeader(DEVICE_MODEL_HEADER)));
+                StringUtils.abbreviate(StringUtils.trimToNull(request.getHeader(DEVICE_MODEL_HEADER)), 64),
+                StringUtils.abbreviate(StringUtils.trimToNull(request.getHeader(OS_VERSION_HEADER)), 32));
     }
 
     /**

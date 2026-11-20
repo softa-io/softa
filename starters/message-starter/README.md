@@ -349,8 +349,9 @@ of a notice catches it and logs it at ERROR, as user-starter's notices do.
 
 ### Broker topics
 
-Delivery uses no topic. message-starter consumes two, both optional: `cron-task`
-drives the scheduled mail fetch (see *Scheduled Fetch*), and
+Delivery uses no topic. message-starter consumes three, all optional: `cron-task`
+drives the scheduled mail fetch (see *Scheduled Fetch*) and the nightly push-device
+cleanup, `push-send` carries APP pushes (see *Push notifications*), and
 `softa.message.dlq.topic` collects other consumers' poison messages into the
 dead-letter store. Send dead-lettering is a terminal record state (`DEAD_LETTER`)
 plus a row archived into the unified `dead_letter_message` store (see *Dead
@@ -401,6 +402,118 @@ provider. Route rows of equal priority are ordered by config id.
 - The columns `is_default` and `priority` and the index `idx_sms_provider_cfg_default`
   are dropped by the scanner where `scanner-scope` covers message-starter; elsewhere
   they stay, nullable and unread, and can be dropped with the release. No data moves.
+
+### Push notifications
+
+An inbox message whose sender sets `SendInboxDTO.push` is also pushed to the recipient's APP devices: APNs (HTTP/2,
+token authentication) for iOS, FCM (HTTP v1) for Android. Nothing else is pushed, and nothing is recorded beyond the
+log: a push is an instant reminder, and the inbox message holds what it said. flow-starter's approval messages set it,
+all but an approval's failure (its text is the system's error, and administrators get it too).
+
+```
+sendInbox(push = true) ─► InboxNotificationsCreated ─► AppPushDispatcher ─► push-send ─► AppPushSendConsumer
+  (the writer's tx)          (in that tx)                (after commit)        (Pulsar)      └─► AppPushProcessor
+                                                                                                └─► PushSender
+```
+
+- **Dispatch** (`AppPushDispatcher`): once the inbox commits — rolled back, nothing is pushed — each message asked for
+  goes to the `push-send` topic carrying its recipient, title, content and what it refers to, so sending never reads
+  the notification back. Off while no platform has credentials or `mq.topics.push-send.topic` is unset, which the
+  startup log says once.
+- **Consume** (`AppPushSendConsumer`): a Shared subscription, so a large batch spreads over the consumers of every
+  instance. Where `softa.message.dlq.topic` is set, a message that cannot even be read goes to the dead letters.
+- **Send** (`AppPushProcessor`): the recipient's live devices (`AppPushDeviceService.liveDevices`), each sent to once.
+  A token the service disowns loses its registration; **every other failure is logged as an ERROR with its cause and
+  never tried again** — a blocked network or a wrong key fails the same way on every try, and one timeout lost costs
+  one reminder. Each line carries the notification id, the tenant, the platform and the token's last six characters,
+  never the title, the body or a whole token. Alerting groups by the cause: a network down logs one ERROR per device.
+- **What it says**: the message's title (cut to 200 bytes), and its content made one line and cut to 100 characters —
+  about what a lock screen shows; the content is left out when empty or the title again. Its data is
+  `notificationId`, `tenantId`, `sourceModel` and `sourceId`, all strings: the APP decides from the model which page
+  opens. `apns-collapse-id` and FCM's `android.notification.tag` are the notification id, so a message delivered twice
+  shows once; `thread-id` is the source model. A device offline keeps it for 24 hours.
+
+```yml
+mq:
+  topics:
+    push-send:
+      topic: hcm-push-send-topic
+      sub: hcm-push-send-sub
+      concurrency: 16        # consumers per instance
+```
+
+#### Credentials
+
+Each platform is on when its credentials are configured, and off otherwise; with neither, nothing is queued. An
+unusable key logs an ERROR and leaves that platform off: it never stops startup.
+
+| `softa.message.push.` | Meaning |
+| --- | --- |
+| `log-only` | Log each notification instead of sending it, on both platforms |
+| `concurrency` | Most requests in flight per platform, per instance (default 100) |
+| `apns.private-key`, `apns.key-id`, `apns.team-id`, `apns.topic` | The `.p8` key (PEM, or PEM base64-encoded), its ids, the bundle id |
+| `apns.environment` | `production` (default; TestFlight and store builds) or `sandbox` (builds installed from Xcode) |
+| `apns.sandbox-fallback` | Try `sandbox` when `production` calls a token bad, for an environment with both kinds of build |
+| `fcm.service-account-json` | The service account key (JSON, or JSON base64-encoded) |
+| `fcm.android-channel-id` | The Android notification channel; blank leaves it to the app's default |
+| `apns.proxy-host`, `apns.proxy-port`, `fcm.proxy-host`, `fcm.proxy-port` | An HTTP CONNECT proxy for that platform, for a server that cannot reach the service directly |
+| `apns.base-url`, `apns.sandbox-base-url`, `fcm.base-url`, `fcm.token-url` | Override the service addresses, for testing |
+
+#### Outcomes
+
+`PushSender.send` returns a result and never throws: `SENT`; `TOKEN_INVALID` — only APNs 410 `Unregistered` and FCM
+`UNREGISTERED`, the two answers that say so for certain (APNs `BadDeviceToken` is also what a token of the other APNs
+environment gets, so it is `REJECTED`); `FAILED` — the network, a 5xx, or a 429, which is one device's rate limit;
+`CONFIG_ERROR` — credentials or target are wrong, the token says nothing; `REJECTED` — FCM `SENDER_ID_MISMATCH` among
+them, the token belonging to another Firebase project. The reason reads `HTTP 503 UNAVAILABLE`,
+`HTTP 429 TooManyRequests`, `ConnectException: Connection refused`. `Retry-After` is not read: nothing is tried again.
+
+After 10 failures in a row — network or 5xx — a platform pauses for a minute and its sends fail at once, saying what
+paused it, so a blocked network costs about ten timeouts a minute instead of one per device; the other platform is
+never affected. When FCM's token endpoint refuses the key or cannot be reached, Android sends fail for a minute without
+asking it again — those queued behind the failed exchange included. A token not shaped like one
+(`[A-Za-z0-9:_-]`, at most 512) is `REJECTED` without a request. APNs' signed token is renewed every 40 minutes; an
+`ExpiredProviderToken` for a token signed less than 20 minutes ago is a `CONFIG_ERROR` pointing at the server's clock,
+since re-signing sooner would only earn `TooManyProviderTokenUpdates`. `log-only` logs the platform, the token's last
+six characters and the ids at INFO, and what the notification says only at DEBUG.
+
+#### Push devices
+
+`AppDeviceController` (`/app/devices`) — the APP registers after signing in, after switching company, when its push
+token changes and when the person allows notifications: `POST /app/devices` with `platform` (`ios` / `android`),
+`deviceToken`, `appVersion`, `deviceModel`, `locale`. It drops the registration when the person turns notifications
+off: `DELETE /app/devices/{deviceToken}`, only the caller's own.
+
+- **An application using permission-starter lists `/app/devices/**` in `permission.authenticated-bypass-patterns`**:
+  the endpoints need a signed-in account and nothing more, and without the entry an ordinary employee cannot register.
+- An application with an APP version floor lists `DELETE /app/devices/*` in `app.upgrade-exempt-paths` (softa-web
+  README) so an APP stuck on the upgrade screen can still stop notifications.
+- The table is `app_push_device` (`AppPushDevice`). An application whose `scanner-scope` covers
+  `io.softa.starter.message` gets it from the scanner; any other creates it itself.
+
+The token must look like its platform's: hex, 64 to 200 characters, for `ios`; `[A-Za-z0-9:_-]`, at most 512, for
+`android`. A registration belongs to the account and the session it was made under, never to the request: one token
+is one row, moved to whoever registers it next (a token moving to another tenant gets a new row, since a row's tenant
+is fixed once written; the delete and the insert share one transaction). It goes when its session does — signed out,
+revoked (`SessionRevokedEvent`) — and when user-starter's account flows say so: the account frozen or closed
+(`unregisterAccount`), the person reset or their password reset (`unregisterPerson`), a logout naming its token
+(`unregisterDevice`). A session that simply runs out announces nothing, so `lastSeenAt` moves on with each renewal
+(`SessionRenewedEvent`; only `lastSeenAt`, and only on rows still under that session) and a row not seen for
+`SessionStore.TTL_SECONDS` is dead: `liveDevices` skips it and the `DropStalePushDevices` cron (CrossTenant, nightly,
+`data-system/SysCron.MessageMaintenance.json`, subscription `mq.topics.cron-task.push-device-sub`) removes it.
+
+A registration follows the company the person is signed in to: someone in two companies gets only the current one's
+pushes. When a push service says a token no longer exists, `dropInvalid(token, accountId)` removes the row only while
+it is still that account's — the token may just have moved to whoever signed in on the device.
+
+#### Upgrading
+
+No earlier release had any of this: the device registrations (`AppPushDevice`, `AppPushDeviceService`), their
+endpoints (`AppDeviceController`), the nightly `DropStalePushDevices` cleanup and the push pipeline are new, all in
+`io.softa.starter.message.push`, and the `app_push_device` table is created by the scanner. An application with a
+seed manifest lists `data-system/SysCron.MessageMaintenance.json` for the cleanup. An application that pushed by
+listening for `InboxNotificationsCreated` itself, with device registrations of its own, drops both, sets `push` on
+the messages it sends instead and has its APP register through the endpoints above.
 
 ### Message-starter properties
 

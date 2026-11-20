@@ -1,14 +1,18 @@
 package io.softa.starter.message.service.internal;
 
+import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.starter.message.inbox.dto.SendInboxDTO;
 import io.softa.starter.message.inbox.entity.InboxNotification;
 import io.softa.starter.message.inbox.enums.NotificationType;
+import io.softa.starter.message.inbox.event.InboxNotificationsCreated;
 import io.softa.starter.message.inbox.service.InboxNotificationService;
 
 /**
@@ -24,17 +28,36 @@ final class InboxMessageHandler {
     static final int TITLE_MAX_LENGTH = 200;
 
     private final InboxNotificationService notificationService;
+    private final ApplicationEventPublisher eventPublisher;
 
     Long send(SendInboxDTO message) {
         validate(message);
-        return notificationService.createOne(toNotification(message));
+        Long id = notificationService.createOne(toNotification(message));
+        publish(List.of(message), List.of(id));
+        return id;
     }
 
     List<Long> sendBatch(List<SendInboxDTO> messages) {
         messages.forEach(InboxMessageHandler::validate);
-        return notificationService.createList(messages.stream()
+        List<Long> ids = notificationService.createList(messages.stream()
                 .map(InboxMessageHandler::toNotification)
                 .toList());
+        publish(messages, ids);
+        return ids;
+    }
+
+    /** Ids come back in submission order, so each message pairs with the id at its position. */
+    private void publish(List<SendInboxDTO> messages, List<Long> ids) {
+        Long tenantId = ContextHolder.existContext() ? ContextHolder.getContext().getTenantId() : null;
+        List<InboxNotificationsCreated.Created> items = new ArrayList<>(messages.size());
+        for (int i = 0; i < messages.size(); i++) {
+            SendInboxDTO message = messages.get(i);
+            items.add(new InboxNotificationsCreated.Created(ids.get(i), tenantId,
+                    message.getNotificationType() != null ? message.getNotificationType() : NotificationType.SYSTEM,
+                    message.getSourceModel(), message.getSourceId(), message.getRecipientId(), fit(message.getTitle().strip()),
+                    message.getContent(), Boolean.TRUE.equals(message.getPush())));
+        }
+        eventPublisher.publishEvent(new InboxNotificationsCreated(List.copyOf(items)));
     }
 
     private static void validate(SendInboxDTO message) {

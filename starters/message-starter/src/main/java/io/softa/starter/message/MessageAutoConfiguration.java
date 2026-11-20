@@ -5,6 +5,7 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 import io.softa.starter.message.config.MessageProperties;
+import io.softa.starter.message.push.PushProperties;
 
 /**
  * Auto-configuration for {@code message-starter}.
@@ -27,6 +28,6 @@ import io.softa.starter.message.config.MessageProperties;
  */
 @ComponentScan
 @EnableScheduling
-@EnableConfigurationProperties(MessageProperties.class)
+@EnableConfigurationProperties({MessageProperties.class, PushProperties.class})
 public class MessageAutoConfiguration {
 }

@@ -49,7 +49,7 @@ import io.softa.starter.user.enums.LoginEvent;
 import io.softa.starter.user.enums.SecurityAction;
 import io.softa.starter.user.enums.SecurityLogSource;
 import io.softa.starter.user.service.*;
-import io.softa.starter.user.spi.PushDeviceRegistry;
+import io.softa.starter.message.push.service.AppPushDeviceService;
 import io.softa.starter.user.util.ClientInfo;
 import io.softa.starter.user.util.LoginIdentifiers;
 
@@ -89,9 +89,9 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     @Autowired
     private UserSessionService sessionService;
 
-    /** Optional: present only where APP push is deployed. */
+    /** message-starter's push-device registrations; optional so a unit test may leave them out. */
     @Autowired(required = false)
-    private PushDeviceRegistry pushDeviceRegistry;
+    private AppPushDeviceService pushDeviceService;
 
     @Autowired
     private UserSecurityLogService securityLog;
@@ -937,8 +937,8 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         // Every device of the person, in every company: whoever holds the old number may be signed
         // in somewhere. And no device keeps receiving their notifications.
         sessionService.revokePerson(account.getProfileId(), null, SessionRevokeReason.RESET_USER);
-        if (pushDeviceRegistry != null) {
-            pushDeviceRegistry.unregisterPerson(account.getProfileId());
+        if (pushDeviceService != null) {
+            pushDeviceService.unregisterPerson(account.getProfileId());
         }
 
         // Tell the OLD number (it may be lost, but if not, the person learns of it) and the
@@ -1093,9 +1093,9 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
      * while longer, not an account left open.
      */
     private void unregisterDevices(Long accountId) {
-        if (pushDeviceRegistry != null && accountId != null) {
+        if (pushDeviceService != null && accountId != null) {
             AfterCommit.run("Dropping the push devices of account " + accountId,
-                    () -> pushDeviceRegistry.unregisterAccount(accountId));
+                    () -> pushDeviceService.unregisterAccount(accountId));
         }
     }
 
