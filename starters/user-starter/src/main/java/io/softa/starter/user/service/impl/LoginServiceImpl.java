@@ -1344,7 +1344,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
             throw webOnly;
         }
         String sessionId = sessionStore.create(account.getId(), account.getProfileId(), account.getTenantId(),
-                client.platform(), client.appVersion(), client.deviceModel());
+                client.platform(), client.appVersion(), client.deviceModel(), client.osVersion());
         this.rememberLastAccount(account);
         return sessionId;
     }

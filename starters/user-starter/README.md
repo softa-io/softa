@@ -144,6 +144,11 @@ finds it in a search (`searchName`).
   version), not a security boundary: any caller can send or omit those headers. The
   source (`APP` / `WEB`) and device model recorded in the security log and the login
   history are what the client said about itself.
+- **Device headers.** Besides `X-App-Platform` / `X-App-Version` the APP sends
+  `X-Device-Model` (the hardware identifier, e.g. `iPhone12,3`) and `X-OS-Version` (the
+  operating system's version, e.g. `18.1`) on every call. `ClientInfo` reads them; the
+  session and the login history keep both (the push device keeps its own `deviceModel`
+  from the registration body). Either may be absent.
 - **Password lockout** lives on the credential (`UserIdentity.passwordLockedUntil`),
   so it is linked across every company the person belongs to. `UserAccount.locked`
   is a **derived, read-only** projection of it for the account list — writes that

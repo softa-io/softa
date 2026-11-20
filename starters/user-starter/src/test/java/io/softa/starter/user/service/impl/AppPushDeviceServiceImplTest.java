@@ -59,10 +59,11 @@ class AppPushDeviceServiceImplTest {
     AppPushDeviceServiceImplTest() {
         ReflectionTestUtils.setField(service, "sessionStore", sessionStore);
         when(sessionStore.peek(SESSION)).thenReturn(Optional.of(
-                new SessionRecord(ACCOUNT, ADA, 1L, "ios", "1.0.0", null, LocalDateTime.now())));
+                new SessionRecord(ACCOUNT, ADA, 1L, "ios", "1.0.0", null, null, LocalDateTime.now())));
         doReturn(1L).when(service).createOne(any(AppPushDevice.class));
         doReturn(true).when(service).updateOne(any(AppPushDevice.class), anyBoolean());
         doReturn(true).when(service).deleteByIds(anyList());
+        doReturn(true).when(service).deleteByFilters(any(Filters.class));
         doReturn(true).when(service).deleteById(any());
         doReturn(1).when(service).updateByFilter(any(Filters.class), any(AppPushDevice.class));
     }
@@ -101,6 +102,7 @@ class AppPushDeviceServiceImplTest {
         assertThat(saved.getValue().getAccountId()).isEqualTo(ACCOUNT);
         assertThat(saved.getValue().getProfileId()).isEqualTo(ADA);
         assertThat(saved.getValue().getTenantId()).isEqualTo(1L);
+        assertThat(saved.getValue().getDeviceModel()).isEqualTo("iPhone15,2");
         // The session is kept as a digest only: the id itself is a bearer credential.
         assertThat(saved.getValue().getSessionKey())
                 .isEqualTo(AppPushDeviceServiceImpl.sessionKey(SESSION)).isNotEqualTo(SESSION);
@@ -191,7 +193,7 @@ class AppPushDeviceServiceImplTest {
     @Test
     void aRenewedSession_keepsItsDevicesAlive_byTouchingOnlyLastSeen() {
         service.onSessionRenewed(new SessionRenewedEvent(SESSION,
-                new SessionRecord(ACCOUNT, ADA, 1L, "ios", "1.0.0", null, LocalDateTime.now())));
+                new SessionRecord(ACCOUNT, ADA, 1L, "ios", "1.0.0", null, null, LocalDateTime.now())));
 
         ArgumentCaptor<Filters> filters = ArgumentCaptor.forClass(Filters.class);
         ArgumentCaptor<AppPushDevice> values = ArgumentCaptor.forClass(AppPushDevice.class);
@@ -213,7 +215,7 @@ class AppPushDeviceServiceImplTest {
         // B signed in on A's device and registered: the row is B's, under B's session. A's late renewal must match
         // nothing, so it is a conditional update on A's session, never a read-and-write of the row.
         service.onSessionRenewed(new SessionRenewedEvent("session-of-a",
-                new SessionRecord(1L, 2L, 1L, "ios", "1.0.0", null, LocalDateTime.now())));
+                new SessionRecord(1L, 2L, 1L, "ios", "1.0.0", null, null, LocalDateTime.now())));
 
         ArgumentCaptor<Filters> filters = ArgumentCaptor.forClass(Filters.class);
         verify(service).updateByFilter(filters.capture(), any(AppPushDevice.class));
@@ -251,17 +253,18 @@ class AppPushDeviceServiceImplTest {
 
     @Test
     void sendersSee_onlyDevicesSeenWithinASessionsLifetime_andTheRestAreDropped() {
-        AppPushDevice stale = new AppPushDevice();
-        stale.setId(6L);
-        stored(stale);
+        stored();
+        doReturn(List.of(6L)).when(service).getIds(any(Filters.class));
 
         service.liveDevices(List.of(ACCOUNT));
         assertThat(service.dropStale()).isEqualTo(1);
 
-        ArgumentCaptor<Filters> filters = ArgumentCaptor.forClass(Filters.class);
-        verify(service, org.mockito.Mockito.times(2)).searchList(filters.capture());
-        assertThat(filters.getAllValues().get(0).toString()).contains("accountId").contains("lastSeenAt").contains(">=");
-        assertThat(filters.getAllValues().get(1).toString()).contains("lastSeenAt").contains("<");
+        ArgumentCaptor<Filters> live = ArgumentCaptor.forClass(Filters.class);
+        verify(service).searchList(live.capture());
+        assertThat(live.getValue().toString()).contains("accountId").contains("lastSeenAt").contains(">=");
+        ArgumentCaptor<Filters> stale = ArgumentCaptor.forClass(Filters.class);
+        verify(service).getIds(stale.capture());
+        assertThat(stale.getValue().toString()).contains("lastSeenAt").contains("<");
         verify(service).deleteByIds(List.of(6L));
         // A session lives seven days past its last renewal; older than that, it has ended.
         assertThat(AppPushDeviceServiceImpl.staleBefore())
@@ -274,65 +277,48 @@ class AppPushDeviceServiceImplTest {
                 .isInstanceOf(BusinessException.class);
     }
 
+    /** The filters every drop deleted by, in order. */
+    private List<Filters> dropped(int times) {
+        ArgumentCaptor<Filters> filters = ArgumentCaptor.forClass(Filters.class);
+        verify(service, org.mockito.Mockito.times(times)).deleteByFilters(filters.capture());
+        return filters.getAllValues();
+    }
+
     @Test
     void namingAToken_dropsItOnlyForItsOwnPerson() {
-        stored();
-
         signedIn(() -> service.unregisterMine(TOKEN));
 
-        ArgumentCaptor<Filters> filters = ArgumentCaptor.forClass(Filters.class);
-        verify(service).searchList(filters.capture());
-        assertThat(filters.getValue().toString()).contains("deviceToken").contains("profileId").contains("7");
+        assertThat(dropped(1).getFirst().toString()).contains("deviceToken").contains("profileId").contains("7");
     }
 
     @Test
     void anEndedSession_takesItsDeviceWithIt() {
-        AppPushDevice device = new AppPushDevice();
-        device.setId(5L);
-        stored(device);
-
         service.onSessionRevoked(new SessionRevokedEvent(SESSION,
-                new SessionRecord(ACCOUNT, ADA, 1L, "ios", "1.0.0", null, LocalDateTime.now()),
+                new SessionRecord(ACCOUNT, ADA, 1L, "ios", "1.0.0", null, null, LocalDateTime.now()),
                 SessionRevokeReason.KICKED_BY_OTHER_DEVICE));
 
-        ArgumentCaptor<Filters> filters = ArgumentCaptor.forClass(Filters.class);
-        verify(service).searchList(filters.capture());
-        assertThat(filters.getValue().toString()).contains(AppPushDeviceServiceImpl.sessionKey(SESSION));
-        verify(service).deleteByIds(List.of(5L));
+        assertThat(dropped(1).getFirst().toString()).contains(AppPushDeviceServiceImpl.sessionKey(SESSION));
     }
 
     @Test
     void aFrozenOrClosedAccount_dropsAllItsDevices() {
-        AppPushDevice phone = new AppPushDevice();
-        phone.setId(5L);
-        AppPushDevice tablet = new AppPushDevice();
-        tablet.setId(6L);
-        stored(phone, tablet);
-
         service.unregisterAccount(ACCOUNT);
 
-        verify(service).deleteByIds(List.of(5L, 6L));
+        assertThat(dropped(1).getFirst().toString()).contains("accountId").contains(String.valueOf(ACCOUNT));
     }
 
     @Test
     void aTokenTheServiceDisowns_isDroppedOnlyWhileItIsStillThisAccounts() {
-        AppPushDevice phone = new AppPushDevice();
-        phone.setId(5L);
-        stored(phone);
-
         service.dropInvalid(TOKEN, ACCOUNT);
 
-        ArgumentCaptor<Filters> filters = ArgumentCaptor.forClass(Filters.class);
-        verify(service).searchList(filters.capture());
-        assertThat(filters.getValue().toString()).contains(TOKEN).contains(String.valueOf(ACCOUNT));
-        verify(service).deleteByIds(List.of(5L));
+        assertThat(dropped(1).getFirst().toString()).contains(TOKEN).contains(String.valueOf(ACCOUNT));
     }
 
     @Test
     void aFailedDrop_neverFailsWhatAskedForIt() {
         doAnswer(inv -> {
             throw new IllegalStateException("db down");
-        }).when(service).searchList(any(Filters.class));
+        }).when(service).deleteByFilters(any(Filters.class));
 
         service.unregisterPerson(ADA);
     }

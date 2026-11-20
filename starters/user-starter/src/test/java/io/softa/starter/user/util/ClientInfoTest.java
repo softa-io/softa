@@ -72,4 +72,30 @@ class ClientInfoTest {
             ClientInfo.trustRealIp(false);
         }
     }
+
+    @Test
+    void theAppsDeviceHeaders_areRead_andWebSendsNone() {
+        MockHttpServletRequest app = new MockHttpServletRequest();
+        app.addHeader(ClientInfo.PLATFORM_HEADER, "iOS");
+        app.addHeader(ClientInfo.APP_VERSION_HEADER, "1.2.0");
+        app.addHeader(ClientInfo.DEVICE_MODEL_HEADER, " iPhone12,3 ");
+        app.addHeader(ClientInfo.OS_VERSION_HEADER, "18.1");
+        ClientInfo client = ClientInfo.of(app);
+        assertThat(client.platform()).isEqualTo("ios");
+        assertThat(client.deviceModel()).isEqualTo("iPhone12,3");
+        assertThat(client.osVersion()).isEqualTo("18.1");
+
+        ClientInfo web = ClientInfo.of(new MockHttpServletRequest());
+        assertThat(web.deviceModel()).isNull();
+        assertThat(web.osVersion()).isNull();
+    }
+
+    @Test
+    void anOverlongDeviceHeader_isCutToItsColumn() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(ClientInfo.DEVICE_MODEL_HEADER, "m".repeat(200));
+        request.addHeader(ClientInfo.OS_VERSION_HEADER, "9".repeat(100));
+        assertThat(ClientInfo.of(request).deviceModel()).hasSize(64);
+        assertThat(ClientInfo.of(request).osVersion()).hasSize(32);
+    }
 }

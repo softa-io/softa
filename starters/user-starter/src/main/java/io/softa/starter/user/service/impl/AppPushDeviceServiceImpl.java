@@ -172,9 +172,7 @@ public class AppPushDeviceServiceImpl extends EntityServiceImpl<AppPushDevice, L
 
     @Override
     public int dropStale() {
-        List<Long> ids = acrossTenants(() -> this.searchList(new Filters()
-                .lt(AppPushDevice::getLastSeenAt, staleBefore()))
-                .stream().map(AppPushDevice::getId).filter(Objects::nonNull).toList());
+        List<Long> ids = acrossTenants(() -> this.getIds(new Filters().lt(AppPushDevice::getLastSeenAt, staleBefore())));
         if (!ids.isEmpty()) {
             acrossTenants(() -> this.deleteByIds(ids));
         }
@@ -265,14 +263,7 @@ public class AppPushDeviceServiceImpl extends EntityServiceImpl<AppPushDevice, L
     /** {@code what} names the rows for the log, without a whole device token. */
     private void drop(Filters filters, String what) {
         try {
-            acrossTenants(() -> {
-                List<Long> ids = this.searchList(filters).stream().map(AppPushDevice::getId)
-                        .filter(Objects::nonNull).toList();
-                if (!ids.isEmpty()) {
-                    this.deleteByIds(ids);
-                }
-                return null;
-            });
+            acrossTenants(() -> this.deleteByFilters(filters));
         } catch (RuntimeException e) {
             // A registration left behind only means a notification to a device that should no longer
             // get it; it must not fail the sign-out, freeze or reset that asked for the drop.

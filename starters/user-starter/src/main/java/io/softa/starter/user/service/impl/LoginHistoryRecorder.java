@@ -44,7 +44,7 @@ public class LoginHistoryRecorder {
                        LoginChannel channel, LoginMethod method, String failureReason) {
         ClientInfo client = ClientInfo.current();
         UserLoginHistory row = baseRow(event, profileId, accountId, tenantId,
-                client.platform(), client.appVersion(), client.deviceModel());
+                client.platform(), client.appVersion(), client.deviceModel(), client.osVersion());
         row.setChannel(channel);
         row.setLoginMethod(method);
         row.setFailureReason(StringUtils.abbreviate(failureReason, 255));
@@ -56,7 +56,7 @@ public class LoginHistoryRecorder {
     public void recordSwitch(Long profileId, Long fromAccountId, Long toAccountId, Long toTenantId) {
         ClientInfo client = ClientInfo.current();
         UserLoginHistory row = baseRow(LoginEvent.TENANT_SWITCHED, profileId, toAccountId, toTenantId,
-                client.platform(), client.appVersion(), client.deviceModel());
+                client.platform(), client.appVersion(), client.deviceModel(), client.osVersion());
         row.setFromAccountId(fromAccountId);
         row.setStatus(LoginStatus.SUCCESS);
         this.write(row);
@@ -78,7 +78,7 @@ public class LoginHistoryRecorder {
         SessionRecord session = event.session();
         // The revoked session's own device, not the caller's: a kick is issued from another device.
         UserLoginHistory row = baseRow(loginEvent, session.profileId(), session.accountId(), session.tenantId(),
-                session.platform(), session.appVersion(), session.deviceModel());
+                session.platform(), session.appVersion(), session.deviceModel(), session.osVersion());
         row.setStatus(LoginStatus.SUCCESS);
         row.setFailureReason(event.reason() == SessionRevokeReason.PASSWORD_RESET
                 ? "Password reset" : null);
@@ -86,7 +86,8 @@ public class LoginHistoryRecorder {
     }
 
     private static UserLoginHistory baseRow(LoginEvent event, Long profileId, Long accountId, Long tenantId,
-                                            String platform, String appVersion, String deviceModel) {
+                                            String platform, String appVersion, String deviceModel,
+                                            String osVersion) {
         ClientInfo client = ClientInfo.current();
         UserLoginHistory row = new UserLoginHistory();
         row.setEvent(event);
@@ -96,6 +97,7 @@ public class LoginHistoryRecorder {
         row.setPlatform(platform);
         row.setAppVersion(appVersion);
         row.setDeviceModel(deviceModel);
+        row.setOsVersion(osVersion);
         row.setLoginDeviceType(platform == null ? LoginDeviceType.WEB_BROWSER : LoginDeviceType.MOBILE_APP);
         row.setIpAddress(client.ip());
         row.setUserAgent(client.userAgent());
