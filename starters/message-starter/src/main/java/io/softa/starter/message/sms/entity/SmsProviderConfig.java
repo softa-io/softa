@@ -75,11 +75,13 @@ public class SmsProviderConfig extends AuditableModel {
     private String extConfig;
 
     @Field(length = 50,
-            description = "Sender phone number (E.164 format)")
+            description = "Numeric sender: a long number in E.164 (e.g. +6591234567) or a short code "
+                    + "(e.g. a New Zealand 4–6 digit code), entered as the provider issued it")
     private String senderNumber;
 
     @Field(label = "Sender ID", length = 50,
-            description = "Alphanumeric sender ID (alternative to phone number)")
+            description = "Alphanumeric sender ID such as a brand name (alternative to a sender number); "
+                    + "some countries require it to be registered first (Singapore: SSIR)")
     private String senderId;
 
     @Field(description = "Max SMS per minute")
