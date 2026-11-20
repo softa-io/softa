@@ -1,6 +1,5 @@
 package io.softa.starter.message.sms.support.adapter;
 
-import java.util.Map;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,6 +20,8 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class InfobipSmsAdapterTest {
 
+    private static final String SEND_URL = "https://test.api.infobip.com/sms/3/messages";
+
     private InfobipSmsAdapter adapter;
     private MockRestServiceServer mockServer;
 
@@ -38,20 +39,36 @@ class InfobipSmsAdapterTest {
         config.setProviderType(SmsProvider.INFOBIP);
         config.setApiKey("infobip-api-key-123");
         config.setApiEndpoint("https://test.api.infobip.com");
-        config.setSenderNumber("+15551234567");
+        config.setSenderNumber("+6582400211");
         return config;
     }
 
-    private SmsAdapterRequest request(String phoneNumber, String content,
-                                      String externalTemplateId, String signName,
-                                      Map<String, Object> templateVariables) {
+    private SmsAdapterRequest request(String phoneNumber, String content) {
         SmsAdapterRequest req = new SmsAdapterRequest();
         req.setPhoneNumber(phoneNumber);
         req.setContent(content);
-        req.setExternalTemplateId(externalTemplateId);
-        req.setSignName(signName);
-        req.setTemplateVariables(templateVariables);
         return req;
+    }
+
+    private static String acceptedResponse(String messageId, String groupName) {
+        return """
+               {
+                 "bulkId": "bulk-1",
+                 "messages": [
+                   {
+                     "messageId": "%s",
+                     "status": {
+                       "groupId": 1,
+                       "groupName": "%s",
+                       "id": 26,
+                       "name": "PENDING_ACCEPTED",
+                       "description": "Message sent to next instance"
+                     },
+                     "destination": "6580999185"
+                   }
+                 ]
+               }
+               """.formatted(messageId, groupName);
     }
 
     @Test
@@ -60,31 +77,21 @@ class InfobipSmsAdapterTest {
     }
 
     @Test
-    void sendSuccessReturnsProviderMessageId() {
-        SmsProviderConfig config = createConfig();
-        String expectedUrl = "https://test.api.infobip.com/sms/2/text/advanced";
-
-        mockServer.expect(requestTo(expectedUrl))
+    void sendBuildsV3RequestAndReturnsMessageId() {
+        mockServer.expect(requestTo(SEND_URL))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "App infobip-api-key-123"))
-                .andRespond(withSuccess(
-                        """
-                        {
-                          "messages": [
-                            {
-                              "messageId": "msg-infobip-001",
-                              "status": {
-                                "groupName": "PENDING",
-                                "name": "PENDING_ENROUTE",
-                                "description": "Message sent to next instance"
-                              }
-                            }
-                          ]
-                        }
-                        """,
+                .andExpect(header("Accept", MediaType.APPLICATION_JSON_VALUE))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.messages[0].sender").value("6582400211"))
+                .andExpect(jsonPath("$.messages[0].destinations[0].to").value("6580999185"))
+                .andExpect(jsonPath("$.messages[0].content.text").value("Your code is 123456"))
+                .andExpect(jsonPath("$.messages[0].from").doesNotExist())
+                .andExpect(jsonPath("$.messages[0].text").doesNotExist())
+                .andRespond(withSuccess(acceptedResponse("msg-infobip-001", "PENDING"),
                         MediaType.APPLICATION_JSON));
 
-        SmsSendResult result = adapter.send(config, request("+8613800138000", "Hello", null, null, null));
+        SmsSendResult result = adapter.send(createConfig(), request("+6580999185", "Your code is 123456"));
 
         mockServer.verify();
         Assertions.assertTrue(result.isSuccess());
@@ -92,19 +99,84 @@ class InfobipSmsAdapterTest {
     }
 
     @Test
-    void sendHandlesRejectedStatus() {
+    void sendUsesAlphanumericSenderIdWhenNoSenderNumber() {
         SmsProviderConfig config = createConfig();
-        String expectedUrl = "https://test.api.infobip.com/sms/2/text/advanced";
+        config.setSenderNumber(null);
+        config.setSenderId("Softa");
 
-        mockServer.expect(requestTo(expectedUrl))
-                .andExpect(method(HttpMethod.POST))
+        mockServer.expect(requestTo(SEND_URL))
+                .andExpect(jsonPath("$.messages[0].sender").value("Softa"))
+                .andRespond(withSuccess(acceptedResponse("msg-002", "PENDING"), MediaType.APPLICATION_JSON));
+
+        SmsSendResult result = adapter.send(config, request("+6580999185", "Hello"));
+
+        mockServer.verify();
+        Assertions.assertTrue(result.isSuccess());
+    }
+
+    @Test
+    void sendOmitsSenderWhenNoneConfigured() {
+        SmsProviderConfig config = createConfig();
+        config.setSenderNumber(null);
+
+        mockServer.expect(requestTo(SEND_URL))
+                .andExpect(jsonPath("$.messages[0].sender").doesNotExist())
+                .andRespond(withSuccess(acceptedResponse("msg-003", "PENDING"), MediaType.APPLICATION_JSON));
+
+        SmsSendResult result = adapter.send(config, request("+6580999185", "Hello"));
+
+        mockServer.verify();
+        Assertions.assertTrue(result.isSuccess());
+    }
+
+    @Test
+    void sendTrimsTrailingSlashOfEndpoint() {
+        SmsProviderConfig config = createConfig();
+        config.setApiEndpoint("https://test.api.infobip.com/");
+
+        mockServer.expect(requestTo(SEND_URL))
+                .andRespond(withSuccess(acceptedResponse("msg-004", "PENDING"), MediaType.APPLICATION_JSON));
+
+        SmsSendResult result = adapter.send(config, request("+6580999185", "Hello"));
+
+        mockServer.verify();
+        Assertions.assertTrue(result.isSuccess());
+    }
+
+    @Test
+    void sendAcceptsDeliveredStatusGroup() {
+        mockServer.expect(requestTo(SEND_URL))
+                .andRespond(withSuccess(acceptedResponse("msg-005", "DELIVERED"), MediaType.APPLICATION_JSON));
+
+        SmsSendResult result = adapter.send(createConfig(), request("+6580999185", "Hello"));
+
+        Assertions.assertTrue(result.isSuccess());
+        Assertions.assertEquals("msg-005", result.getProviderMessageId());
+    }
+
+    @Test
+    void sendFailsWithoutCallingWhenEndpointMissing() {
+        SmsProviderConfig config = createConfig();
+        config.setApiEndpoint(" ");
+
+        SmsSendResult result = adapter.send(config, request("+6580999185", "Hello"));
+
+        mockServer.verify();
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals("INFOBIP_ENDPOINT_MISSING", result.getErrorCode());
+    }
+
+    @Test
+    void sendHandlesRejectedStatus() {
+        mockServer.expect(requestTo(SEND_URL))
                 .andRespond(withSuccess(
                         """
                         {
                           "messages": [
                             {
-                              "messageId": "msg-infobip-002",
+                              "messageId": "msg-infobip-006",
                               "status": {
+                                "groupId": 5,
                                 "groupName": "REJECTED",
                                 "name": "REJECTED_PREFIX_MISSING",
                                 "description": "Number prefix missing"
@@ -115,7 +187,7 @@ class InfobipSmsAdapterTest {
                         """,
                         MediaType.APPLICATION_JSON));
 
-        SmsSendResult result = adapter.send(config, request("invalid", "Hello", null, null, null));
+        SmsSendResult result = adapter.send(createConfig(), request("invalid", "Hello"));
 
         mockServer.verify();
         Assertions.assertFalse(result.isSuccess());
@@ -125,70 +197,50 @@ class InfobipSmsAdapterTest {
 
     @Test
     void sendHandlesEmptyMessagesArray() {
-        SmsProviderConfig config = createConfig();
-        String expectedUrl = "https://test.api.infobip.com/sms/2/text/advanced";
+        mockServer.expect(requestTo(SEND_URL))
+                .andRespond(withSuccess("{\"messages\": []}", MediaType.APPLICATION_JSON));
 
-        mockServer.expect(requestTo(expectedUrl))
-                .andExpect(method(HttpMethod.POST))
-                .andRespond(withSuccess(
-                        """
-                        {"messages": []}
-                        """,
-                        MediaType.APPLICATION_JSON));
-
-        SmsSendResult result = adapter.send(config, request("+8613800138000", "Hello", null, null, null));
+        SmsSendResult result = adapter.send(createConfig(), request("+6580999185", "Hello"));
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals("Infobip returned empty messages array", result.getErrorMessage());
     }
 
     @Test
-    void sendHandlesHttpError() {
-        SmsProviderConfig config = createConfig();
-        String expectedUrl = "https://test.api.infobip.com/sms/2/text/advanced";
-
-        mockServer.expect(requestTo(expectedUrl))
-                .andExpect(method(HttpMethod.POST))
-                .andRespond(withStatus(HttpStatus.UNAUTHORIZED)
+    void sendParsesV3ErrorBody() {
+        mockServer.expect(requestTo(SEND_URL))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST)
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("""
-                              {"requestError": {"serviceException": {"text": "Invalid API key"}}}
+                              {
+                                "errorCode": "E400",
+                                "description": "Request cannot be processed.",
+                                "action": "Check the syntax, violations and adjust the request.",
+                                "violations": [
+                                  {"property": "messages[0].destinations[0].to", "violation": "must not be blank"}
+                                ]
+                              }
                               """));
 
-        SmsSendResult result = adapter.send(config, request("+8613800138000", "Hello", null, null, null));
+        SmsSendResult result = adapter.send(createConfig(), request("+6580999185", "Hello"));
 
         Assertions.assertFalse(result.isSuccess());
-        Assertions.assertNotNull(result.getErrorMessage());
+        Assertions.assertEquals("E400", result.getErrorCode());
+        Assertions.assertEquals(
+                "Request cannot be processed.: messages[0].destinations[0].to must not be blank",
+                result.getErrorMessage());
     }
 
     @Test
-    void sendAcceptsSentStatusGroup() {
-        SmsProviderConfig config = createConfig();
-        String expectedUrl = "https://test.api.infobip.com/sms/2/text/advanced";
+    void sendFallsBackToHttpStatusOnUnknownErrorBody() {
+        mockServer.expect(requestTo(SEND_URL))
+                .andRespond(withStatus(HttpStatus.UNAUTHORIZED)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"unexpected\": true}"));
 
-        mockServer.expect(requestTo(expectedUrl))
-                .andExpect(method(HttpMethod.POST))
-                .andRespond(withSuccess(
-                        """
-                        {
-                          "messages": [
-                            {
-                              "messageId": "msg-003",
-                              "status": {
-                                "groupName": "SENT",
-                                "name": "SENT_OK",
-                                "description": "Message sent successfully"
-                              }
-                            }
-                          ]
-                        }
-                        """,
-                        MediaType.APPLICATION_JSON));
+        SmsSendResult result = adapter.send(createConfig(), request("+6580999185", "Hello"));
 
-        SmsSendResult result = adapter.send(config, request("+8613800138000", "Hello", null, null, null));
-
-        mockServer.verify();
-        Assertions.assertTrue(result.isSuccess());
-        Assertions.assertEquals("msg-003", result.getProviderMessageId());
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals("HTTP_401", result.getErrorCode());
     }
 }

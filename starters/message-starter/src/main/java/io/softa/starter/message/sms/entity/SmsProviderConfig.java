@@ -57,13 +57,14 @@ public class SmsProviderConfig extends AuditableModel {
 
     @Field(label = "API Secret", length = 512, encrypted = true, copyable = false, unsearchable = true,
             maskingType = MaskingType.ALL,
-            description = "Secondary credential (Twilio=authToken, Infobip=apiSecret, Aliyun=accessKeySecret) — "
+            description = "Secondary credential (Twilio=authToken, Aliyun=accessKeySecret; unused by Infobip) — "
                     + "AES-encrypted at rest, masked in API reads. Omit the field on update to keep the "
                     + "stored value; a payload containing the mask symbol is rejected.")
     private String apiSecret;
 
     @Field(label = "API Endpoint", length = 500,
-            description = "Provider API base URL (null = adapter default)")
+            description = "Provider API base URL (null = adapter default; required for Infobip, "
+                    + "the account's own base URL, e.g. https://xxxxx.api.infobip.com)")
     private String apiEndpoint;
 
     @Field(label = "Account ID", length = 255,
