@@ -130,7 +130,7 @@ public class AliyunSmsAdapter extends AbstractSmsProviderAdapter {
         if ("OK".equals(code)) {
             return SmsSendResult.success(json.path("BizId").asString(null));
         }
-        log.error("Aliyun SMS send failed: {} - {}", code, json.path("Message").asString(""));
+        log.warn("Aliyun SMS send failed: {} - {}", code, json.path("Message").asString(""));
         return SmsSendResult.failure(code, json.path("Message").asString("Aliyun SMS send failed"));
     }
 

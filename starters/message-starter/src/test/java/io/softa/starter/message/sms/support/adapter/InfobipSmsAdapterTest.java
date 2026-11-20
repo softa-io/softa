@@ -225,9 +225,10 @@ class InfobipSmsAdapterTest {
         SmsSendResult result = adapter.send(createConfig(), request("+6580999185", "Hello"));
 
         Assertions.assertFalse(result.isSuccess());
-        Assertions.assertEquals("E400", result.getErrorCode());
+        // The code is the HTTP status the retry decision reads; Infobip's own code goes in the message.
+        Assertions.assertEquals("HTTP_400", result.getErrorCode());
         Assertions.assertEquals(
-                "Request cannot be processed.: messages[0].destinations[0].to must not be blank",
+                "[E400] Request cannot be processed.: messages[0].destinations[0].to must not be blank",
                 result.getErrorMessage());
     }
 
