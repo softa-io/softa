@@ -1,12 +1,14 @@
 package io.softa.starter.message.sms.entity;
 
 import java.io.Serial;
+import java.util.List;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 import io.softa.framework.orm.enums.MaskingType;
 import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Model;
+import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.starter.message.sms.enums.SmsProvider;
@@ -98,4 +100,8 @@ public class SmsProviderConfig extends AuditableModel {
      */
     @Field(renamedFrom = "isEnabled")
     private Boolean active;
+
+    /** The countries this provider serves — edited on the provider's page, queried by country on its own. */
+    @Field(label = "Country Routing", fieldType = FieldType.ONE_TO_MANY, relatedField = "providerConfigId")
+    private List<SmsProviderRegion> regions;
 }

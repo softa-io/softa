@@ -1040,9 +1040,20 @@ country of a number.
 Two tables intentionally — one provider account commonly serves N countries
 (Twilio US/CA/MX/UK/AU/…). 1-to-N relationship is normalised into a routing
 table; per-region priority is a column on the routing row, not on the config.
+The relation is declared both ways: `SmsProviderRegion.providerConfigId` is a
+many-to-one onto `SmsProviderConfig` with `onDelete = CASCADE` (deleting a
+provider deletes its routes), and `SmsProviderConfig.regions` is the
+one-to-many, so a provider's page edits its routes as its own rows while the
+routing list queries them by country. `uk_sms_provider_region`
+(provider, country) refuses a second route for the same pair with a message of
+its own; it counts disabled routes too — re-enable one instead. The provider
+references on `SmsTemplateProviderBinding` and `SmsSendRecord` are many-to-one
+as well (no delete strategy), so lists show the provider's name.
+
 `region_code` is the ISO 3166-1 alpha-2 country code (`CN`, `TW`, `US`, …),
-validated at write time against `country_region.code` in
-`reference-data-starter`. The reference table holds all 249 ISO 3166-1
+validated on every write path — the routing page, a provider's page, import,
+seed, a direct call — against `country_region.code` in
+`reference-data-starter` by `SmsProviderRegionWriteValidator`. The reference table holds all 249 ISO 3166-1
 territories with English name, alpha-3 code, E.164 dial code, default
 currency, continent, EEA flag, and subdivisions flag. **`reference-data-starter`
 must be on the classpath** for SMS provider routing to function — `message-starter`
