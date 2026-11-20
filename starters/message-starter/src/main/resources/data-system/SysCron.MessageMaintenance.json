@@ -1,0 +1,17 @@
+{
+  "SysCron": [
+    {
+      "id": "DropStalePushDevices",
+      "name": "DropStalePushDevices",
+      "cronExpression": "0 40 3 * * ?",
+      "cronSemantic": "Every day at 03:40",
+      "tenantJobMode": "CrossTenant",
+      "limitExecution": false,
+      "remainingCount": -1,
+      "redoMisfire": true,
+      "priority": 5,
+      "active": true,
+      "description": "Nightly. Removes APP push-device registrations not seen for a session's lifetime (seven days): their session has ended on its own, which announces nothing. Senders already skip them; this only keeps the table small. Moved here from user-starter's SysCron.UserMaintenance.json with the same id."
+    }
+  ]
+}

@@ -1,15 +1,16 @@
-package io.softa.starter.user.service;
+package io.softa.starter.message.push.service;
 
 import java.util.Collection;
 import java.util.List;
 
-import io.softa.starter.user.entity.AppPushDevice;
+import io.softa.starter.message.push.entity.AppPushDevice;
 import io.softa.framework.orm.service.EntityService;
 
 /**
  * The APP's push-device registrations: which devices an account is signed in on, kept with the session it signed in
- * under. A sender reads {@link #liveDevices}; the account flows drop registrations through {@code PushDeviceRegistry},
- * which this also is.
+ * under. A sender reads {@link #liveDevices}; the account flows call the {@code unregister} methods on logout, Reset
+ * User, password reset, and when an account is frozen or closed. Registrations also go whenever a session ends, through
+ * {@code SessionRevokedEvent}.
  */
 public interface AppPushDeviceService extends EntityService<AppPushDevice, Long> {
 
@@ -36,4 +37,19 @@ public interface AppPushDeviceService extends EntityService<AppPushDevice, Long>
 
     /** Remove the registrations whose session has certainly ended; returns how many. */
     int dropStale();
+
+    /**
+     * Forget one device token — only when it is registered to this person. The token arrives in a request body, and a
+     * caller must not be able to drop someone else's device by naming it.
+     */
+    void unregisterDevice(String deviceToken, Long profileId);
+
+    /** Forget every device registered to any account of this person. */
+    void unregisterPerson(Long profileId);
+
+    /**
+     * Forget every device registered to this account: it was frozen or closed, and a notification from a company the
+     * person can no longer enter must not reach them.
+     */
+    void unregisterAccount(Long accountId);
 }

@@ -3,7 +3,6 @@ package io.softa.starter.message.push;
 import java.net.InetSocketAddress;
 import java.net.ProxySelector;
 import java.net.http.HttpClient;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
@@ -53,15 +52,6 @@ final class PushCredentials {
 
     private static String encode(Map<String, Object> part) {
         return URL_ENCODER.encodeToString(JWT_MAPPER.writeValueAsBytes(part));
-    }
-
-    /** The {@code Retry-After} a service sent, when it gave a number of seconds; otherwise null. */
-    static Duration retryAfter(HttpResponse<?> response) {
-        return response.headers().firstValue("retry-after")
-                .map(String::trim)
-                .filter(value -> value.matches("\\d{1,9}"))
-                .map(value -> Duration.ofSeconds(Long.parseLong(value)))
-                .orElse(null);
     }
 
     static HttpClient httpClient(Duration connectTimeout, String proxyHost, Integer proxyPort) {

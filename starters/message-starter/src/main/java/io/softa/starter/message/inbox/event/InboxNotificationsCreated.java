@@ -9,8 +9,8 @@ import io.softa.starter.message.inbox.enums.NotificationType;
  * act on committed messages uses {@code @TransactionalEventListener(AFTER_COMMIT)}: rolled back, nothing is heard.
  * An application uses this to carry a message further, such as to a phone, without the sender knowing.
  *
- * <p>Each item carries only what a listener needs to decide whether to act. Who it is for and what it says are read
- * from the notification when acting on it, so a decision taken later, such as on a retry, sees what the row says then.
+ * <p>Each item carries what a listener needs to act without reading the notification back: who it is for, what it
+ * says, what it refers to, and whether its sender asked for a push.
  *
  * @param items the notifications written, in the order they were submitted
  */
@@ -23,7 +23,13 @@ public record InboxNotificationsCreated(List<Created> items) {
      * @param tenantId    the tenant it belongs to; null when written outside a tenant context
      * @param type        its source category
      * @param sourceModel the model of the object it refers to; may be null
+     * @param sourceId    the id of the object it refers to, as text; may be null
+     * @param recipientId the account it is for
+     * @param title       its title
+     * @param content     its content
+     * @param push        whether its sender asked for it to be pushed to the recipient's devices
      */
-    public record Created(Long id, Long tenantId, NotificationType type, String sourceModel) {
+    public record Created(Long id, Long tenantId, NotificationType type, String sourceModel, String sourceId,
+                          Long recipientId, String title, String content, boolean push) {
     }
 }

@@ -45,6 +45,7 @@ class InboxMessageHandlerTest {
         first.setNotificationType(NotificationType.WORKFLOW);
         first.setSourceModel("Order");
         first.setSourceId("9");
+        first.setPush(true);
 
         Context context = new Context();
         context.setTenantId(5L);
@@ -53,8 +54,11 @@ class InboxMessageHandlerTest {
         ArgumentCaptor<InboxNotificationsCreated> captor = ArgumentCaptor.forClass(InboxNotificationsCreated.class);
         verify(eventPublisher).publishEvent(captor.capture());
         assertEquals(List.of(
-                new InboxNotificationsCreated.Created(81L, 5L, NotificationType.WORKFLOW, "Order"),
-                new InboxNotificationsCreated.Created(82L, 5L, NotificationType.SYSTEM, null)),
+                new InboxNotificationsCreated.Created(81L, 5L, NotificationType.WORKFLOW, "Order", "9", 10L, "First",
+                        "A", true),
+                // Not asked for, not pushed.
+                new InboxNotificationsCreated.Created(82L, 5L, NotificationType.SYSTEM, null, null, 20L, "Second",
+                        "B", false)),
                 captor.getValue().items());
     }
 

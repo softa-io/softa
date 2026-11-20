@@ -10,13 +10,12 @@ import org.springframework.stereotype.Component;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.starter.cron.message.dto.CronTaskMessage;
-import io.softa.starter.user.service.AppPushDeviceService;
 import io.softa.starter.user.service.DynamicRoleSyncJob;
 
 /**
  * user-starter's own thin cron consumer for the <b>dynamic-role membership sync</b>. Subscribes to the shared
  * {@code cron-task} broadcast under an independent subscription (Pulsar fan-out — coexists with any other
- * module's cron consumer) and handles only {@code DynamicRoleSync} and {@code DropStalePushDevices}; any other cron name is ignored. The job
+ * module's cron consumer) and handles only {@code DynamicRoleSync}; any other cron name is ignored. The job
  * ({@link DynamicRoleSyncJob}) and the Role / UserRoleRel entities live in user-starter, so its cron trigger
  * belongs here too — not as a corehr {@code CronTaskHandler} bridge.
  *
@@ -41,19 +40,10 @@ public class UserMaintenanceCronConsumer {
     /** Must equal the {@code sys_cron.name} in user-starter's data-system/SysCron.UserMaintenance.json. */
     static final String DYNAMIC_ROLE_SYNC = "DynamicRoleSync";
 
-    /**
-     * CrossTenant: one message, and the service reads every tenant's rows itself. Removes the push-device
-     * registrations whose session has ended on its own, which announces nothing; senders already skip them, so
-     * this only keeps the table small.
-     */
-    static final String DROP_STALE_PUSH_DEVICES = "DropStalePushDevices";
-
     private final DynamicRoleSyncJob dynamicRoleSyncJob;
-    private final AppPushDeviceService pushDeviceService;
 
-    public UserMaintenanceCronConsumer(DynamicRoleSyncJob dynamicRoleSyncJob, AppPushDeviceService pushDeviceService) {
+    public UserMaintenanceCronConsumer(DynamicRoleSyncJob dynamicRoleSyncJob) {
         this.dynamicRoleSyncJob = dynamicRoleSyncJob;
-        this.pushDeviceService = pushDeviceService;
     }
 
     @PulsarListener(topics = "${mq.topics.cron-task.topic}",
@@ -81,11 +71,6 @@ public class UserMaintenanceCronConsumer {
                 dynamicRoleSyncJob.syncAll();
                 log.info("[CRON] {} — dynamic-role sync finished in {}ms",
                         DYNAMIC_ROLE_SYNC, System.currentTimeMillis() - startMs);
-            } else if (DROP_STALE_PUSH_DEVICES.equals(cronName)) {
-                int dropped = pushDeviceService.dropStale();
-                if (dropped > 0) {
-                    log.info("[CRON] {} — dropped {} stale push device(s)", DROP_STALE_PUSH_DEVICES, dropped);
-                }
             }
             // Any other cronName on the shared topic belongs to another module — not ours, ignore.
         } catch (Exception e) {

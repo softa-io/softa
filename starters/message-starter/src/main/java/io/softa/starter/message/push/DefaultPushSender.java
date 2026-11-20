@@ -6,11 +6,9 @@ import java.nio.charset.CharsetEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.time.Clock;
-import java.time.Instant;
 import java.time.Duration;
 import java.util.EnumMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -25,18 +23,19 @@ import org.springframework.stereotype.Component;
 @Component
 public class DefaultPushSender implements PushSender {
 
-    /** Both services take at most 4 KB, and an approval comment can be far longer. */
-    static final int MAX_BODY_BYTES = 1000;
-    /** A lock screen shows a line or two of title; the rest only costs payload room. */
+    /**
+     * About what a lock screen shows of a body, four lines or so: an approval comment can be far longer, and the rest
+     * is the inbox message's to show.
+     */
+    static final int MAX_BODY_CHARS = 100;
+    /** A lock screen shows a line or two of title and cuts the rest itself; this only keeps the payload in bounds. */
     static final int MAX_TITLE_BYTES = 200;
     /** How long the services keep trying an offline device when the request does not say. */
     static final Duration DEFAULT_TIME_TO_LIVE = Duration.ofHours(24);
-    private static final Duration CONFIG_ERROR_LOG_INTERVAL = Duration.ofMinutes(5);
 
     private final boolean logOnly;
     private final Clock clock;
     private final Map<PushPlatform, GuardedChannel> channels = new EnumMap<>(PushPlatform.class);
-    private final Map<PushPlatform, Instant> configErrorLoggedAt = new ConcurrentHashMap<>();
 
     @Autowired
     public DefaultPushSender(PushProperties properties) {
@@ -82,7 +81,7 @@ public class DefaultPushSender implements PushSender {
     @Override
     public PushResult send(PushRequest request) {
         PushRequest fitted = new PushRequest(request.platform(), request.deviceToken(),
-                fit(request.title(), MAX_TITLE_BYTES), fit(request.body(), MAX_BODY_BYTES), request.data(),
+                fit(request.title(), MAX_TITLE_BYTES), trim(request.body(), MAX_BODY_CHARS), request.data(),
                 request.dedupeId(), request.threadId(),
                 request.timeToLive() == null || request.timeToLive().isNegative() ? DEFAULT_TIME_TO_LIVE
                         : request.timeToLive());
@@ -97,21 +96,26 @@ public class DefaultPushSender implements PushSender {
         if (channel == null) {
             throw new IllegalStateException("Push is not available for " + request.platform());
         }
-        PushResult result = channel.send(fitted);
-        if (result.outcome() == PushResult.Outcome.CONFIG_ERROR) {
-            logConfigError(request.platform(), result.reason());
-        }
-        return result;
+        // The caller logs every outcome but success, with the notification it was for.
+        return channel.send(fitted);
     }
 
-    /** A wrong key fails every send: once in a while is enough to be noticed. */
-    private void logConfigError(PushPlatform platform, String reason) {
-        Instant now = clock.instant();
-        Instant last = configErrorLoggedAt.get(platform);
-        if (last == null || last.plus(CONFIG_ERROR_LOG_INTERVAL).isBefore(now)) {
-            configErrorLoggedAt.put(platform, now);
-            log.error("Push: {} refused the configured credentials or target: {}", platform, reason);
+    /**
+     * {@code text} on one line — runs of line breaks and spaces made one space — and cut to {@code maxChars}
+     * characters, ellipsis included, never inside a character; null or blank stays null.
+     */
+    static String trim(String text, int maxChars) {
+        if (text == null) {
+            return null;
         }
+        String line = text.replaceAll("\\s+", " ").strip();
+        if (line.isEmpty()) {
+            return null;
+        }
+        if (line.codePointCount(0, line.length()) <= maxChars) {
+            return line;
+        }
+        return line.substring(0, line.offsetByCodePoints(0, maxChars - 1)).stripTrailing() + "…";
     }
 
     /** {@code text} cut to at most {@code maxBytes} of UTF-8, ellipsis included, never inside a character. */

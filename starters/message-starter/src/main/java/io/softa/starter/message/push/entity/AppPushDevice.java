@@ -1,4 +1,4 @@
-package io.softa.starter.user.entity;
+package io.softa.starter.message.push.entity;
 
 import java.io.Serial;
 import java.time.LocalDateTime;

@@ -109,8 +109,8 @@ class RebindJoinTest {
     @Test
     void settingThePassword_onARebindLink_completesTheJoin_andEndsTheOldPasswordsSessions() {
         when(invitationService.isRebindLink(TOKEN)).thenReturn(true);
-        io.softa.starter.user.spi.PushDeviceRegistry devices = mock(io.softa.starter.user.spi.PushDeviceRegistry.class);
-        ReflectionTestUtils.setField(loginService, "pushDeviceRegistry", devices);
+        io.softa.starter.message.push.service.AppPushDeviceService devices = mock(io.softa.starter.message.push.service.AppPushDeviceService.class);
+        ReflectionTestUtils.setField(loginService, "pushDeviceService", devices);
 
         JoinPasswordResult result = loginService.setJoinPassword(TOKEN, ADA, "N3w-Passw0rd!", "proof");
 

@@ -1,4 +1,4 @@
-package io.softa.starter.user.service.impl;
+package io.softa.starter.message.push.service.impl;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -16,7 +16,7 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
 
-import io.softa.starter.user.entity.AppPushDevice;
+import io.softa.starter.message.push.entity.AppPushDevice;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;

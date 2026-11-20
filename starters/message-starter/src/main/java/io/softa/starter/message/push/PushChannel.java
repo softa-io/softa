@@ -1,7 +1,6 @@
 package io.softa.starter.message.push;
 
 import java.io.IOException;
-import java.time.Duration;
 import java.util.regex.Pattern;
 
 /** One service's way of sending. */
@@ -16,19 +15,19 @@ interface PushChannel {
     /**
      * Sends one notification and classifies the service's answer.
      *
-     * @throws IOException the service could not be reached, or its token endpoint could not
+     * @throws IOException the service could not be reached, its token endpoint could not, or it answered that it is
+     *                     in trouble as a whole ({@link ServiceTrouble})
      * @throws InterruptedException the thread was interrupted while waiting for the service
      */
-    Sent send(PushRequest request) throws IOException, InterruptedException;
+    PushResult send(PushRequest request) throws IOException, InterruptedException;
 
     /**
-     * The result for the caller, and how long the whole platform should wait when the service said it is in trouble
-     * as a whole — never for one device's limit, which is that device's to wait out.
+     * The service answered 5xx: it is in trouble as a whole, not this device. Counted with the network failures
+     * towards pausing the platform.
      */
-    record Sent(PushResult result, Duration pausePlatform) {
-
-        static Sent of(PushResult result) {
-            return new Sent(result, null);
+    final class ServiceTrouble extends IOException {
+        ServiceTrouble(String reason) {
+            super(reason);
         }
     }
 }

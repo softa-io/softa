@@ -1,4 +1,4 @@
-package io.softa.starter.user.service.impl;
+package io.softa.starter.message.push.service.impl;
 
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -20,8 +20,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
-import io.softa.starter.user.entity.AppPushDevice;
-import io.softa.starter.user.service.AppPushDeviceService;
+import io.softa.starter.message.push.entity.AppPushDevice;
+import io.softa.starter.message.push.service.AppPushDeviceService;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
@@ -32,7 +32,6 @@ import io.softa.framework.web.session.SessionRecord;
 import io.softa.framework.web.session.SessionRenewedEvent;
 import io.softa.framework.web.session.SessionRevokedEvent;
 import io.softa.framework.web.session.SessionStore;
-import io.softa.starter.user.spi.PushDeviceRegistry;
 
 
 /**
@@ -45,7 +44,7 @@ import io.softa.starter.user.spi.PushDeviceRegistry;
 @Slf4j
 @Service
 public class AppPushDeviceServiceImpl extends EntityServiceImpl<AppPushDevice, Long>
-        implements AppPushDeviceService, PushDeviceRegistry {
+        implements AppPushDeviceService {
 
     static final Set<String> PLATFORMS = Set.of("ios", "android");
     /** An APNs device token: hex, 32 bytes today, longer on a simulator and possibly later. */
@@ -195,7 +194,7 @@ public class AppPushDeviceServiceImpl extends EntityServiceImpl<AppPushDevice, L
         this.unregisterDevice(deviceToken, session == null ? null : session.profileId());
     }
 
-    // ── the account flows' side (PushDeviceRegistry) ────────────────
+    // ── the account flows' side ────────────────
 
     @Override
     public void unregisterDevice(String deviceToken, Long profileId) {

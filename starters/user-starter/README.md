@@ -66,7 +66,6 @@ hops through `profileId` first.
 | `UserLoginHistory` | Login audit | `userId`, `loginMethod`, `ipAddress`, `userAgent`, `location`, `status` |
 | `UserAuthFailure` | Failed-auth audit | `userId`, `failureReason`, `ipAddress`, `userAgent` |
 | `UserListViewPreference` | One person's arrangement of one list (see [List arrangements](#list-arrangements)) | `userId`, `viewStateKey`, `modelName`, `columns`, `exportFields`, `exportObjectFields`, `viewSettings` |
-| `AppPushDevice` | A device the APP registered for push notifications (see [Push devices](#push-devices)) | `tenantId`, `deviceToken` (unique), `platform`, `accountId`, `profileId`, `sessionKey`, `lastSeenAt`, `appVersion`, `deviceModel`, `locale` |
 
 Wherever another row references an account or a picker lists accounts, the account
 shows as `nickname / username` (`@Model(displayName)`): the person's name and the
@@ -148,7 +147,7 @@ finds it in a search (`searchName`).
   `X-Device-Model` (the hardware identifier, e.g. `iPhone12,3`) and `X-OS-Version` (the
   operating system's version, e.g. `18.1`) on every call. `ClientInfo` reads them; the
   session and the login history keep both (the push device keeps its own `deviceModel`
-  from the registration body). Either may be absent.
+  from the registration body, in message-starter). Either may be absent.
 - **Password lockout** lives on the credential (`UserIdentity.passwordLockedUntil`),
   so it is linked across every company the person belongs to. `UserAccount.locked`
   is a **derived, read-only** projection of it for the account list — writes that
@@ -254,24 +253,9 @@ They act on the caller only and carry no business permission: the application li
 
 ## Push devices
 
-`AppDeviceController` (`/app/devices`) — the APP registers after signing in, after switching company, when its push
-token changes and when the person allows notifications: `POST /app/devices` with `platform` (`ios` / `android`),
-`deviceToken`, `appVersion`, `deviceModel`, `locale`. It drops the registration when the person turns notifications
-off: `DELETE /app/devices/{deviceToken}`, only the caller's own. An application with an APP version floor lists
-`DELETE /app/devices/*` in `app.upgrade-exempt-paths` (softa-web README) so an APP stuck on the upgrade screen can
-still stop notifications.
-
-The token must look like its platform's: hex, 64 to 200 characters, for `ios`; `[A-Za-z0-9:_-]`, at most 512, for
-`android`. A registration belongs to the account and the session it was made under, never to the request: one token
-is one row, moved to whoever registers it next (a token moving to another tenant gets a new row, since a row's tenant
-is fixed once written; the delete and the insert share one transaction). It goes when its session does — signed out, revoked (`SessionRevokedEvent`), the account
-frozen or closed, the person reset — and a session that simply runs out announces nothing, so `lastSeenAt` moves on
-with each renewal (`SessionRenewedEvent`; only `lastSeenAt`, and only on rows still under that session) and a row not seen for `SessionStore.TTL_SECONDS` is dead: `liveDevices`
-skips it and the `DropStalePushDevices` cron (CrossTenant, nightly, in `SysCron.UserMaintenance.json`) removes it.
-
-A sender reads `AppPushDeviceService.liveDevices(accountIds)` and, when a push service says a token no longer
-exists, calls `dropInvalid(token, accountId)`, which only removes the row while it is still that account's — the
-token may just have moved to whoever signed in on the device.
+The APP's push-device registrations (`AppPushDevice`, `/app/devices`) live in message-starter (its README, *Push
+devices*). The account flows here drop them: logout naming its token (`unregisterDevice`), Reset User and password
+reset (`unregisterPerson`), an account frozen or closed (`unregisterAccount`); a revoked session drops its own.
 
 ## Consultants
 

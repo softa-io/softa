@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
 import io.softa.framework.base.utils.JsonUtils;
@@ -25,14 +26,16 @@ import io.softa.framework.base.utils.JsonUtils;
  * before it expires. The notification's tag is its dedupe id, not a collapse key: a device offline keeps only four
  * different collapse keys, which would lose messages.
  */
+@Slf4j
 final class FcmPushChannel implements PushChannel {
 
     private static final String SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
     private static final String DEFAULT_TOKEN_URL = "https://oauth2.googleapis.com/token";
     private static final Duration ACCESS_TOKEN_MARGIN = Duration.ofMinutes(5);
     /**
-     * After the token endpoint refused the key, sends answer CONFIG_ERROR at once for this long instead of asking
-     * again each time: asking happens under one lock, so every send would queue behind it.
+     * After the token endpoint refused the key, or could not be reached, sends fail at once for this long instead of
+     * asking again each time: asking happens under one lock, so every send would queue behind it and wait out its own
+     * timeout.
      */
     static final Duration REFUSED_KEY_BACKOFF = Duration.ofMinutes(1);
     /** The token belongs to another Firebase project: that device's, not the configuration's. */
@@ -72,15 +75,15 @@ final class FcmPushChannel implements PushChannel {
     }
 
     @Override
-    public Sent send(PushRequest request) throws IOException, InterruptedException {
+    public PushResult send(PushRequest request) throws IOException, InterruptedException {
         if (request.deviceToken() == null || !TOKEN.matcher(request.deviceToken()).matches()) {
-            return Sent.of(PushResult.rejected("Malformed device token"));
+            return PushResult.rejected("Malformed device token");
         }
         String access;
         try {
             access = currentAccessToken();
         } catch (TokenRefused e) {
-            return Sent.of(PushResult.configError(e.getMessage()));
+            return PushResult.configError(e.getMessage());
         }
         HttpResponse<String> response = client.send(HttpRequest.newBuilder(
                         URI.create(properties.getBaseUrl() + "/v1/projects/" + projectId + "/messages:send"))
@@ -92,34 +95,34 @@ final class FcmPushChannel implements PushChannel {
         return classify(response);
     }
 
-    private Sent classify(HttpResponse<String> response) {
+    private PushResult classify(HttpResponse<String> response) throws ServiceTrouble {
         int status = response.statusCode();
         if (status == 200) {
-            return Sent.of(PushResult.sent());
+            return PushResult.sent();
         }
-        String reason = reasonOf(response.body(), status);
-        if ("UNREGISTERED".equals(reason)) {
-            return Sent.of(PushResult.tokenInvalid(reason));
+        String code = codeOf(response.body());
+        String reason = "HTTP " + status + (code == null ? "" : " " + code);
+        if ("UNREGISTERED".equals(code)) {
+            return PushResult.tokenInvalid(reason);
         }
-        if (SENDER_ID_MISMATCH.equals(reason)) {
-            return Sent.of(PushResult.rejected(reason));
+        if (SENDER_ID_MISMATCH.equals(code)) {
+            return PushResult.rejected(reason);
         }
         if (status == 401) {
             accessToken = null;
-            return Sent.of(PushResult.configError(reason));
+            return PushResult.configError(reason);
         }
         if (status == 403) {
-            return Sent.of(PushResult.configError(reason));
+            return PushResult.configError(reason);
         }
-        Duration retryAfter = PushCredentials.retryAfter(response);
-        // 429 is usually one device's message rate: that device waits, the others go on.
+        // 429 is usually one device's message rate: that device fails, the others go on.
         if (status == 429) {
-            return Sent.of(PushResult.retry(retryAfter, reason));
+            return PushResult.failed(reason);
         }
         if (status >= 500) {
-            return new Sent(PushResult.retry(retryAfter, reason), retryAfter);
+            throw new ServiceTrouble(reason);
         }
-        return Sent.of(PushResult.rejected(reason));
+        return PushResult.rejected(reason);
     }
 
     private String payload(PushRequest request) {
@@ -152,19 +155,24 @@ final class FcmPushChannel implements PushChannel {
     }
 
     private String currentAccessToken() throws IOException, InterruptedException, TokenRefused {
-        Refusal refused = refusal;
-        if (refused != null && clock.instant().isBefore(refused.until())) {
-            throw new TokenRefused(refused.message());
-        }
+        backingOff();
         if (accessToken == null || !clock.instant().isBefore(accessTokenExpiresAt)) {
             tokenLock.lock();
             try {
+                // Whoever held the lock may have just failed: those queued behind it fail with it, not one by one.
+                backingOff();
                 if (accessToken == null || !clock.instant().isBefore(accessTokenExpiresAt)) {
                     try {
                         exchangeKey();
                         refusal = null;
                     } catch (TokenRefused e) {
-                        refusal = new Refusal(e.getMessage(), clock.instant().plus(REFUSED_KEY_BACKOFF));
+                        refusal = new Refusal(e.getMessage(), false, clock.instant().plus(REFUSED_KEY_BACKOFF));
+                        throw e;
+                    } catch (IOException e) {
+                        String reason = "The FCM token endpoint could not be reached: " + GuardedChannel.describe(e);
+                        refusal = new Refusal(reason, true, clock.instant().plus(REFUSED_KEY_BACKOFF));
+                        log.error("Push: {}; Android sends fail for {} without asking again", reason,
+                                REFUSED_KEY_BACKOFF);
                         throw e;
                     }
                 }
@@ -173,6 +181,17 @@ final class FcmPushChannel implements PushChannel {
             }
         }
         return accessToken;
+    }
+
+    /** Fails at once while the last exchange's failure stands: a refused key as such, an unreachable endpoint as I/O. */
+    private void backingOff() throws IOException, TokenRefused {
+        Refusal refused = refusal;
+        if (refused != null && clock.instant().isBefore(refused.until())) {
+            if (refused.unreachable()) {
+                throw new IOException(refused.message());
+            }
+            throw new TokenRefused(refused.message());
+        }
     }
 
     private void exchangeKey() throws IOException, InterruptedException, TokenRefused {
@@ -198,7 +217,7 @@ final class FcmPushChannel implements PushChannel {
                 .POST(HttpRequest.BodyPublishers.ofString(form))
                 .build(), HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() >= 500 || response.statusCode() == 429) {
-            throw new IOException("The FCM token endpoint answered HTTP " + response.statusCode());
+            throw new IOException("HTTP " + response.statusCode());
         }
         Map<?, ?> body = response.statusCode() == 200 ? JsonUtils.stringToObject(response.body(), Map.class) : Map.of();
         Object token = body.get("access_token");
@@ -211,7 +230,7 @@ final class FcmPushChannel implements PushChannel {
     }
 
     /** The most specific code the error carries: FCM's own in {@code details}, otherwise the general status. */
-    private static String reasonOf(String body, int status) {
+    private static String codeOf(String body) {
         try {
             Object error = JsonUtils.stringToObject(body, Map.class).get("error");
             if (error instanceof Map<?, ?> details) {
@@ -229,7 +248,7 @@ final class FcmPushChannel implements PushChannel {
         } catch (RuntimeException e) {
             // Not JSON: a proxy or gateway answered. The status code still says enough.
         }
-        return "HTTP " + status;
+        return null;
     }
 
     private static String textOf(Map<?, ?> map, String key) {
@@ -237,7 +256,7 @@ final class FcmPushChannel implements PushChannel {
         return value == null ? null : value.toString();
     }
 
-    private record Refusal(String message, Instant until) {
+    private record Refusal(String message, boolean unreachable, Instant until) {
     }
 
     /** The token endpoint answered and said no: the key is wrong, and asking again will not change that. */

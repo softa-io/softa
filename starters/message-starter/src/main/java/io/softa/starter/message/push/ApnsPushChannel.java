@@ -58,9 +58,9 @@ final class ApnsPushChannel implements PushChannel {
     }
 
     @Override
-    public Sent send(PushRequest request) throws IOException, InterruptedException {
+    public PushResult send(PushRequest request) throws IOException, InterruptedException {
         if (request.deviceToken() == null || !TOKEN.matcher(request.deviceToken()).matches()) {
-            return Sent.of(PushResult.rejected("Malformed device token"));
+            return PushResult.rejected("Malformed device token");
         }
         boolean sandbox = "sandbox".equalsIgnoreCase(properties.getEnvironment());
         String baseUrl = sandbox ? properties.getSandboxBaseUrl() : properties.getBaseUrl();
@@ -73,12 +73,12 @@ final class ApnsPushChannel implements PushChannel {
             } catch (IOException e) {
                 // Production answered, so its network is fine: a sandbox that cannot be reached must not count
                 // towards pausing production.
-                return Sent.of(PushResult.retry(null, "Sandbox fallback: " + e.getClass().getSimpleName()));
+                return PushResult.failed("Sandbox fallback: " + GuardedChannel.describe(e));
             }
-            Sent classified = classify(fallback);
+            PushResult classified = classify(fallback);
             // Refused by both environments says the configuration is in doubt, not that the token is gone.
-            return classified.result().outcome() == PushResult.Outcome.TOKEN_INVALID
-                    ? Sent.of(PushResult.rejected(classified.result().reason())) : classified;
+            return classified.outcome() == PushResult.Outcome.TOKEN_INVALID
+                    ? PushResult.rejected(classified.reason()) : classified;
         }
         return classify(answer);
     }
@@ -99,48 +99,48 @@ final class ApnsPushChannel implements PushChannel {
         HttpResponse<String> response = client.send(
                 http.POST(HttpRequest.BodyPublishers.ofString(payload(request))).build(),
                 HttpResponse.BodyHandlers.ofString());
-        return new Answer(response.statusCode(), reasonOf(response.body()), PushCredentials.retryAfter(response), used);
+        return new Answer(response.statusCode(), reasonOf(response.body()), used);
     }
 
-    private Sent classify(Answer answer) {
+    private PushResult classify(Answer answer) throws ServiceTrouble {
         if (answer.status == 200) {
-            return Sent.of(PushResult.sent());
+            return PushResult.sent();
         }
-        String reason = answer.reason == null ? "HTTP " + answer.status : answer.reason;
+        String reason = "HTTP " + answer.status + (answer.reason == null ? "" : " " + answer.reason);
         // Only these say for certain that the token is gone. BadDeviceToken is also what a token of the other APNs
         // environment gets, so a misconfigured environment would otherwise drop every iOS device at once.
         if (answer.status == 410 || UNREGISTERED.equals(answer.reason)) {
-            return Sent.of(PushResult.tokenInvalid(reason));
+            return PushResult.tokenInvalid(reason);
         }
         if (EXPIRED_PROVIDER_TOKEN.equals(answer.reason)) {
-            return Sent.of(expired(answer.used));
+            return expired(answer.used, reason);
         }
         if (answer.status == 403 || (answer.reason != null && CONFIG_REASONS.contains(answer.reason))) {
-            return Sent.of(PushResult.configError(reason));
+            return PushResult.configError(reason);
         }
-        // 429 is TooManyRequests for this one device: it waits, the others go on.
+        // 429 is TooManyRequests for this one device: it fails, the others go on.
         if (answer.status == 429) {
-            return Sent.of(PushResult.retry(answer.retryAfter, reason));
+            return PushResult.failed(reason);
         }
         if (answer.status >= 500) {
-            return new Sent(PushResult.retry(answer.retryAfter, reason), answer.retryAfter);
+            throw new ServiceTrouble(reason);
         }
-        return Sent.of(PushResult.rejected(reason));
+        return PushResult.rejected(reason);
     }
 
     /**
      * Apple calls the token too old. Signed long enough ago, it is dropped and the next send signs a new one; signed
      * recently, re-signing would only earn {@code TooManyProviderTokenUpdates}, so the clocks disagree.
      */
-    private PushResult expired(SignedToken used) {
+    private PushResult expired(SignedToken used, String reason) {
         Duration age = Duration.between(used.signedAt(), clock.instant());
         if (age.compareTo(MIN_RESIGN_INTERVAL) < 0) {
-            return PushResult.configError(EXPIRED_PROVIDER_TOKEN + " for a token signed " + age.toMinutes()
+            return PushResult.configError(reason + " for a token signed " + age.toMinutes()
                     + " minutes ago: check the server's clock");
         }
-        // Only the token this send used: another send may have signed a fresh one already.
+        // Only the token this send used: another send may have signed a fresh one already. The next send signs anew.
         token.compareAndSet(used, null);
-        return PushResult.retry(null, EXPIRED_PROVIDER_TOKEN);
+        return PushResult.failed(reason);
     }
 
     private static String payload(PushRequest request) {
@@ -211,6 +211,6 @@ final class ApnsPushChannel implements PushChannel {
     private record SignedToken(String value, Instant signedAt) {
     }
 
-    private record Answer(int status, String reason, Duration retryAfter, SignedToken used) {
+    private record Answer(int status, String reason, SignedToken used) {
     }
 }

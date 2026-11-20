@@ -54,7 +54,8 @@ final class InboxMessageHandler {
             SendInboxDTO message = messages.get(i);
             items.add(new InboxNotificationsCreated.Created(ids.get(i), tenantId,
                     message.getNotificationType() != null ? message.getNotificationType() : NotificationType.SYSTEM,
-                    message.getSourceModel()));
+                    message.getSourceModel(), message.getSourceId(), message.getRecipientId(), fit(message.getTitle().strip()),
+                    message.getContent(), Boolean.TRUE.equals(message.getPush())));
         }
         eventPublisher.publishEvent(new InboxNotificationsCreated(List.copyOf(items)));
     }

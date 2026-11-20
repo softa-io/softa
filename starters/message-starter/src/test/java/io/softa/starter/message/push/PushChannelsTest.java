@@ -153,13 +153,16 @@ class PushChannelsTest {
     @Test
     void apnsAnswersAreClassified() throws Exception {
         DefaultPushSender sender = apns(a -> { });
-        assertApns(sender, 410, "{\"reason\":\"Unregistered\"}", Outcome.TOKEN_INVALID, "Unregistered");
-        assertApns(sender, 400, "{\"reason\":\"BadDeviceToken\"}", Outcome.REJECTED, "BadDeviceToken");
-        assertApns(sender, 400, "{\"reason\":\"DeviceTokenNotForTopic\"}", Outcome.CONFIG_ERROR, "DeviceTokenNotForTopic");
-        assertApns(sender, 403, "{\"reason\":\"InvalidProviderToken\"}", Outcome.CONFIG_ERROR, "InvalidProviderToken");
-        assertApns(sender, 400, "{\"reason\":\"PayloadEmpty\"}", Outcome.REJECTED, "PayloadEmpty");
-        assertApns(sender, 500, "{\"reason\":\"InternalServerError\"}", Outcome.RETRY, "InternalServerError");
-        assertApns(sender, 503, "", Outcome.RETRY, "HTTP 503");
+        assertApns(sender, 410, "{\"reason\":\"Unregistered\"}", Outcome.TOKEN_INVALID, "HTTP 410 Unregistered");
+        assertApns(sender, 400, "{\"reason\":\"BadDeviceToken\"}", Outcome.REJECTED, "HTTP 400 BadDeviceToken");
+        assertApns(sender, 400, "{\"reason\":\"DeviceTokenNotForTopic\"}", Outcome.CONFIG_ERROR,
+                "HTTP 400 DeviceTokenNotForTopic");
+        assertApns(sender, 403, "{\"reason\":\"InvalidProviderToken\"}", Outcome.CONFIG_ERROR,
+                "HTTP 403 InvalidProviderToken");
+        assertApns(sender, 400, "{\"reason\":\"PayloadEmpty\"}", Outcome.REJECTED, "HTTP 400 PayloadEmpty");
+        assertApns(sender, 429, "{\"reason\":\"TooManyRequests\"}", Outcome.FAILED, "HTTP 429 TooManyRequests");
+        assertApns(sender, 500, "{\"reason\":\"InternalServerError\"}", Outcome.FAILED, "HTTP 500 InternalServerError");
+        assertApns(sender, 503, "", Outcome.FAILED, "HTTP 503");
     }
 
     private void assertApns(DefaultPushSender sender, int status, String body, Outcome outcome, String reason) {
@@ -176,7 +179,9 @@ class PushChannelsTest {
         clock.advance(Duration.ofMinutes(25));
         answers = request -> Answer.of(403, "{\"reason\":\"ExpiredProviderToken\"}");
 
-        assertThat(sender.send(request(PushPlatform.IOS, null)).outcome()).isEqualTo(Outcome.RETRY);
+        PushResult expired = sender.send(request(PushPlatform.IOS, null));
+        assertThat(expired.outcome()).isEqualTo(Outcome.FAILED);
+        assertThat(expired.reason()).isEqualTo("HTTP 403 ExpiredProviderToken");
 
         answers = request -> Answer.of(200, "");
         sender.send(request(PushPlatform.IOS, null));
@@ -247,7 +252,7 @@ class PushChannelsTest {
     }
 
     @Test
-    void anUnreachableSandboxIsARetry_thatDoesNotCountAgainstProduction() throws Exception {
+    void anUnreachableSandboxIsAFailure_thatDoesNotCountAgainstProduction() throws Exception {
         DefaultPushSender sender = apns(a -> {
             a.setSandboxFallback(true);
             a.setSandboxBaseUrl("http://127.0.0.1:1");
@@ -256,8 +261,8 @@ class PushChannelsTest {
 
         for (int i = 0; i < GuardedChannel.FAILURES_BEFORE_PAUSE + 2; i++) {
             PushResult result = sender.send(request(PushPlatform.IOS, null));
-            assertThat(result.outcome()).isEqualTo(Outcome.RETRY);
-            assertThat(result.reason()).startsWith("Sandbox fallback");
+            assertThat(result.outcome()).isEqualTo(Outcome.FAILED);
+            assertThat(result.reason()).startsWith("Sandbox fallback: ConnectException");
         }
         // Never paused: production was asked every time.
         assertThat(seen).hasSize(GuardedChannel.FAILURES_BEFORE_PAUSE + 2);
@@ -290,18 +295,21 @@ class PushChannelsTest {
     }
 
     @Test
-    void aServiceInTroublePausesThePlatform() throws Exception {
+    void aServiceInTroubleCountsTowardsPausingThePlatform_retryAfterIgnored() throws Exception {
         DefaultPushSender sender = apns(a -> { });
         answers = request -> new Answer(503, "{\"reason\":\"ServiceUnavailable\"}", Map.of("Retry-After", "120"));
 
-        PushResult limited = sender.send(request(PushPlatform.IOS, null));
-        assertThat(limited.outcome()).isEqualTo(Outcome.RETRY);
-        assertThat(limited.retryAfter()).isEqualTo(Duration.ofSeconds(120));
+        for (int i = 0; i < GuardedChannel.FAILURES_BEFORE_PAUSE; i++) {
+            PushResult failed = sender.send(request(PushPlatform.IOS, null));
+            assertThat(failed.outcome()).isEqualTo(Outcome.FAILED);
+            assertThat(failed.reason()).isEqualTo("HTTP 503 ServiceUnavailable");
+        }
 
-        // Paused: the second send never reaches the service.
+        // Paused: the next send never reaches the service, and says what paused it.
         PushResult paused = sender.send(request(PushPlatform.IOS, null));
-        assertThat(paused.outcome()).isEqualTo(Outcome.RETRY);
-        assertThat(seen).hasSize(1);
+        assertThat(paused.outcome()).isEqualTo(Outcome.FAILED);
+        assertThat(paused.reason()).startsWith("Paused until").endsWith("after: HTTP 503 ServiceUnavailable");
+        assertThat(seen).hasSize(GuardedChannel.FAILURES_BEFORE_PAUSE);
     }
 
     @Test
@@ -309,20 +317,22 @@ class PushChannelsTest {
         DefaultPushSender sender = apns(a -> { });
         answers = request -> new Answer(429, "{\"reason\":\"TooManyRequests\"}", Map.of("Retry-After", "120"));
 
-        PushResult limited = sender.send(request(PushPlatform.IOS, null));
-        assertThat(limited.outcome()).isEqualTo(Outcome.RETRY);
-        assertThat(limited.retryAfter()).isEqualTo(Duration.ofSeconds(120));
+        for (int i = 0; i < GuardedChannel.FAILURES_BEFORE_PAUSE + 2; i++) {
+            assertThat(sender.send(request(PushPlatform.IOS, null)).outcome()).isEqualTo(Outcome.FAILED);
+        }
 
         answers = request -> Answer.of(200, "");
         assertThat(sender.send(request(PushPlatform.IOS, null)).outcome()).isEqualTo(Outcome.SENT);
-        assertThat(seen).hasSize(2);
+        assertThat(seen).hasSize(GuardedChannel.FAILURES_BEFORE_PAUSE + 3);
     }
 
     @Test
     void fcmRateLimitForOneDeviceDoesNotPauseAndroid() throws Exception {
         DefaultPushSender sender = fcm();
         answers = fcmAnswering(new Answer(429, fcmError("RESOURCE_EXHAUSTED", "QUOTA_EXCEEDED"), Map.of("Retry-After", "30")));
-        assertThat(sender.send(request(PushPlatform.ANDROID, null)).retryAfter()).isEqualTo(Duration.ofSeconds(30));
+        PushResult limited = sender.send(request(PushPlatform.ANDROID, null));
+        assertThat(limited.outcome()).isEqualTo(Outcome.FAILED);
+        assertThat(limited.reason()).isEqualTo("HTTP 429 QUOTA_EXCEEDED");
 
         answers = fcmAnswering(Answer.of(200, "{}"));
         assertThat(sender.send(request(PushPlatform.ANDROID, null)).outcome()).isEqualTo(Outcome.SENT);
@@ -347,12 +357,16 @@ class PushChannelsTest {
     }
 
     private DefaultPushSender fcm(Clock clock) throws Exception {
+        return fcm(clock, baseUrl + "/token");
+    }
+
+    private DefaultPushSender fcm(Clock clock, String tokenUri) throws Exception {
         KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
         generator.initialize(2048);
         KeyPair key = generator.generateKeyPair();
         String account = JSON.writeValueAsString(Map.of("project_id", "demo", "client_email", "push@demo.iam",
                 "private_key_id", "kid-1", "private_key", pem("PRIVATE KEY", key.getPrivate().getEncoded()),
-                "token_uri", baseUrl + "/token"));
+                "token_uri", tokenUri));
         PushProperties properties = new PushProperties();
         // Base64, the form it takes in an environment file.
         properties.getFcm().setServiceAccountJson(Base64.getEncoder().encodeToString(account.getBytes(StandardCharsets.UTF_8)));
@@ -411,14 +425,18 @@ class PushChannelsTest {
     @Test
     void fcmAnswersAreClassified() throws Exception {
         DefaultPushSender sender = fcm();
-        assertFcm(sender, 404, fcmError("NOT_FOUND", "UNREGISTERED"), Outcome.TOKEN_INVALID, "UNREGISTERED");
+        assertFcm(sender, 404, fcmError("NOT_FOUND", "UNREGISTERED"), Outcome.TOKEN_INVALID, "HTTP 404 UNREGISTERED");
         assertFcm(sender, 404, "<html>not found</html>", Outcome.REJECTED, "HTTP 404");
-        assertFcm(sender, 403, fcmError("PERMISSION_DENIED", "SENDER_ID_MISMATCH"), Outcome.REJECTED, "SENDER_ID_MISMATCH");
-        assertFcm(sender, 403, fcmError("PERMISSION_DENIED", "PERMISSION_DENIED"), Outcome.CONFIG_ERROR, "PERMISSION_DENIED");
-        assertFcm(sender, 400, fcmError("INVALID_ARGUMENT", "INVALID_ARGUMENT"), Outcome.REJECTED, "INVALID_ARGUMENT");
-        assertFcm(sender, 500, fcmError("INTERNAL", "INTERNAL"), Outcome.RETRY, "INTERNAL");
-        assertFcm(sender, 503, "<html>gateway</html>", Outcome.RETRY, "HTTP 503");
-        assertFcm(sender, 401, fcmError("UNAUTHENTICATED", "THIRD_PARTY_AUTH_ERROR"), Outcome.CONFIG_ERROR, "THIRD_PARTY_AUTH_ERROR");
+        assertFcm(sender, 403, fcmError("PERMISSION_DENIED", "SENDER_ID_MISMATCH"), Outcome.REJECTED,
+                "HTTP 403 SENDER_ID_MISMATCH");
+        assertFcm(sender, 403, fcmError("PERMISSION_DENIED", "PERMISSION_DENIED"), Outcome.CONFIG_ERROR,
+                "HTTP 403 PERMISSION_DENIED");
+        assertFcm(sender, 400, fcmError("INVALID_ARGUMENT", "INVALID_ARGUMENT"), Outcome.REJECTED,
+                "HTTP 400 INVALID_ARGUMENT");
+        assertFcm(sender, 500, fcmError("INTERNAL", "INTERNAL"), Outcome.FAILED, "HTTP 500 INTERNAL");
+        assertFcm(sender, 503, "<html>gateway</html>", Outcome.FAILED, "HTTP 503");
+        assertFcm(sender, 401, fcmError("UNAUTHENTICATED", "THIRD_PARTY_AUTH_ERROR"), Outcome.CONFIG_ERROR,
+                "HTTP 401 THIRD_PARTY_AUTH_ERROR");
     }
 
     private void assertFcm(DefaultPushSender sender, int status, String body, Outcome outcome, String reason) {
@@ -473,10 +491,28 @@ class PushChannelsTest {
     }
 
     @Test
-    void aTokenEndpointThatIsDownIsWorthRetrying() throws Exception {
+    void aTokenEndpointThatIsDownFailsTheSend() throws Exception {
         answers = request -> Answer.of(503, "");
 
-        assertThat(fcm().send(request(PushPlatform.ANDROID, null)).outcome()).isEqualTo(Outcome.RETRY);
+        PushResult result = fcm().send(request(PushPlatform.ANDROID, null));
+        assertThat(result.outcome()).isEqualTo(Outcome.FAILED);
+        assertThat(result.reason()).isEqualTo("IOException: HTTP 503");
+    }
+
+    @Test
+    void anUnreachableTokenEndpointIsNotAskedAgainForAMinute_byAnySend() throws Exception {
+        DefaultPushSender sender = fcm(new MutableClock(), "http://127.0.0.1:1/token");
+
+        PushResult first = sender.send(request(PushPlatform.ANDROID, null));
+        assertThat(first.outcome()).isEqualTo(Outcome.FAILED);
+        assertThat(first.reason()).startsWith("ConnectException");
+        // Every send of the next minute fails at once with the same cause, none asks the endpoint again.
+        for (int i = 0; i < 5; i++) {
+            PushResult next = sender.send(request(PushPlatform.ANDROID, null));
+            assertThat(next.outcome()).isEqualTo(Outcome.FAILED);
+            assertThat(next.reason()).contains("could not be reached");
+        }
+        assertThat(seen).isEmpty();
     }
 
     // ---- enabling ----
@@ -534,7 +570,7 @@ class PushChannelsTest {
     // ---- network trouble and length ----
 
     @Test
-    void anUnreachableServiceIsARetry_andPausesAfterTenFailures() throws Exception {
+    void anUnreachableServiceIsAFailure_andPausesAfterTenFailures() throws Exception {
         server.stop(0);
         int[] attempts = {0};
         PushChannel unreachable = request -> {
@@ -548,7 +584,8 @@ class PushChannelsTest {
             results.add(channel.send(request(PushPlatform.ANDROID, null)));
         }
 
-        assertThat(results).allMatch(result -> result.outcome() == Outcome.RETRY);
+        assertThat(results).allMatch(result -> result.outcome() == Outcome.FAILED);
+        assertThat(results.getFirst().reason()).isEqualTo("ConnectException: refused");
         assertThat(attempts[0]).isEqualTo(GuardedChannel.FAILURES_BEFORE_PAUSE);
     }
 
@@ -557,7 +594,7 @@ class PushChannelsTest {
         int[] calls = {0};
         PushChannel flaky = request -> {
             if (++calls[0] % 9 == 0) {
-                return PushChannel.Sent.of(PushResult.sent());
+                return PushResult.sent();
             }
             throw new java.net.ConnectException("refused");
         };
@@ -571,7 +608,7 @@ class PushChannelsTest {
     }
 
     @Test
-    void aLongBodyIsCutOnACharacterBoundary() {
+    void aLongTitleIsCutOnACharacterBoundary() {
         String cut = DefaultPushSender.fit("意见".repeat(1000), 1000);
 
         assertThat(cut.getBytes(StandardCharsets.UTF_8).length).isLessThanOrEqualTo(1000);
@@ -581,10 +618,22 @@ class PushChannelsTest {
     }
 
     @Test
+    void aBodyIsMadeOneLine_andCutToWhatALockScreenShows() {
+        assertThat(DefaultPushSender.trim("Rejected:\n\n  wrong   amount\r\n", 100)).isEqualTo("Rejected: wrong amount");
+        String cut = DefaultPushSender.trim("意见😀".repeat(100), 100);
+        assertThat(cut.codePointCount(0, cut.length())).isEqualTo(100);
+        assertThat(cut).endsWith("…").doesNotContain("�");
+        assertThat(DefaultPushSender.trim("x".repeat(100), 100)).isEqualTo("x".repeat(100));
+        assertThat(DefaultPushSender.trim(" \n ", 100)).isNull();
+        assertThat(DefaultPushSender.trim(null, 100)).isNull();
+    }
+
+    @Test
     void aLongBodyReachesTheServiceCut() throws Exception {
         apns(a -> { }).send(request(PushPlatform.IOS, "x".repeat(5000)));
 
-        assertThat(seen.getFirst().body().getBytes(StandardCharsets.UTF_8).length).isLessThan(4096);
+        Map<?, ?> alert = (Map<?, ?>) ((Map<?, ?>) JSON.readValue(seen.getFirst().body(), Map.class).get("aps")).get("alert");
+        assertThat(alert.get("body").toString()).hasSize(DefaultPushSender.MAX_BODY_CHARS).endsWith("…");
     }
 
     @Test

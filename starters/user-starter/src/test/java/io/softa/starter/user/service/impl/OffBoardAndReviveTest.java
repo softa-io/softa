@@ -304,8 +304,8 @@ class OffBoardAndReviveTest {
 
     @Test
     void offBoarding_dropsTheAccountsPushDevices() {
-        io.softa.starter.user.spi.PushDeviceRegistry devices = mock(io.softa.starter.user.spi.PushDeviceRegistry.class);
-        ReflectionTestUtils.setField(accountService, "pushDeviceRegistry", devices);
+        io.softa.starter.message.push.service.AppPushDeviceService devices = mock(io.softa.starter.message.push.service.AppPushDeviceService.class);
+        ReflectionTestUtils.setField(accountService, "pushDeviceService", devices);
         UserAccount membership = account(AccountStatus.ACTIVE, null, null);
         workContacts(null, null);
         when(identityService.findByProfile(PROFILE)).thenReturn(Optional.empty());
