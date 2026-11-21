@@ -113,6 +113,17 @@ finds it in a search (`searchName`).
   must give the number with its country code; find them with
   `SELECT id, tenant_id, mobile FROM user_account WHERE mobile IS NOT NULL AND mobile !~ '^\+[1-9][0-9]{6,14}$';`
   (PostgreSQL; MySQL `NOT REGEXP`).
+- **One spelling per number, trunk prefix dropped.** Every `PHONE`-widget field is written in the form
+  `PhoneUtils.canonical` gives it (softa-orm's `StringProcessor`), and a login identifier is looked up
+  in it (`LoginIdentifiers.normalize`): separators dropped, and the national trunk prefix typed after the
+  calling code dropped too, by libphonenumber's metadata for the country — "+64 021 123 4678" is
+  "+64211234678", as "+44 07700 900123" is "+447700900123"; Singapore has none. A person signs in with or
+  without the 0. **Transition:** rows written before this keep the prefix ("+640211234678") until rewritten;
+  sign-in still finds them by the spelling they were stored in, but not by the standard number. The deploying
+  app rewrites them after the new jar starts, for `user_identity.login_mobile`, `user_account.mobile`,
+  `user_invitation.mobile` and its own phone fields; a number whose rewrite would collide with another
+  identity's `login_mobile` (unique) is a person to decide, not a row to overwrite. Find them with
+  `WHERE login_mobile ~ '^\+(64|61|44|60|86|81)0'`, extending the calling codes to the countries the app serves.
 - **Sessions** are stored in Redis (`SOFTA_SESSION_<id>`). A session names one
   membership — switching company mints a new one.
 - **A session belongs to the kind of client it was issued to.** A request that sends

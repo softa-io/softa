@@ -63,8 +63,9 @@ public final class PhoneUtils {
     }
 
     /**
-     * The stored form of a typed number: separators dropped, checked for a calling code and for the
-     * number of digits its country uses. "+65 9123-4567" → "+6591234567".
+     * The stored form of a typed number: separators dropped, and the national trunk prefix typed after the calling
+     * code dropped ("+64 021 123 4678" → "+64211234678"), checked for a calling code and for the number of digits its
+     * country uses. "+65 9123-4567" → "+6591234567".
      *
      * @throws BusinessException when the number is blank, has no calling code, contains letters,
      *                           names no country, or has too few or too many digits for its country
@@ -79,6 +80,27 @@ public final class PhoneUtils {
             throw new BusinessException("{0} has the wrong number of digits for its country code.", value);
         }
         return UTIL.format(number, PhoneNumberUtil.PhoneNumberFormat.E164);
+    }
+
+    /**
+     * The stored form of a number when it is one, the value unchanged otherwise — for normalizing what is written
+     * to a phone field or looked up by it, where refusing is someone else's job. A number with its calling code and
+     * the right number of digits for its country comes back as {@link #toE164} gives it: separators dropped, and the
+     * national trunk prefix a person types after the calling code dropped too — "+64 021 123 4678" and
+     * "+640211234678" are "+64211234678", as "+44 07700 900123" is "+447700900123". Which digit is a trunk prefix,
+     * and where it is part of the number (Italy keeps its 0), is libphonenumber's metadata for the country, not a
+     * list kept here. Anything else — blank, no calling code, letters, too few or too many digits — is returned as it
+     * was, for the field's own pattern to judge.
+     */
+    public static String canonical(String input) {
+        String value = StringUtils.trimToNull(input);
+        if (value == null || !TYPED_NUMBER.matcher(value).matches()) {
+            return input;
+        }
+        return parse(value)
+                .filter(UTIL::isPossibleNumber)
+                .map(number -> UTIL.format(number, PhoneNumberUtil.PhoneNumberFormat.E164))
+                .orElse(input);
     }
 
     /**
