@@ -1,8 +1,14 @@
 package io.softa.starter.user.service.impl;
 
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Set;
+
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
@@ -11,12 +17,15 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.web.session.SessionRecord;
 import io.softa.framework.web.session.SessionRevokeReason;
 import io.softa.framework.web.session.SessionRevokedEvent;
+import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserLoginHistory;
+import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.enums.LoginChannel;
 import io.softa.starter.user.enums.LoginDeviceType;
 import io.softa.starter.user.enums.LoginEvent;
 import io.softa.starter.user.enums.LoginMethod;
 import io.softa.starter.user.enums.LoginStatus;
+import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserLoginHistoryService;
 import io.softa.starter.user.util.ClientInfo;
 
@@ -34,8 +43,24 @@ public class LoginHistoryRecorder {
     @Autowired
     private UserLoginHistoryService historyService;
 
+    /** Events about the person's password rather than about one company. */
+    private static final Set<LoginEvent> CREDENTIAL_EVENTS =
+            EnumSet.of(LoginEvent.LOGIN_FAILED, LoginEvent.LOCKED, LoginEvent.UNLOCKED);
+
+    /** Lazy: the account service writes history itself, so it is reached only when a row needs it. */
+    @Lazy
+    @Autowired
+    private UserAccountService accountService;
+
     /**
-     * One row of history.
+     * One row of history, or one per company when no company is involved yet.
+     *
+     * <p>A failed sign-in, a lock and an unlock happen before a company is chosen, but they are about
+     * the person's password, which every company they work in shares. Kept without a tenant they were
+     * invisible to every company — the rows were there, and no company's history showed them. So a
+     * known person's such event is written once to each company they have joined and not left, under
+     * their account there; an identifier that is nobody's names no company and stays with the
+     * platform.
      *
      * @param accountId the account involved, or null before a company is chosen
      * @param tenantId  that account's tenant, or null
@@ -43,13 +68,47 @@ public class LoginHistoryRecorder {
     public void record(LoginEvent event, Long profileId, Long accountId, Long tenantId,
                        LoginChannel channel, LoginMethod method, String failureReason) {
         ClientInfo client = ClientInfo.current();
-        UserLoginHistory row = baseRow(event, profileId, accountId, tenantId,
-                client.platform(), client.appVersion(), client.deviceModel(), client.osVersion());
-        row.setChannel(channel);
-        row.setLoginMethod(method);
-        row.setFailureReason(StringUtils.abbreviate(failureReason, 255));
-        row.setStatus(failureReason == null ? LoginStatus.SUCCESS : LoginStatus.INVALID);
-        this.write(row);
+        for (UserAccount company : this.companiesOf(event, profileId, accountId, tenantId)) {
+            UserLoginHistory row = baseRow(event, profileId, company.getId(), company.getTenantId(),
+                    client.platform(), client.appVersion(), client.deviceModel(), client.osVersion());
+            row.setChannel(channel);
+            row.setLoginMethod(method);
+            row.setFailureReason(StringUtils.abbreviate(failureReason, 255));
+            row.setStatus(failureReason == null ? LoginStatus.SUCCESS : LoginStatus.INVALID);
+            this.write(row);
+        }
+    }
+
+    /**
+     * Where a row goes: the company named, or — none named, the person known, and the event about
+     * their password — each company they have joined and not left; otherwise a single row without a
+     * company. A sign-in that stopped at the company picker is not fanned out: it entered none of them.
+     */
+    private List<UserAccount> companiesOf(LoginEvent event, Long profileId, Long accountId, Long tenantId) {
+        if (tenantId == null && profileId != null && CREDENTIAL_EVENTS.contains(event)) {
+            List<UserAccount> joined = new ArrayList<>();
+            try {
+                for (UserAccount membership : accountService.listMembershipsOf(profileId)) {
+                    if (membership.getTenantId() != null && joinedAndNotLeft(membership.getStatus())) {
+                        joined.add(membership);
+                    }
+                }
+            } catch (RuntimeException e) {
+                // History never fails its caller: unattributed is better than unwritten.
+                log.warn("Companies of profile {} not read for login history: {}", profileId, e.getMessage());
+            }
+            if (!joined.isEmpty()) {
+                return joined;
+            }
+        }
+        UserAccount named = new UserAccount();
+        named.setId(accountId);
+        named.setTenantId(tenantId);
+        return List.of(named);
+    }
+
+    private static boolean joinedAndNotLeft(AccountStatus status) {
+        return status == AccountStatus.ACTIVE || status == AccountStatus.FROZEN || status == AccountStatus.LOCKED;
     }
 
     /** A switch from one tenant to another; both accounts are the same person's. */
