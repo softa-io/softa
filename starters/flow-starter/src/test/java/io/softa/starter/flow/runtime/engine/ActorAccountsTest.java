@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
@@ -66,6 +67,32 @@ class ActorAccountsTest {
 
         assertEquals("Bob Wu's account is frozen; 1099 has no account.", refused.getMessage());
         assertDoesNotThrow(() -> accounts.requireUsable(List.of("1001", "approver-x")));
+    }
+
+    @Test
+    void someoneHandedATaskToDecide_mustAlsoBeAllowedToApprove() {
+        // 1001 signs in but holds no role that approves: the gate would refuse them the approval, and a task
+        // transferred to them would be stuck with them.
+        ActorAccounts withPermissions = TestActorAccounts.of(statuses(), NAMES, Set.of(1001L, 1002L));
+
+        Map<String, String> why = withPermissions.whyCannotApprove(List.of("1002", "1001", "2001", "approver-x"));
+        assertEquals(List.of("1002", "1001"), List.copyOf(why.keySet()), "in the order asked");
+        assertEquals("Bob Wu's account is frozen", why.get("1002"), "the account is the first reason");
+        assertEquals("Ann Lee is not allowed to approve", why.get("1001"));
+
+        FlowActionValidationException refused = assertThrows(FlowActionValidationException.class,
+                () -> withPermissions.requireCanApprove(List.of("1001")));
+        assertEquals("Ann Lee is not allowed to approve.", refused.getMessage());
+        assertEquals(List.of("2001", "approver-x"),
+                withPermissions.ableToApprove(List.of("1001", "2001", "1002", "approver-x")));
+        // Signing in is all a CC'd person needs: they only read.
+        assertDoesNotThrow(() -> withPermissions.requireUsable(List.of("1001")));
+    }
+
+    @Test
+    void withoutAPermissionCheckerEveryoneWhoSignsInMayApprove() {
+        assertDoesNotThrow(() -> accounts.requireCanApprove(List.of("1001", "2001")));
+        assertEquals(Map.of("1002", "Bob Wu's account is frozen"), accounts.whyCannotApprove(List.of("1001", "1002")));
     }
 
     @Test

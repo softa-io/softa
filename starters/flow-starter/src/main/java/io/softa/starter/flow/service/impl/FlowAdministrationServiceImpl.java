@@ -189,7 +189,7 @@ public class FlowAdministrationServiceImpl implements FlowAdministrationService 
                 .toList();
     }
 
-    /** Two different approvers, the new one able to act: a whole reassignment, or its preview, is refused otherwise. */
+    /** Two different approvers, the new one able to act and allowed to approve: a whole reassignment, or its preview, is refused otherwise. */
     private void requireNewApprover(String fromActorId, String toActorId) {
         if (!StringUtils.hasText(fromActorId) || !StringUtils.hasText(toActorId)) {
             throw new FlowActionValidationException("Both the original and the new approver are required");
@@ -198,7 +198,7 @@ public class FlowAdministrationServiceImpl implements FlowAdministrationService 
             throw new FlowActionValidationException("The new approver must be someone else");
         }
         if (actorAccounts != null) {
-            actorAccounts.requireUsable(List.of(toActorId));
+            actorAccounts.requireCanApprove(List.of(toActorId));
         }
     }
 
