@@ -51,15 +51,21 @@ public class SessionStore {
     public static final String ACCOUNT_SESSIONS = "account-sessions:";
 
     /**
-     * What is left of a session ended because its organisation became unavailable. A client fires
-     * several requests at once; the first one ends the session, and without this the others would
-     * find nothing and answer SESSION_EXPIRED — which the client is free to act on first, sending the
-     * person to the login page instead of to their other organisations.
+     * What is left of a session ended because its organisation became unavailable. The session can
+     * end before the client next calls — an account frozen or deactivated by HR, or at the leaving
+     * date by the nightly job, ends its sessions there and then — and a client fires several requests
+     * at once, of which only the first finds the session to end. Without this every later request
+     * would find nothing and answer SESSION_EXPIRED, sending the person to the login page as if they
+     * had merely been away too long, instead of telling them the organisation is closed to them.
      */
     public static final String ORG_UNAVAILABLE_SESSIONS = "session-org-unavailable:";
 
-    /** Long enough for the requests already in flight when the session ended. */
-    static final int ORG_UNAVAILABLE_MARK_SECONDS = RedisConstant.ONE_MINUTES;
+    /**
+     * The least a mark is kept: the requests already in flight when the session ended. Otherwise it is
+     * kept as long as the session had left, so the person's next request says why whenever it comes,
+     * and a session that would have run out by then still reads as expired.
+     */
+    static final int ORG_UNAVAILABLE_MARK_MIN_SECONDS = RedisConstant.ONE_MINUTES;
 
     private final CacheService cacheService;
     private final ApplicationEventPublisher eventPublisher;
@@ -180,8 +186,9 @@ public class SessionStore {
     }
 
     /**
-     * The session as it was, when it ended in the last minute because its organisation became
-     * unavailable. Empty otherwise — never expired, ended for another reason, or too long ago.
+     * The session as it was, when it ended because its organisation became unavailable and would
+     * otherwise still be live. Empty otherwise — never expired, ended for another reason, or past
+     * the time it would have run out anyway.
      */
     public Optional<SessionRecord> endedForUnavailableOrg(String sessionId) {
         if (StringUtils.isBlank(sessionId)) {
@@ -204,7 +211,7 @@ public class SessionStore {
         // Marked before the session goes, so a concurrent request never sees neither.
         if (reason == SessionRevokeReason.ORG_UNAVAILABLE) {
             session.ifPresent(s -> cacheService.save(ORG_UNAVAILABLE_SESSIONS + sessionId, s,
-                    ORG_UNAVAILABLE_MARK_SECONDS));
+                    this.markSeconds(sessionId)));
         }
         // Two requests can both read the session before either removes it; only the one whose delete
         // took the key announces the removal, so its listeners (the login history) record it once.
@@ -216,6 +223,14 @@ public class SessionStore {
             eventPublisher.publishEvent(new SessionRevokedEvent(sessionId, s, reason));
         }
         return removed;
+    }
+
+    /** How long the session had left — see {@link #ORG_UNAVAILABLE_MARK_MIN_SECONDS}. */
+    private int markSeconds(String sessionId) {
+        long left = cacheService.getExpire(sessionKey(sessionId));
+        // Unknown — gone already, or no expiry set: as long as a fresh session lives.
+        long seconds = left > 0 ? left : TTL_SECONDS;
+        return (int) Math.max(seconds, ORG_UNAVAILABLE_MARK_MIN_SECONDS);
     }
 
     /**
