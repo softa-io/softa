@@ -408,11 +408,11 @@ provider. Route rows of equal priority are ordered by config id.
 
 ### Upgrading to template variable sources
 
-Four nullable columns, no data to move:
+Three nullable columns, no data to move:
 
 | Table | Column |
 |---|---|
-| `mail_template` | `variables_name VARCHAR(100)`, `model_name VARCHAR(64)` |
+| `mail_template` | `variables_name VARCHAR(100)` |
 | `platform_mail_template` | `variables_name VARCHAR(100)` |
 | `sms_template` | `variables_name VARCHAR(100)` |
 
@@ -420,8 +420,8 @@ A runtime with a non-empty `scanner-scope` adds them at boot; elsewhere the depl
 application ships the `ALTER TABLE`s, **before the new jar** — the new entities read
 the columns on every template query.
 
-Nothing changes until a template names a source: an empty `variables_name` /
-`model_name` is a template that is not checked. An application then backfills
+Nothing changes until a template names a set: an empty `variables_name` is a template
+that is not checked. An application then backfills
 `variables_name` on its existing system templates by code — the platform's rows once,
 each tenant's copies per tenant — at any time after the jar. A tenant may have edited
 its copy to use a variable the set does not have; such a row keeps sending as before
