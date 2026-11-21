@@ -132,8 +132,8 @@ public class AutoDelegationService {
         return current;
     }
 
-    /** Why the delegate cannot act, or null when they can. */
+    /** Why the delegate cannot decide the task — their account, or not being allowed to approve — or null. */
     private String whyUnusable(String delegate) {
-        return actorAccounts == null ? null : actorAccounts.whyUnusable(List.of(delegate)).get(delegate);
+        return actorAccounts == null ? null : actorAccounts.whyCannotApprove(List.of(delegate)).get(delegate);
     }
 }

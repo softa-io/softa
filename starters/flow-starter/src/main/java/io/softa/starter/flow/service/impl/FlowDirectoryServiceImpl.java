@@ -3,10 +3,12 @@ package io.softa.starter.flow.service.impl;
 import java.util.*;
 import java.util.function.Function;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.utils.Assert;
+import io.softa.starter.flow.runtime.engine.ActorAccounts;
 import io.softa.starter.flow.runtime.spi.DirectoryDepartment;
 import io.softa.starter.flow.runtime.spi.DirectoryPerson;
 import io.softa.starter.flow.runtime.spi.OrganizationService;
@@ -34,19 +36,35 @@ public class FlowDirectoryServiceImpl implements FlowDirectoryService {
 
     private final FlowUserNames userNames;
 
+    private final ObjectProvider<ActorAccounts> actorAccounts;
+
     public FlowDirectoryServiceImpl(ObjectProvider<OrganizationService> organizationService, FlowUserNames userNames) {
+        this(organizationService, userNames, null);
+    }
+
+    @Autowired
+    public FlowDirectoryServiceImpl(ObjectProvider<OrganizationService> organizationService, FlowUserNames userNames,
+                                    ObjectProvider<ActorAccounts> actorAccounts) {
         this.organizationService = organizationService;
         this.userNames = userNames;
+        this.actorAccounts = actorAccounts;
     }
 
     @Override
-    public List<DirectoryPerson> searchPeople(String keyword, Integer limit) {
+    public List<DirectoryPerson> searchPeople(String keyword, Integer limit, boolean approversOnly) {
         int size = limitOf(limit);
         // As the caller: their roles' scope on the directory model decides whom they find.
         OrganizationService organization = organizationService.getIfAvailable();
-        return organization == null ? List.of() : organization.searchPeople(keyword, size).stream()
+        List<DirectoryPerson> found = organization == null ? List.of() : organization.searchPeople(keyword, size).stream()
                 .map(DirectoryPerson::withoutActive)
                 .toList();
+        ActorAccounts accounts = actorAccounts == null ? null : actorAccounts.getIfAvailable();
+        if (!approversOnly || accounts == null || found.isEmpty()) {
+            return found;
+        }
+        Set<String> able = new HashSet<>(accounts.ableToApprove(
+                found.stream().map(person -> String.valueOf(person.id())).toList()));
+        return found.stream().filter(person -> able.contains(String.valueOf(person.id()))).toList();
     }
 
     @Override

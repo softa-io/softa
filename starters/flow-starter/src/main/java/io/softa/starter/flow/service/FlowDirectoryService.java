@@ -20,7 +20,15 @@ public interface FlowDirectoryService {
      * the directory. Whether each can act is not said: they all can. {@code limit} defaults to 20 and may not exceed
      * 200: a picker asks again for more as its list is scrolled, and past 200 narrows by typing.
      */
-    List<DirectoryPerson> searchPeople(String keyword, Integer limit);
+    default List<DirectoryPerson> searchPeople(String keyword, Integer limit) {
+        return searchPeople(keyword, limit, false);
+    }
+
+    /**
+     * As {@link #searchPeople(String, Integer)}; with {@code approversOnly}, only those allowed to approve — whom a task
+     * can be handed to decide. Filtered after the page is read, so a page may hold fewer than {@code limit}.
+     */
+    List<DirectoryPerson> searchPeople(String keyword, Integer limit, boolean approversOnly);
 
     /**
      * These login accounts by name, in the order asked, whatever the caller's permissions — the people a picker already

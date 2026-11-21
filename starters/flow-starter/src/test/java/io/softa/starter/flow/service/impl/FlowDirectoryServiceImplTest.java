@@ -7,6 +7,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.starter.flow.runtime.TestActorAccounts;
+import io.softa.starter.flow.runtime.engine.ActorAccounts;
 import io.softa.starter.flow.runtime.spi.DirectoryPerson;
 import io.softa.starter.flow.runtime.spi.OrganizationService;
 import io.softa.starter.flow.service.support.FlowUserNames;
@@ -49,6 +51,27 @@ class FlowDirectoryServiceImplTest {
 
         directory.searchDepartments("fin", 50);
         verify(organization).searchDepartments("fin", 50);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aPickerChoosingWhomToHandATaskToDecide_findsOnlyThoseAllowedToApprove() {
+        when(organization.searchPeople("a", 20)).thenReturn(List.of(
+                new DirectoryPerson(1L, "Ann Lee", "E001", "Finance", null, true),
+                new DirectoryPerson(2L, "Bob Wu", "E002", "Finance", null, true),
+                new DirectoryPerson(3L, "Cat Ng", "E003", "Finance", null, true)));
+        ObjectProvider<OrganizationService> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(organization);
+        ObjectProvider<ActorAccounts> accounts = mock(ObjectProvider.class);
+        // Bob holds no role that approves.
+        when(accounts.getIfAvailable()).thenReturn(TestActorAccounts.of(Map.of(), Map.of(), Set.of(2L)));
+        FlowDirectoryServiceImpl withAccounts = new FlowDirectoryServiceImpl(provider, userNames, accounts);
+
+        assertEquals(List.of(1L, 3L), withAccounts.searchPeople("a", null, true).stream()
+                .map(DirectoryPerson::id).toList());
+        // Every other picker — a CC, a filter by submitter — still finds everyone who signs in.
+        assertEquals(List.of(1L, 2L, 3L), withAccounts.searchPeople("a", null).stream()
+                .map(DirectoryPerson::id).toList());
     }
 
     @Test

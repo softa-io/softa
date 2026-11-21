@@ -90,9 +90,10 @@ public class FlowDelegationServiceImpl extends EntityServiceImpl<FlowDelegation,
             throw new FlowActionValidationException("The delegation must end after it starts");
         }
         requireScopeInUse(delegation);
-        // A task delegated to someone who cannot act would wait on nobody: the rule would never apply.
+        // A task delegated to someone who cannot act, or may not approve, would wait on nobody: the rule
+        // would never apply.
         if (actorAccounts != null) {
-            actorAccounts.requireUsable(List.of(delegation.getDelegateId()));
+            actorAccounts.requireCanApprove(List.of(delegation.getDelegateId()));
         }
         // Stored without the flag, a rule was never in force: the lookup takes only active ones.
         delegation.setActive(true);
