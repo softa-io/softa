@@ -784,16 +784,6 @@ public class RelationLookupResolver {
     }
 
     /**
-     * Why a lookup found nothing.
-     *
-     * <p>With one column the message speaks for itself: that value matches no row. With several it
-     * does not. They are ANDed, so a row can fail while every value in it is perfectly real — they
-     * simply do not belong to one record. A template that asks for both a code and a name is asking
-     * for exactly that check: the name is there to catch a mistyped code, and "cannot find" is what
-     * catching it looks like. Left unexplained, the reader sees two values they know exist and
-     * concludes the import is broken rather than that it just did its job.
-     */
-    /**
      * The companies a row names that the lookup did not find but that do exist: outside the importer's
      * company grant, so their read never returned them.
      *
@@ -838,6 +828,16 @@ public class RelationLookupResolver {
                 + " Choose one of those, or ask an administrator to grant your role this company.";
     }
 
+    /**
+     * Why a lookup found nothing.
+     *
+     * <p>With one column the message speaks for itself: that value matches no row. With several it
+     * does not. They are ANDed, so a row can fail while every value in it is perfectly real — they
+     * simply do not belong to one record. A template that asks for both a code and a name is asking
+     * for exactly that check: the name is there to catch a mistyped code, and "cannot find" is what
+     * catching it looks like. Left unexplained, the reader sees two values they know exist and
+     * concludes the import is broken rather than that it just did its job.
+     */
     private String buildNotFoundMessage(String subject, LookupGroup group, List<Object> keyValues) {
         return buildNotFoundMessage(subject, group.lookupFields(), keyValues);
     }
