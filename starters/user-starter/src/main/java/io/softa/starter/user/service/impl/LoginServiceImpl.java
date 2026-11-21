@@ -254,6 +254,28 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         return e;
     }
 
+    /**
+     * The answer to switching into a company the picker does not list. One of the person's own that
+     * dropped off the list — their membership ended, or a consultancy lapsed, while the picker was
+     * open — is a company that cannot be entered now, coded so the APP refreshes the list. Anything
+     * else is not theirs, and gets the same answer as an id that does not exist: this ownership check
+     * is the whole gate, the caller names a company and nothing else about it is theirs to assert.
+     */
+    private BusinessException notListed(Long profileId, List<UserAccount> memberships, Long accountId) {
+        Optional<UserAccount> own = memberships.stream()
+                .filter(account -> accountId.equals(account.getId()))
+                .findFirst();
+        if (own.isPresent()) {
+            return orgUnavailable(accountDeniedMessage(own.get().getStatus()));
+        }
+        // The memberships leave out ended ones; an ended membership is still the person's own, and the
+        // commonest way a company drops off an open picker.
+        if (accountService.listAccountIdsOf(profileId).contains(accountId)) {
+            return orgUnavailable(accountDeniedMessage(AccountStatus.DEACTIVATED));
+        }
+        return new BusinessException("That company is not available for your account.");
+    }
+
     /** Human-readable reason for refusing login to a non-ACTIVE account. */
     /** Why a listed company cannot be entered: the company itself, or the account in it. */
     private static String deniedMessage(MembershipOption chosen) {
@@ -1331,12 +1353,11 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     public AuthenticationResult switchTenant(Long currentAccountId, Long accountId) {
         Long profileId = personBehind(currentAccountId);
         this.refuseConsultancyOnApp(accountId);
-        MembershipOption chosen = this.resolveMemberships(profileId).stream()
+        List<UserAccount> memberships = accountService.listMembershipsOf(profileId);
+        MembershipOption chosen = this.resolveMemberships(profileId, memberships).stream()
                 .filter(option -> option.accountId().equals(accountId))
                 .findFirst()
-                // Same ownership check selectTenant makes, and it is the whole gate here: the
-                // caller names a company, and nothing else about it is theirs to assert.
-                .orElseThrow(() -> new BusinessException("That company is not available for your account."));
+                .orElseThrow(() -> this.notListed(profileId, memberships, accountId));
         if (!chosen.selectable()) {
             throw orgUnavailable(deniedMessage(chosen));
         }

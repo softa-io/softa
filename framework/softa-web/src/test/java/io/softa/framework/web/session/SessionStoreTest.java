@@ -189,16 +189,35 @@ class SessionStoreTest {
     }
 
     @Test
-    void endingASessionForAnUnavailableOrg_leavesAShortLivedMark_otherReasonsDoNot() {
+    void endingASessionForAnUnavailableOrg_leavesAMarkForAsLongAsTheSessionHadLeft_otherReasonsDoNot() {
+        // Ended by HR or the leaving-date job while nobody was calling: the next request may come
+        // hours later, and must still be told the organisation is closed, not that the session ran out.
         live("frozen", ACCOUNT, RedisConstant.ONE_WEEK);
         live("loggedOut", ACCOUNT, RedisConstant.ONE_WEEK);
+        when(cacheService.getExpire("session:frozen")).thenReturn(5L * RedisConstant.ONE_DAY);
 
         store.revoke("frozen", SessionRevokeReason.ORG_UNAVAILABLE);
         store.revoke("loggedOut", SessionRevokeReason.LOGOUT);
 
         verify(cacheService).save(eq(SessionStore.ORG_UNAVAILABLE_SESSIONS + "frozen"), any(SessionRecord.class),
-                eq(RedisConstant.ONE_MINUTES));
+                eq(5 * RedisConstant.ONE_DAY));
         verify(cacheService, never()).save(eq(SessionStore.ORG_UNAVAILABLE_SESSIONS + "loggedOut"), any(), anyInt());
+    }
+
+    @Test
+    void theMark_keepsAMinuteForRequestsInFlight_andAFullLifetimeWhenTheSessionsTimeIsUnknown() {
+        live("almostOut", ACCOUNT, RedisConstant.ONE_WEEK);
+        live("noExpiry", ACCOUNT, RedisConstant.ONE_WEEK);
+        when(cacheService.getExpire("session:almostOut")).thenReturn(5L);
+        when(cacheService.getExpire("session:noExpiry")).thenReturn(-1L);
+
+        store.revoke("almostOut", SessionRevokeReason.ORG_UNAVAILABLE);
+        store.revoke("noExpiry", SessionRevokeReason.ORG_UNAVAILABLE);
+
+        verify(cacheService).save(eq(SessionStore.ORG_UNAVAILABLE_SESSIONS + "almostOut"), any(SessionRecord.class),
+                eq(RedisConstant.ONE_MINUTES));
+        verify(cacheService).save(eq(SessionStore.ORG_UNAVAILABLE_SESSIONS + "noExpiry"), any(SessionRecord.class),
+                eq(SessionStore.TTL_SECONDS));
     }
 
     @Test

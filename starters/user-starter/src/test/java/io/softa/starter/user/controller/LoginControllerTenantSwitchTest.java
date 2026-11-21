@@ -172,7 +172,13 @@ class LoginControllerTenantSwitchTest {
     }
 
     private void givenMemberships(UserAccount... accounts) {
-        when(accountService.listMembershipsOf(PROFILE)).thenReturn(List.of(accounts));
+        // As the real service answers: the memberships leave out ended ones, the account ids do not.
+        when(accountService.listMembershipsOf(PROFILE)).thenReturn(java.util.Arrays.stream(accounts)
+                .filter(account -> account.getStatus() != AccountStatus.DEACTIVATED)
+                .toList());
+        when(accountService.listAccountIdsOf(PROFILE)).thenReturn(java.util.Arrays.stream(accounts)
+                .map(UserAccount::getId)
+                .toList());
         for (UserAccount account : accounts) {
             when(accountService.getById(account.getId())).thenReturn(Optional.of(account));
         }
@@ -267,7 +273,11 @@ class LoginControllerTenantSwitchTest {
 
         assertThatThrownBy(() -> controller.switchTenant(switchTo(999L), request, response))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("That company is not available for your account.");
+                .hasMessage("That company is not available for your account.")
+                // Not coded as unavailable: that would invite the APP to treat a stranger's company
+                // as one of the caller's own that is closed for now.
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isNotEqualTo(io.softa.framework.web.session.SessionErrorCodes.ORG_UNAVAILABLE);
 
         // Load-bearing: nothing is issued and the caller's own session is untouched, so a refused
         // switch cannot become either a foothold in another company or a self-inflicted logout.
@@ -287,6 +297,24 @@ class LoginControllerTenantSwitchTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Login denied: your account has been deactivated.");
         verify(cacheService, never()).save(anyString(), any(), anyInt());
+    }
+
+    @Test
+    void aMembershipEndedWhileThePickerWasOpen_isRefusedAsUnavailable_soTheAppRefreshesTheList() {
+        // The picker listed it a moment ago; the company has since ended the membership. It is the
+        // person's own, so the answer is the code the APP re-runs the entry rule on — not the
+        // somebody-else refusal, which the APP can only show as an unknown error.
+        givenMemberships(membership(HERE, 1L, AccountStatus.ACTIVE),
+                membership(THERE, 2L, AccountStatus.DEACTIVATED));
+        MockHttpServletRequest request = signedInAt(HERE);
+
+        assertThatThrownBy(() -> controller.switchTenant(switchTo(THERE), request, response))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Login denied: your membership of this company has ended.")
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(io.softa.framework.web.session.SessionErrorCodes.ORG_UNAVAILABLE);
+        verify(cacheService, never()).save(anyString(), any(), anyInt());
+        verify(cacheService, never()).clear(anyString());
     }
 
     /**
