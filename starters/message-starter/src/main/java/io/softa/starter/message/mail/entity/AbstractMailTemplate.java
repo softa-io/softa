@@ -46,10 +46,10 @@ public abstract class AbstractMailTemplate extends AuditableModel {
      * it does not have, and a send refuses an object of another set. Empty = the template takes
      * whatever map it is sent with, unchecked.
      */
-    @Field(length = 100,
+    @Field(label = "Variable Set", length = 100,
             description = "Name of the declared set of template variables this template is written "
                     + "against, e.g. flow.approval-notice. Empty = unchecked.")
-    private String variablesName;
+    private String variableSetName;
 
     @Field(required = true, length = 500,
             description = "Email subject template, supports {{ variable }} placeholders")

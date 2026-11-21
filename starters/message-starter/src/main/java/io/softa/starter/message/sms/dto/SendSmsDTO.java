@@ -51,7 +51,7 @@ public class SendSmsDTO {
      */
     @JsonIgnore
     @Schema(hidden = true)
-    private String variablesName;
+    private String variableSetName;
 
     /** A templated SMS to one number: the template's code and variables, sent in {@code scope}. */
     public static SendSmsDTO ofTemplate(String phoneNumber, String templateCode, Map<String, Object> variables,
@@ -76,7 +76,7 @@ public class SendSmsDTO {
                                         MessageScope scope) {
         SendSmsDTO sms = ofTemplate(phoneNumber, templateCode,
                 TemplateVariablesRegistry.toMapOmittingMissing(variables), scope);
-        sms.setVariablesName(TemplateVariablesRegistry.nameOf(variables));
+        sms.setVariableSetName(TemplateVariablesRegistry.nameOf(variables));
         return sms;
     }
 }

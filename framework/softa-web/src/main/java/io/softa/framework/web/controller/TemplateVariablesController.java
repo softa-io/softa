@@ -41,7 +41,7 @@ public class TemplateVariablesController {
     /**
      * One declared set.
      *
-     * @param name the name a template stores in {@code variablesName}
+     * @param name the name a template stores in {@code variableSetName}
      * @return the set and its fields
      */
     @GetMapping("/get")

@@ -77,17 +77,17 @@ class MessageSourcedVariablesTest {
         TemplateVariablesRegistry.register(Set.of());
     }
 
-    private static PlatformMailTemplate platformTemplate(String code, String variablesName) {
+    private static PlatformMailTemplate platformTemplate(String code, String variableSetName) {
         PlatformMailTemplate template = new PlatformMailTemplate();
         template.setCode(code);
-        template.setVariablesName(variablesName);
+        template.setVariableSetName(variableSetName);
         return template;
     }
 
-    private static MailTemplate tenantTemplate(String code, String variablesName) {
+    private static MailTemplate tenantTemplate(String code, String variableSetName) {
         MailTemplate template = new MailTemplate();
         template.setCode(code);
-        template.setVariablesName(variablesName);
+        template.setVariableSetName(variableSetName);
         return template;
     }
 
@@ -164,21 +164,21 @@ class MessageSourcedVariablesTest {
     void theSetNameCannotComeFromARequestBody() {
         SendMailDTO parsed = JsonUtils.stringToObject(
                 "{\"to\":[\"a@example.com\"],\"templateCode\":\"order.notice\","
-                        + "\"variablesName\":\"test.code\"}", SendMailDTO.class);
-        assertNull(parsed.getVariablesName());
+                        + "\"variableSetName\":\"test.code\"}", SendMailDTO.class);
+        assertNull(parsed.getVariableSetName());
         assertEquals("order.notice", parsed.getTemplateCode());
         SendSmsDTO sms = JsonUtils.stringToObject(
-                "{\"phoneNumber\":\"+6591234567\",\"templateCode\":\"x\",\"variablesName\":\"test.code\"}",
+                "{\"phoneNumber\":\"+6591234567\",\"templateCode\":\"x\",\"variableSetName\":\"test.code\"}",
                 SendSmsDTO.class);
-        assertNull(sms.getVariablesName());
+        assertNull(sms.getVariableSetName());
     }
 
     // ---- sms ----
 
-    private static SmsTemplate smsTemplate(String code, String variablesName) {
+    private static SmsTemplate smsTemplate(String code, String variableSetName) {
         SmsTemplate template = new SmsTemplate();
         template.setCode(code);
-        template.setVariablesName(variablesName);
+        template.setVariableSetName(variableSetName);
         return template;
     }
 

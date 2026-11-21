@@ -413,17 +413,17 @@ Three nullable columns, no data to move:
 
 | Table | Column |
 |---|---|
-| `mail_template` | `variables_name VARCHAR(100)` |
-| `platform_mail_template` | `variables_name VARCHAR(100)` |
-| `sms_template` | `variables_name VARCHAR(100)` |
+| `mail_template` | `variable_set_name VARCHAR(100)` |
+| `platform_mail_template` | `variable_set_name VARCHAR(100)` |
+| `sms_template` | `variable_set_name VARCHAR(100)` |
 
 A runtime with a non-empty `scanner-scope` adds them at boot; elsewhere the deploying
 application ships the `ALTER TABLE`s, **before the new jar** — the new entities read
 the columns on every template query.
 
-Nothing changes until a template names a set: an empty `variables_name` is a template
+Nothing changes until a template names a set: an empty `variable_set_name` is a template
 that is not checked. An application then backfills
-`variables_name` on its existing system templates by code — the platform's rows once,
+`variable_set_name` on its existing system templates by code — the platform's rows once,
 each tenant's copies per tenant — at any time after the jar. A tenant may have edited
 its copy to use a variable the set does not have; such a row keeps sending as before
 (a send is checked against the set's name, not the content) but is refused the next
@@ -636,7 +636,7 @@ receives that text; another format names it:
 
 #### Where a template's variables come from
 
-A template may name the set of variables it is written against in `variablesName`
+A template may name the set of variables it is written against in `variableSetName`
 (`MailTemplate`, `PlatformMailTemplate`, `SmsTemplate`): a record carrying
 `@TemplateVariables`, which code fills and sends as an object with
 `SendMailDTO.ofTemplate(to, code, variables, scope)`. The editor offers the set's
@@ -673,7 +673,7 @@ name is checked: `{{ a + b }}` is not, `{{ name | upper }}` is.
 
 **On send**, an object sent through a template that names another set is refused at
 acceptance with a `BusinessException`; nothing is stored. A plain map is never
-checked. `SendMailDTO.variablesName` is set by code only and never read from a
+checked. `SendMailDTO.variableSetName` is set by code only and never read from a
 request body. In a mail a component left null is sent empty — a list as an empty list,
 a nested set as a set with no values.
 

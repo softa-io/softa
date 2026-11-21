@@ -124,7 +124,7 @@ final class MailMessageHandler {
      * failed with the reason.
      */
     private void requireMatchingVariables(SendMailDTO dto) {
-        if (!StringUtils.hasText(dto.getVariablesName())) {
+        if (!StringUtils.hasText(dto.getVariableSetName())) {
             return;
         }
         AbstractMailTemplate template;
@@ -136,11 +136,11 @@ final class MailMessageHandler {
         } catch (BusinessException e) {
             return;
         }
-        if (template == null || !StringUtils.hasText(template.getVariablesName())) {
+        if (template == null || !StringUtils.hasText(template.getVariableSetName())) {
             return;
         }
-        String set = template.getVariablesName().trim();
-        String sent = dto.getVariablesName().trim();
+        String set = template.getVariableSetName().trim();
+        String sent = dto.getVariableSetName().trim();
         if (!set.equals(sent)) {
             throw new BusinessException("Mail send rejected: template ''{0}'' is written against the template "
                     + "variables ''{1}'', but was sent ''{2}''.", template.getCode(), set, sent);

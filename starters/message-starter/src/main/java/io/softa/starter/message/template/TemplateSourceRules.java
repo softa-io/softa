@@ -22,7 +22,7 @@ import io.softa.framework.orm.meta.TemplateVariablesRegistry;
  * Whether what a template asks for ({@link TemplateUsage}) is something its variables can give.
  *
  * <p>A template names the declared {@code @TemplateVariables} set it is written against in
- * {@code variablesName}; code fills it. A name the set does not have is refused when the template is
+ * {@code variableSetName}; code fills it. A name the set does not have is refused when the template is
  * saved — it could only ever print nothing. A template that names no set is not checked at all: it
  * takes whatever it is sent with, as templates always have.
  */
@@ -33,24 +33,24 @@ public class TemplateSourceRules {
      * Everything wrong with a template's content given its set; empty when nothing is, and when the
      * template names no set.
      *
-     * @param variablesName the declared set the template is written against, or blank
+     * @param variableSetName the declared set the template is written against, or blank
      * @param usage         what the template asks for
      */
-    public List<String> problems(String variablesName, TemplateUsage usage) {
-        return StringUtils.hasText(variablesName) ? againstSet(variablesName.trim(), usage) : List.of();
+    public List<String> problems(String variableSetName, TemplateUsage usage) {
+        return StringUtils.hasText(variableSetName) ? againstSet(variableSetName.trim(), usage) : List.of();
     }
 
     /**
-     * Why an update may not set {@code variablesName} to {@code wanted}: a template that has a set
+     * Why an update may not set {@code variableSetName} to {@code wanted}: a template that has a set
      * keeps it. Code fills the template with that set's values, and a send of them through a template
      * moved to another set — or to none — would be refused or print blanks. Empty when the stored row
      * has no set yet, or the value does not change.
      *
      * @param stored the row as stored, or null on create
-     * @param wanted the {@code variablesName} the update sends
+     * @param wanted the {@code variableSetName} the update sends
      */
     public static Optional<String> changedSetProblem(Map<String, Object> stored, Object wanted) {
-        Object current = stored == null ? null : stored.get("variablesName");
+        Object current = stored == null ? null : stored.get("variableSetName");
         String was = current == null ? "" : current.toString().trim();
         String now = wanted == null ? "" : wanted.toString().trim();
         if (was.isEmpty() || was.equals(now)) {

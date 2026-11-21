@@ -8,7 +8,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
  * A declared set of template variables: what a
  * {@link io.softa.framework.base.annotation.TemplateVariables} record offers a template.
  *
- * @param name   the name a template stores in {@code variablesName}
+ * @param name   the name a template stores in {@code variableSetName}
  * @param label  display label
  * @param fields the variables, in declaration order
  */

@@ -83,17 +83,17 @@ class MailTemplateContentValidationTest {
     @Test
     void aVariableTheSetDoesNotHaveIsRefusedOnTheSource() {
         WriteContext ctx = create("PlatformMailTemplate", row("code", "user.verification-code",
-                "variablesName", "test.code-notice", "subject", "Code {{ code }}",
+                "variableSetName", "test.code-notice", "subject", "Code {{ code }}",
                 "bodyHtml", "<p>{{ code }} valid {{ expiryMinute }} min</p>"));
         assertThat(ctx.errors()).singleElement().satisfies(error -> {
-            assertThat(error.field()).isEqualTo("variablesName");
+            assertThat(error.field()).isEqualTo("variableSetName");
             assertThat(error.message()).contains("Unknown variable: expiryMinute").contains("code, expiryMinutes");
         });
     }
 
     @Test
     void aTemplateUsingOnlyTheSetsVariablesPasses_inFieldBlocksToo() {
-        WriteContext ctx = create("MailTemplate", row("code", "x", "variablesName", "test.code-notice",
+        WriteContext ctx = create("MailTemplate", row("code", "x", "variableSetName", "test.code-notice",
                 "subject", "Code {{ code }}",
                 "bodyHtml", "<p><span data-tpl-field=\"code\" data-tpl-label=\"Code\">{{code}}</span> {{ expiryMinutes }}</p>",
                 "bodyText", "{{ code }}"));
@@ -130,19 +130,19 @@ class MailTemplateContentValidationTest {
 
     @Test
     void aSavedSetCannotBeChanged() {
-        Map<String, Object> stored = row("code", "x", "variablesName", "test.code-notice",
+        Map<String, Object> stored = row("code", "x", "variableSetName", "test.code-notice",
                 "subject", "s", "bodyHtml", "<p>x</p>");
-        assertThat(update("MailTemplate", stored, row("variablesName", "")).errors()).anySatisfy(error -> {
-            assertThat(error.field()).isEqualTo("variablesName");
+        assertThat(update("MailTemplate", stored, row("variableSetName", "")).errors()).anySatisfy(error -> {
+            assertThat(error.field()).isEqualTo("variableSetName");
             assertThat(error.message()).contains("cannot be changed");
         });
-        assertThat(update("PlatformMailTemplate", stored, row("variablesName", "test.code-notice")).hasErrors())
+        assertThat(update("PlatformMailTemplate", stored, row("variableSetName", "test.code-notice")).hasErrors())
                 .isFalse();
     }
 
     @Test
     void anUpdateThatLeavesSourceAndContentAloneIsNotChecked() {
-        Map<String, Object> stored = row("code", "x", "variablesName", "test.code-notice",
+        Map<String, Object> stored = row("code", "x", "variableSetName", "test.code-notice",
                 "subject", "{{ gone }}", "bodyHtml", "<p>{{ gone }}</p>", "name", "Old");
         assertThat(update("MailTemplate", stored, row("name", "New")).hasErrors()).isFalse();
         // Touching the content checks the whole merged row.
@@ -150,7 +150,7 @@ class MailTemplateContentValidationTest {
                 .satisfies(error -> assertThat(error.message()).contains("Unknown variable: gone"));
         // So does binding a set to a template that had none.
         Map<String, Object> unbound = new HashMap<>(stored);
-        unbound.remove("variablesName");
-        assertThat(update("MailTemplate", unbound, row("variablesName", "test.code-notice")).hasErrors()).isTrue();
+        unbound.remove("variableSetName");
+        assertThat(update("MailTemplate", unbound, row("variableSetName", "test.code-notice")).hasErrors()).isTrue();
     }
 }

@@ -52,7 +52,7 @@ class SmsTemplateWriteValidatorTest {
     @Test
     void contentUsingTheSetsVariablesPasses() {
         WriteContext ctx = WriteContext.of("SmsTemplate", AccessType.CREATE, row("code", "user.verification-code",
-                "variablesName", "test.sms-code", "content", "Code {{ code }}, valid {{expiryMinutes}} min."), null);
+                "variableSetName", "test.sms-code", "content", "Code {{ code }}, valid {{expiryMinutes}} min."), null);
         validator.validateCreate(ctx);
         assertThat(ctx.hasErrors()).isFalse();
     }
@@ -60,10 +60,10 @@ class SmsTemplateWriteValidatorTest {
     @Test
     void aVariableTheSetDoesNotHaveIsRefused() {
         WriteContext ctx = WriteContext.of("SmsTemplate", AccessType.CREATE, row("code", "user.verification-code",
-                "variablesName", "test.sms-code", "content", "Code {{ codee }}"), null);
+                "variableSetName", "test.sms-code", "content", "Code {{ codee }}"), null);
         validator.validateCreate(ctx);
         assertThat(ctx.errors()).singleElement().satisfies(error -> {
-            assertThat(error.field()).isEqualTo("variablesName");
+            assertThat(error.field()).isEqualTo("variableSetName");
             assertThat(error.message()).contains("Unknown variable: codee");
         });
     }
@@ -78,7 +78,7 @@ class SmsTemplateWriteValidatorTest {
 
     @Test
     void anUpdateIsCheckedOnlyWhenItTouchesTheSetOrTheContent() {
-        Map<String, Object> stored = row("code", "x", "variablesName", "test.sms-code", "content", "{{ gone }}",
+        Map<String, Object> stored = row("code", "x", "variableSetName", "test.sms-code", "content", "{{ gone }}",
                 "name", "Old");
         Map<String, Object> renamed = new HashMap<>(stored);
         renamed.put("name", "New");

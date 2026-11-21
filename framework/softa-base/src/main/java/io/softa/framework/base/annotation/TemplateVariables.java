@@ -10,7 +10,7 @@ import java.lang.annotation.Target;
  * a template that has no model to read them from — a verification code, an invitation link, an
  * approval notice.
  *
- * <p>A template names the set it is written against ({@code variablesName}); the editor then offers
+ * <p>A template names the set it is written against ({@code variableSetName}); the editor then offers
  * exactly these fields, a save refuses a variable the set does not have, and a send refuses an object
  * of another set. The set itself knows nothing of the templates that use it.
  *

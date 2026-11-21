@@ -98,7 +98,7 @@ public class SendMailDTO {
      */
     @JsonIgnore
     @Schema(hidden = true)
-    private String variablesName;
+    private String variableSetName;
 
 
     /** A templated mail: the template's code and variables, sent in {@code scope}. */
@@ -122,7 +122,7 @@ public class SendMailDTO {
     public static SendMailDTO ofTemplate(List<String> to, String templateCode, Object variables,
                                          MessageScope scope) {
         SendMailDTO mail = ofTemplate(to, templateCode, TemplateVariablesRegistry.toMap(variables), scope);
-        mail.setVariablesName(TemplateVariablesRegistry.nameOf(variables));
+        mail.setVariableSetName(TemplateVariablesRegistry.nameOf(variables));
         return mail;
     }
 

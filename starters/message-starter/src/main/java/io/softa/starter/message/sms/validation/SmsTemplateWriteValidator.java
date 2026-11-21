@@ -11,7 +11,7 @@ import io.softa.starter.message.template.TemplateUsage;
 
 /**
  * An SMS template that names the set of template variables it is written against
- * ({@code variablesName}) may only use the variables that set has — on every write path: the
+ * ({@code variableSetName}) may only use the variables that set has — on every write path: the
  * template page, import, seed loading, a direct service call. A name the set does not have would be
  * sent to the person as the literal {@code {{ name }}}.
  *
@@ -24,10 +24,10 @@ import io.softa.starter.message.template.TemplateUsage;
 public class SmsTemplateWriteValidator implements ModelWriteValidator {
 
     static final String MODEL = "SmsTemplate";
-    static final String VARIABLES_NAME = "variablesName";
+    static final String VARIABLE_SET_NAME = "variableSetName";
     static final String CONTENT = "content";
 
-    private static final Set<String> CHECKED = Set.of(VARIABLES_NAME, CONTENT);
+    private static final Set<String> CHECKED = Set.of(VARIABLE_SET_NAME, CONTENT);
 
     private final TemplateSourceRules sourceRules;
 
@@ -47,9 +47,9 @@ public class SmsTemplateWriteValidator implements ModelWriteValidator {
 
     @Override
     public void validateUpdate(WriteContext ctx) {
-        if (ctx.patch().containsKey(VARIABLES_NAME)) {
-            TemplateSourceRules.changedSetProblem(ctx.originalRow(), ctx.patch().get(VARIABLES_NAME))
-                    .ifPresent(problem -> ctx.reject(VARIABLES_NAME, problem));
+        if (ctx.patch().containsKey(VARIABLE_SET_NAME)) {
+            TemplateSourceRules.changedSetProblem(ctx.originalRow(), ctx.patch().get(VARIABLE_SET_NAME))
+                    .ifPresent(problem -> ctx.reject(VARIABLE_SET_NAME, problem));
         }
         if (ctx.patch().keySet().stream().anyMatch(CHECKED::contains)) {
             check(ctx);
@@ -57,11 +57,11 @@ public class SmsTemplateWriteValidator implements ModelWriteValidator {
     }
 
     private void check(WriteContext ctx) {
-        Object variablesName = ctx.row().get(VARIABLES_NAME);
+        Object variableSetName = ctx.row().get(VARIABLE_SET_NAME);
         Object content = ctx.row().get(CONTENT);
         TemplateUsage usage = TemplateUsage.ofText(content == null ? null : content.toString());
-        for (String problem : sourceRules.problems(variablesName == null ? null : variablesName.toString(), usage)) {
-            ctx.reject(VARIABLES_NAME, problem);
+        for (String problem : sourceRules.problems(variableSetName == null ? null : variableSetName.toString(), usage)) {
+            ctx.reject(VARIABLE_SET_NAME, problem);
         }
     }
 }

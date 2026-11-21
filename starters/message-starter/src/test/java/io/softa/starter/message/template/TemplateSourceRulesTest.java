@@ -129,7 +129,7 @@ class TemplateSourceRulesTest {
 
     @Test
     void aSavedSetCannotBeChangedOrCleared() {
-        Map<String, Object> stored = Map.of("variablesName", "test.notice");
+        Map<String, Object> stored = Map.of("variableSetName", "test.notice");
         assertThat(TemplateSourceRules.changedSetProblem(stored, "test.other")).get().asString()
                 .contains("cannot be changed").contains("'test.notice'");
         assertThat(TemplateSourceRules.changedSetProblem(stored, "")).isPresent();
@@ -141,7 +141,7 @@ class TemplateSourceRulesTest {
         assertThat(TemplateSourceRules.changedSetProblem(Map.of(), "test.notice")).isEmpty();
         assertThat(TemplateSourceRules.changedSetProblem(null, "test.notice")).isEmpty();
         // A seed reload writes the row back whole, its set included.
-        assertThat(TemplateSourceRules.changedSetProblem(Map.of("variablesName", "test.notice"), " test.notice "))
+        assertThat(TemplateSourceRules.changedSetProblem(Map.of("variableSetName", "test.notice"), " test.notice "))
                 .isEmpty();
     }
 }

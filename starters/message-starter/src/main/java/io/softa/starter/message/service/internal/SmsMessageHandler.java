@@ -119,7 +119,7 @@ final class SmsMessageHandler {
      * that cannot be found is left to the first delivery attempt, which records why.
      */
     private void requireMatchingVariables(SendSmsDTO dto) {
-        if (!StringUtils.hasText(dto.getVariablesName()) || !StringUtils.hasText(dto.getTemplateCode())) {
+        if (!StringUtils.hasText(dto.getVariableSetName()) || !StringUtils.hasText(dto.getTemplateCode())) {
             return;
         }
         SmsTemplate template;
@@ -129,11 +129,11 @@ final class SmsMessageHandler {
         } catch (BusinessException e) {
             return;
         }
-        String set = template == null || !StringUtils.hasText(template.getVariablesName())
-                ? null : template.getVariablesName().trim();
-        if (set != null && !set.equals(dto.getVariablesName().trim())) {
+        String set = template == null || !StringUtils.hasText(template.getVariableSetName())
+                ? null : template.getVariableSetName().trim();
+        if (set != null && !set.equals(dto.getVariableSetName().trim())) {
             throw new BusinessException("SMS send rejected: template ''{0}'' is written against the template "
-                    + "variables ''{1}'', but was sent ''{2}''.", template.getCode(), set, dto.getVariablesName().trim());
+                    + "variables ''{1}'', but was sent ''{2}''.", template.getCode(), set, dto.getVariableSetName().trim());
         }
     }
 }

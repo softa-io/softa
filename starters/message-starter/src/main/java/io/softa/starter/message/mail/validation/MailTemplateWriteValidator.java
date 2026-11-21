@@ -27,7 +27,7 @@ import io.softa.starter.message.template.TemplateUsage;
  *       A tenant's server is looked up within the writing tenant, so another tenant's id is "not
  *       found".</li>
  *   <li><b>The content fits its variables and can be compiled.</b> A template that names the
- *       declared set its variables come from ({@code variablesName}) may only use what that set has
+ *       declared set its variables come from ({@code variableSetName}) may only use what that set has
  *       ({@link TemplateSourceRules}); a name it does not have could only ever print nothing. And
  *       whatever the set, a body the template engine cannot compile is refused here rather than at
  *       the first send. Checked on create, and on an update that touches the set or the content.</li>
@@ -44,7 +44,7 @@ public class MailTemplateWriteValidator implements ModelWriteValidator {
     static final String CODE = "code";
     static final String PREFERRED_SERVER = "preferredServerConfigId";
 
-    static final String VARIABLES_NAME = "variablesName";
+    static final String VARIABLE_SET_NAME = "variableSetName";
     static final String SUBJECT = "subject";
     static final String BODY_HTML = "bodyHtml";
     static final String BODY_TEXT = "bodyText";
@@ -52,7 +52,7 @@ public class MailTemplateWriteValidator implements ModelWriteValidator {
     private static final Set<String> MODELS = Set.of(TENANT_MODEL, PLATFORM_MODEL);
 
     /** The columns whose change calls for the content to be checked again. */
-    private static final Set<String> CONTENT = Set.of(VARIABLES_NAME, SUBJECT, BODY_HTML, BODY_TEXT);
+    private static final Set<String> CONTENT = Set.of(VARIABLE_SET_NAME, SUBJECT, BODY_HTML, BODY_TEXT);
 
     private final PlatformMailTemplateService platformTemplateService;
 
@@ -92,9 +92,9 @@ public class MailTemplateWriteValidator implements ModelWriteValidator {
         if (ctx.patch().containsKey(PREFERRED_SERVER)) {
             checkPreferredServer(ctx);
         }
-        if (ctx.patch().containsKey(VARIABLES_NAME)) {
-            TemplateSourceRules.changedSetProblem(ctx.originalRow(), ctx.patch().get(VARIABLES_NAME))
-                    .ifPresent(problem -> ctx.reject(VARIABLES_NAME, problem));
+        if (ctx.patch().containsKey(VARIABLE_SET_NAME)) {
+            TemplateSourceRules.changedSetProblem(ctx.originalRow(), ctx.patch().get(VARIABLE_SET_NAME))
+                    .ifPresent(problem -> ctx.reject(VARIABLE_SET_NAME, problem));
         }
         if (ctx.patch().keySet().stream().anyMatch(CONTENT::contains)) {
             checkContent(ctx);
@@ -102,7 +102,7 @@ public class MailTemplateWriteValidator implements ModelWriteValidator {
     }
 
     private void checkContent(WriteContext ctx) {
-        String variablesName = text(ctx.row().get(VARIABLES_NAME));
+        String variableSetName = text(ctx.row().get(VARIABLE_SET_NAME));
         String bodyHtml = text(ctx.row().get(BODY_HTML));
         String bodyText = text(ctx.row().get(BODY_TEXT));
         TemplateUsage usage = TemplateUsage.ofMail(text(ctx.row().get(SUBJECT)), bodyHtml, bodyText);
@@ -112,8 +112,8 @@ public class MailTemplateWriteValidator implements ModelWriteValidator {
             rejectUncompilable(ctx, BODY_HTML, TemplateBlocks.toPebble(bodyHtml));
         }
         rejectUncompilable(ctx, BODY_TEXT, bodyText);
-        for (String problem : sourceRules.problems(variablesName, usage)) {
-            ctx.reject(VARIABLES_NAME, problem);
+        for (String problem : sourceRules.problems(variableSetName, usage)) {
+            ctx.reject(VARIABLE_SET_NAME, problem);
         }
     }
 
