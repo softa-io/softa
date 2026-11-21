@@ -133,11 +133,25 @@ public final class TemplateVariablesRegistry {
         Map<String, Object> values = new LinkedHashMap<>();
         for (RecordComponent component : record.getClass().getRecordComponents()) {
             Object value = read(component, record);
-            if (value != null || keepMissing) {
+            if (value != null) {
                 values.put(component.getName(), valueOf(value));
+            } else if (keepMissing) {
+                values.put(component.getName(), missing(component.getType()));
             }
         }
         return values;
+    }
+
+    /**
+     * What a component left null is sent as: an empty list for a list — a loop over it repeats nothing,
+     * where over {@code ""} the engine refuses the template — an empty set of values for a nested set,
+     * and an empty text for a single value.
+     */
+    private static Object missing(Class<?> type) {
+        if (Collection.class.isAssignableFrom(type)) {
+            return List.of();
+        }
+        return type.isRecord() ? Map.of() : "";
     }
 
     private static Object valueOf(Object value) {

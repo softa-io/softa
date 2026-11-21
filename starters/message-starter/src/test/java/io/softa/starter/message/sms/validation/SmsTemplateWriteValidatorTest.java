@@ -11,7 +11,6 @@ import io.softa.framework.base.annotation.TemplateVariables;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.meta.TemplateVariablesRegistry;
 import io.softa.framework.orm.service.validation.WriteContext;
-import io.softa.starter.message.template.TemplateModels;
 import io.softa.starter.message.template.TemplateSourceRules;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,7 +27,7 @@ class SmsTemplateWriteValidatorTest {
     @BeforeEach
     void setUp() {
         TemplateVariablesRegistry.register(Set.of(SmsCode.class));
-        validator = new SmsTemplateWriteValidator(new TemplateSourceRules(mock(TemplateModels.class)));
+        validator = new SmsTemplateWriteValidator(new TemplateSourceRules());
     }
 
     @AfterEach

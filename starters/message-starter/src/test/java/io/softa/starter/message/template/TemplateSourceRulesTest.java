@@ -27,14 +27,12 @@ class TemplateSourceRulesTest {
                          boolean urgent, Sender sender, List<Line> lines) {
     }
 
-    private TemplateTestModels models;
     private TemplateSourceRules rules;
 
     @BeforeEach
     void setUp() {
         TemplateVariablesRegistry.register(Set.of(Notice.class));
-        models = new TemplateTestModels();
-        rules = new TemplateSourceRules(models);
+        rules = new TemplateSourceRules();
     }
 
     @AfterEach
@@ -60,37 +58,28 @@ class TemplateSourceRulesTest {
     }
 
     private List<String> bySet(String html) {
-        return rules.problems("test.notice", null, TemplateUsage.ofMail(null, html, null));
+        return rules.problems("test.notice", TemplateUsage.ofMail(null, html, null));
     }
 
-    private List<String> byModel(String html) {
-        return rules.problems(null, "Order", TemplateUsage.ofMail(null, html, null));
-    }
-
-    // ---- no source, two sources ----
+    // ---- no set ----
 
     @Test
-    void aTemplateWithoutASourceIsNotChecked() {
-        assertThat(rules.problems(null, " ", TemplateUsage.ofMail("{{ anything }}", "{{ at.all }}", null))).isEmpty();
-    }
-
-    @Test
-    void aTemplateCannotNameBothSources() {
-        assertThat(rules.problems("test.notice", "Order", TemplateUsage.ofMail(null, "x", null)))
-                .singleElement().asString().contains("not both");
+    void aTemplateWithoutASetIsNotChecked() {
+        assertThat(rules.problems(" ", TemplateUsage.ofMail("{{ anything }}", "{{ at.all }}", null))).isEmpty();
+        assertThat(rules.problems(null, TemplateUsage.ofMail(null, "{{ x }}", null))).isEmpty();
     }
 
     // ---- a declared set ----
 
     @Test
     void aSetThatIsNotDeclaredIsRefused() {
-        assertThat(rules.problems("test.gone", null, TemplateUsage.ofMail(null, "x", null)))
+        assertThat(rules.problems("test.gone", TemplateUsage.ofMail(null, "x", null)))
                 .singleElement().asString().contains("'test.gone'");
     }
 
     @Test
     void everyVariableOfTheSetPasses_nestedOnesIncluded() {
-        assertThat(rules.problems("test.notice", null, TemplateUsage.ofMail("{{ recordCode }}",
+        assertThat(rules.problems("test.notice", TemplateUsage.ofMail("{{ recordCode }}",
                 "<a href=\"{{ link }}\">{{ sender.fullName }}</a> {{ amount | numberformat }}", "{{ link }}"))).isEmpty();
     }
 
@@ -128,90 +117,31 @@ class TemplateSourceRulesTest {
                 .contains("Unknown variable: missing");
     }
 
-    // ---- a model ----
-
-    @Test
-    void aModelThatDoesNotExistIsRefused() {
-        assertThat(rules.problems(null, "Nope", TemplateUsage.ofMail(null, "x", null)))
-                .singleElement().asString().contains("'Nope'");
-    }
-
-    @Test
-    void fieldsAndToOnePathsOfTheModelPass() {
-        assertThat(rules.problems(null, "Order", TemplateUsage.ofMail("{{ code }}",
-                "{{ customerId.name }} {{ customerId.managerId.name }} {{ dueDate }} {{ managerId.name }}", null)))
-                .isEmpty();
-    }
-
-    @Test
-    void aPathTheModelCannotAnswerIsRefusedByName() {
-        assertThat(byModel("{{ cod }} {{ customerId.nam }} {{ code.x }}")).hasSize(3)
-                .anySatisfy(p -> assertThat(p).startsWith("'cod'"))
-                .anySatisfy(p -> assertThat(p).startsWith("'customerId.nam'"))
-                .anySatisfy(p -> assertThat(p).startsWith("'code.x'"));
-    }
-
-    @Test
-    void aListIsNotPrinted_itIsShownWithATable() {
-        assertThat(byModel("{{ lines }}")).singleElement().asString().contains("'lines' is a list");
-    }
-
-    @Test
-    void aRelationIsPrintedOneWay() {
-        assertThat(byModel("{{ customerId }} {{ customerId.name }}")).singleElement().asString()
-                .contains("'customerId' is printed both on its own and as 'customerId.name'");
-        assertThat(byModel("{{ customerId }}")).isEmpty();
-    }
-
-    @Test
-    void aFieldTheAuthorCannotSeeCannotGoIntoATemplate() {
-        models.withheld = Map.of("Customer", Set.of("taxNumber"), "Order", Set.of("amount"));
-        assertThat(byModel("{{ customerId.taxNumber }}")).singleElement().asString()
-                .contains("'customerId.taxNumber'").contains("no access");
-        assertThat(byModel(condition("amount", "gt", "1", "number"))).singleElement().asString().contains("no access");
-        assertThat(byModel("{{ customerId.name }}")).isEmpty();
-    }
-
-    @Test
-    void aLoopTableRepeatsAListOfTheModelWithFieldsOfItsItems() {
-        assertThat(byModel(loop("lines", "name", "qty", "productId.code"))).isEmpty();
-        assertThat(byModel(loop("lines", "name", "price"))).singleElement().asString().contains("'price'");
-        assertThat(byModel(loop("lines", "tags"))).singleElement().asString().contains("itself a list");
-        assertThat(byModel(loop("code", "name"))).singleElement().asString().contains("'code' is looped over");
-        assertThat(byModel(loop("customerId.orders", "code"))).singleElement().asString()
-                .contains("reached through another record");
-        assertThat(byModel("{% for l in lines %}{{ l.name }}{% endfor %}")).isEmpty();
-        assertThat(byModel("{% for l in code %}{{ l }}{% endfor %}")).singleElement().asString()
-                .contains("'code' is looped over");
-    }
-
-    @Test
-    void aConditionOnAModelFieldFitsItsType() {
-        assertThat(byModel(condition("urgent", "isFalse", null, null)
-                + condition("amount", "le", "10.5", "number")
-                + condition("status", "ne", "DRAFT", "string")
-                + condition("customerId.name", "eq", "Acme", "string")
-                + condition("dueDate", "isEmpty", null, null)
-                + condition("lines", "isEmpty", null, null))).isEmpty();
-        assertThat(byModel(condition("customerId", "isNotEmpty", null, null))).isEmpty();
-        // The same relation asked about on its own and through a field: one name, two shapes.
-        assertThat(byModel(condition("customerId", "isNotEmpty", null, null)
-                + condition("customerId.name", "eq", "Acme", "string"))).singleElement().asString()
-                .contains("'customerId' is compared both on its own and as 'customerId.name'");
-        assertThat(byModel(condition("dueDate", "eq", "2026-01-01", "string"))).singleElement().asString()
-                .contains("only ask whether it is empty");
-        // A value that is not of its type never gets this far: the block itself cannot be translated.
-        assertThat(TemplateUsage.ofMail(null, condition("amount", "gt", "lots", "number"), null).blockError())
-                .contains("'lots' is not a number");
-        assertThat(byModel(condition("customerId.nam", "isEmpty", null, null))).singleElement().asString()
-                .contains("The condition on 'customerId.nam'");
-    }
-
     @Test
     void smsContentIsCheckedAgainstTheSetToo() {
-        assertThat(rules.problems("test.notice", null, TemplateUsage.ofText("Code {{ recordCode }} {{ link }}")))
+        assertThat(rules.problems("test.notice", TemplateUsage.ofText("Code {{ recordCode }} {{ link }}")))
                 .isEmpty();
-        assertThat(rules.problems("test.notice", null, TemplateUsage.ofText("Code {{ code }}")))
+        assertThat(rules.problems("test.notice", TemplateUsage.ofText("Code {{ code }}")))
                 .singleElement().asString().contains("Unknown variable: code");
+    }
+
+    // ---- the set is fixed once saved ----
+
+    @Test
+    void aSavedSetCannotBeChangedOrCleared() {
+        Map<String, Object> stored = Map.of("variablesName", "test.notice");
+        assertThat(TemplateSourceRules.changedSetProblem(stored, "test.other")).get().asString()
+                .contains("cannot be changed").contains("'test.notice'");
+        assertThat(TemplateSourceRules.changedSetProblem(stored, "")).isPresent();
+        assertThat(TemplateSourceRules.changedSetProblem(stored, null)).isPresent();
+    }
+
+    @Test
+    void aSetIsGivenOnce_andWritingTheSameOneAgainPasses() {
+        assertThat(TemplateSourceRules.changedSetProblem(Map.of(), "test.notice")).isEmpty();
+        assertThat(TemplateSourceRules.changedSetProblem(null, "test.notice")).isEmpty();
+        // A seed reload writes the row back whole, its set included.
+        assertThat(TemplateSourceRules.changedSetProblem(Map.of("variablesName", "test.notice"), " test.notice "))
+                .isEmpty();
     }
 }

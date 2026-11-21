@@ -27,8 +27,6 @@ import io.softa.starter.message.sms.entity.SmsTemplate;
 import io.softa.starter.message.sms.service.SmsSendRecordService;
 import io.softa.starter.message.sms.service.SmsTemplateService;
 import io.softa.starter.message.sms.support.SmsProviderDispatcher;
-import io.softa.starter.message.template.TemplateRecordReader;
-import io.softa.starter.message.template.TemplateUsage;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -36,7 +34,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -44,8 +41,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * A send that names where its values come from — an object of a declared set, or a record — is
- * checked against the template when it is accepted; a plain map is taken as it always was.
+ * A send that hands over an object of a declared set is checked against the template when it is
+ * accepted; a plain map is taken as it always was.
  */
 class MessageSourcedVariablesTest {
 
@@ -59,7 +56,6 @@ class MessageSourcedVariablesTest {
 
     private MailSendRecordService mailRecords;
     private MailTemplateLocator locator;
-    private TemplateRecordReader reader;
     private MailMessageHandler mail;
     private SmsSendRecordService smsRecords;
     private SmsTemplateService smsTemplates;
@@ -70,8 +66,7 @@ class MessageSourcedVariablesTest {
         TemplateVariablesRegistry.register(Set.of(CodeVariables.class, OtherVariables.class));
         mailRecords = mock(MailSendRecordService.class);
         locator = mock(MailTemplateLocator.class);
-        reader = mock(TemplateRecordReader.class);
-        mail = new MailMessageHandler(mailRecords, locator, reader);
+        mail = new MailMessageHandler(mailRecords, locator);
         smsRecords = mock(SmsSendRecordService.class);
         smsTemplates = mock(SmsTemplateService.class);
         sms = new SmsMessageHandler(smsRecords, mock(SmsProviderDispatcher.class), smsTemplates);
@@ -89,13 +84,10 @@ class MessageSourcedVariablesTest {
         return template;
     }
 
-    private static MailTemplate tenantTemplate(String code, String variablesName, String modelName) {
+    private static MailTemplate tenantTemplate(String code, String variablesName) {
         MailTemplate template = new MailTemplate();
         template.setCode(code);
         template.setVariablesName(variablesName);
-        template.setModelName(modelName);
-        template.setSubject("Order {{ code }}");
-        template.setBodyHtml("<p>{{ customerId.name }}</p>");
         return template;
     }
 
@@ -141,23 +133,12 @@ class MessageSourcedVariablesTest {
 
     @Test
     void aTemplateThatNamesNoSetTakesAnyObject() {
-        when(locator.find(null, "free", MessageScope.TENANT)).thenReturn(tenantTemplate("free", null, null));
+        when(locator.find(null, "free", MessageScope.TENANT)).thenReturn(tenantTemplate("free", null));
 
         MailSendRecord record = sendMail(SendMailDTO.ofTemplate(List.of("a@example.com"), "free",
                 new OtherVariables("https://x"), MessageScope.TENANT));
 
         assertEquals(Map.of("link", "https://x"), JsonUtils.jsonNodeToMap(record.getTemplateVariables()));
-    }
-
-    @Test
-    void anObjectSentToAModelBoundTemplateIsRefused() {
-        when(locator.find(null, "order.notice", MessageScope.TENANT))
-                .thenReturn(tenantTemplate("order.notice", null, "Order"));
-
-        BusinessException e = refusedMail(SendMailDTO.ofTemplate(List.of("a@example.com"), "order.notice",
-                new OtherVariables("https://x"), MessageScope.TENANT));
-
-        assertTrue(e.getMessage().contains("ofRecord"), e.getMessage());
     }
 
     @Test
@@ -176,52 +157,14 @@ class MessageSourcedVariablesTest {
                 Map.of("anything", "goes"), MessageScope.PLATFORM));
 
         assertEquals(Map.of("anything", "goes"), JsonUtils.jsonNodeToMap(record.getTemplateVariables()));
-        verifyNoInteractions(locator, reader);
-    }
-
-    // ---- mail: a record ----
-
-    @Test
-    void aRecordIsReadForWhatTheTemplateUses_andStoredAsTheVariables() {
-        MailTemplate template = tenantTemplate("order.notice", null, "Order");
-        when(locator.find(null, "order.notice", MessageScope.TENANT)).thenReturn(template);
-        when(reader.read(eq("Order"), eq(7L), any(TemplateUsage.class)))
-                .thenReturn(Map.of("code", "SO-7", "customerId", Map.of("name", "Acme")));
-
-        MailSendRecord record = sendMail(SendMailDTO.ofRecord(List.of("a@example.com"), "order.notice", 7L,
-                MessageScope.TENANT));
-
-        assertEquals(Map.of("code", "SO-7", "customerId", Map.of("name", "Acme")),
-                JsonUtils.jsonNodeToMap(record.getTemplateVariables()));
-        ArgumentCaptor<TemplateUsage> usage = ArgumentCaptor.forClass(TemplateUsage.class);
-        verify(reader).read(eq("Order"), eq(7L), usage.capture());
-        assertEquals(Set.of("code", "customerId.name"), usage.getValue().printed());
+        verifyNoInteractions(locator);
     }
 
     @Test
-    void aRecordNeedsATemplateBoundToAModel() {
-        when(locator.find(null, "user.verification-code", MessageScope.PLATFORM))
-                .thenReturn(platformTemplate("user.verification-code", "test.code"));
-        BusinessException e = refusedMail(SendMailDTO.ofRecord(List.of("a@example.com"), "user.verification-code",
-                7L, MessageScope.PLATFORM));
-        assertTrue(e.getMessage().contains("not bound to a model"), e.getMessage());
-        verifyNoInteractions(reader);
-    }
-
-    @Test
-    void aRecordForATemplateThatCannotBeFoundIsRefusedNow() {
-        when(locator.find(null, "gone", MessageScope.TENANT)).thenThrow(new BusinessException("No mail template found"));
-        BusinessException e = refusedMail(SendMailDTO.ofRecord(List.of("a@example.com"), "gone", 7L,
-                MessageScope.TENANT));
-        assertTrue(e.getMessage().contains("No mail template found"), e.getMessage());
-    }
-
-    @Test
-    void theRecordAndTheSetNameCannotComeFromARequestBody() {
+    void theSetNameCannotComeFromARequestBody() {
         SendMailDTO parsed = JsonUtils.stringToObject(
-                "{\"to\":[\"a@example.com\"],\"templateCode\":\"order.notice\",\"recordId\":7,"
+                "{\"to\":[\"a@example.com\"],\"templateCode\":\"order.notice\","
                         + "\"variablesName\":\"test.code\"}", SendMailDTO.class);
-        assertNull(parsed.getRecordId());
         assertNull(parsed.getVariablesName());
         assertEquals("order.notice", parsed.getTemplateCode());
         SendSmsDTO sms = JsonUtils.stringToObject(

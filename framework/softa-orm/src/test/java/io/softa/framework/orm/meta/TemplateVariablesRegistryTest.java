@@ -147,6 +147,15 @@ class TemplateVariablesRegistryTest {
     }
 
     @Test
+    void aMissingListIsEmpty_andAMissingNestedSetHasNoValues() {
+        // Over "" a loop would fail the template; over an empty list it repeats nothing.
+        Map<String, Object> values = TemplateVariablesRegistry.toMap(
+                new OrderNotice("SO-1", null, false, null, null, null, null, null));
+        assertThat(values).containsEntry("lines", List.of()).containsEntry("sender", Map.of())
+                .containsEntry("total", "");
+    }
+
+    @Test
     void forAProviderFedTheVariablesAMissingTopLevelValueIsLeftOut() {
         OrderNotice notice = new OrderNotice("SO-1", null, false, null, null, null, new Sender("Alex", null), null);
         Map<String, Object> values = TemplateVariablesRegistry.toMapOmittingMissing(notice);

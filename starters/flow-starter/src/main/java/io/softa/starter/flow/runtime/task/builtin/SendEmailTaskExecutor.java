@@ -8,16 +8,13 @@ import java.util.Map;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.stereotype.Component;
 
 import io.softa.framework.orm.dto.FileInfo;
 import io.softa.framework.orm.service.FileService;
 import io.softa.starter.flow.enums.FlowNodeType;
-import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.nodeconfig.SendEmailConfig;
-import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.task.TaskExecutionRequest;
 import io.softa.starter.message.mail.dto.SendMailDTO;
 import io.softa.starter.message.mail.enums.MailPriority;
@@ -29,8 +26,7 @@ import io.softa.starter.message.service.MessageService;
  * Supports two modes:
  * <ul>
  *   <li><b>Direct:</b> provide {@code to}, {@code subject}, and {@code textBody}/{@code htmlBody}</li>
- *   <li><b>Template:</b> provide {@code templateCode}, and {@code templateVariables} unless the
- *       template is bound to the flow's model — then it is filled from the flow's own record</li>
+ *   <li><b>Template:</b> provide {@code templateCode} and {@code templateVariables}</li>
  * </ul>
  * All string fields support {@code {{ expr }}} interpolation.
  * <p>
@@ -60,14 +56,9 @@ public class SendEmailTaskExecutor extends AbstractTaskExecutor {
 
     private final FileService fileService;
 
-    /** Asked for only when a model-bound template needs the flow's record; resolved late, the engine holds the executors. */
-    private final ObjectProvider<FlowRuntimeEngine> runtimeEngine;
-
-    public SendEmailTaskExecutor(MessageService messageService, FileService fileService,
-                                 ObjectProvider<FlowRuntimeEngine> runtimeEngine) {
+    public SendEmailTaskExecutor(MessageService messageService, FileService fileService) {
         this.messageService = messageService;
         this.fileService = fileService;
-        this.runtimeEngine = runtimeEngine;
     }
 
     @Override
@@ -129,7 +120,13 @@ public class SendEmailTaskExecutor extends AbstractTaskExecutor {
         // Template-based sending
         String templateCode = resolveString(cfg.getTemplateCode(), scope);
         if (templateCode != null && !templateCode.isBlank()) {
-            SendMailDTO message = templatedMessage(request, cfg, templateCode, to, scope);
+            Map<String, Object> templateVariables = cfg.getTemplateVariables() != null
+                    ? resolveVariableMap(cfg.getTemplateVariables(), scope)
+                    : scope;
+            SendMailDTO message = new SendMailDTO();
+            message.setTo(to);
+            message.setTemplateCode(templateCode);
+            message.setTemplateVariables(templateVariables);
             if (!attachments.isEmpty()) {
                 // Set only when configured: an empty list here would still leave the template's own
                 // attachments in place, but null says so plainly.
@@ -166,43 +163,6 @@ public class SendEmailTaskExecutor extends AbstractTaskExecutor {
      * sending the mail without the file. A file id that names no file fails the node too. Only each
      * FileInfo's id travels on: the mail transport streams the content by it when the mail goes out.
      */
-    /**
-     * The message for a template, by where its values come from:
-     * <ul>
-     *   <li>the node maps {@code templateVariables} — those, as configured;</li>
-     *   <li>it maps none and the template is bound to a model — the flow's own record: the template
-     *       prints that record's fields, read when the mail is accepted. The flow must run on a record
-     *       of that model; a template for another model would otherwise be filled from a record that
-     *       merely shares an id;</li>
-     *   <li>it maps none and the template is bound to nothing — every flow variable, as before.</li>
-     * </ul>
-     */
-    private SendMailDTO templatedMessage(TaskExecutionRequest request, SendEmailConfig cfg, String templateCode,
-                                         List<String> to, Map<String, Object> scope) {
-        if (cfg.getTemplateVariables() == null) {
-            String model = messageService.mailTemplateModel(templateCode).orElse(null);
-            if (model != null) {
-                FlowExecutionState state = request.getInstanceId() == null ? null
-                        : runtimeEngine.getObject().getInstance(request.getInstanceId()).orElse(null);
-                if (state == null || !model.equals(state.getModelName()) || StringUtils.isBlank(state.getRowId())) {
-                    throw new IllegalArgumentException("Mail template '" + templateCode + "' is filled from a "
-                            + model + " record, but this flow runs on "
-                            + (state == null || StringUtils.isBlank(state.getModelName())
-                                    ? "no record" : "a " + state.getModelName() + " record")
-                            + ". Use a template of the flow's own model, or map the template variables on the node.");
-                }
-                return SendMailDTO.ofRecord(to, templateCode, state.getRowId(), null);
-            }
-        }
-        SendMailDTO message = new SendMailDTO();
-        message.setTo(to);
-        message.setTemplateCode(templateCode);
-        message.setTemplateVariables(cfg.getTemplateVariables() != null
-                ? resolveVariableMap(cfg.getTemplateVariables(), scope)
-                : scope);
-        return message;
-    }
-
     private List<FileInfo> resolveAttachments(Object raw, Map<String, Object> scope) {
         Set<Long> fileIds = new LinkedHashSet<>();
         for (String item : resolveStringList(raw, scope)) {

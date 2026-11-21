@@ -92,8 +92,8 @@ public abstract class AbstractMailTemplateServiceImpl<T extends AbstractMailTemp
     /**
      * The HTML body, with its blocks written out first ({@link TemplateBlocks#toPebble}): a loop
      * table repeats its row, a condition block shows or hides its content. A condition compares the
-     * values under {@link TemplateBlocks#RAW_ROOT}; a send from a record supplies them, and for any
-     * other send they are the variables themselves.
+     * values under {@link TemplateBlocks#RAW_ROOT}: the variables themselves, unless the sender
+     * supplied comparable values of its own there.
      */
     @Override
     public String renderBodyHtml(AbstractMailTemplate template, Map<String, Object> variables) {

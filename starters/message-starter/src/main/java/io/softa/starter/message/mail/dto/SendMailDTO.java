@@ -1,6 +1,5 @@
 package io.softa.starter.message.mail.dto;
 
-import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -101,14 +100,6 @@ public class SendMailDTO {
     @Schema(hidden = true)
     private String variablesName;
 
-    /**
-     * The record that fills a model-bound template ({@link #ofRecord}): its fields are read when the
-     * send is accepted, as the system, and become the template variables. Set by code only: a
-     * request body naming a record would have the server read it on the caller's say-so.
-     */
-    @JsonIgnore
-    @Schema(hidden = true)
-    private Serializable recordId;
 
     /** A templated mail: the template's code and variables, sent in {@code scope}. */
     public static SendMailDTO ofTemplate(List<String> to, String templateCode, Map<String, Object> variables,
@@ -135,19 +126,4 @@ public class SendMailDTO {
         return mail;
     }
 
-    /**
-     * A templated mail filled from a record: the template names the model ({@code modelName}), the
-     * caller the record. The fields the template uses are read when the send is accepted.
-     *
-     * @param recordId id of a record of the template's model
-     */
-    public static SendMailDTO ofRecord(List<String> to, String templateCode, Serializable recordId,
-                                       MessageScope scope) {
-        SendMailDTO mail = new SendMailDTO();
-        mail.setTo(to);
-        mail.setTemplateCode(templateCode);
-        mail.setRecordId(recordId);
-        mail.setScope(scope);
-        return mail;
-    }
 }

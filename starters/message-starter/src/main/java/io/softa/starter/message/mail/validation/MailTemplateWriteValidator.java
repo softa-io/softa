@@ -3,7 +3,6 @@ package io.softa.starter.message.mail.validation;
 import java.util.Set;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.placeholder.TemplateBlocks;
 import io.softa.framework.base.placeholder.TemplateEngine;
@@ -27,12 +26,13 @@ import io.softa.starter.message.template.TemplateUsage;
  *       tenant's send servers, a platform template one of the platform's — the two tables never mix.
  *       A tenant's server is looked up within the writing tenant, so another tenant's id is "not
  *       found".</li>
- *   <li><b>The content fits its source and can be compiled.</b> A template that names where its
- *       variables come from — {@code variablesName}, a declared set, or {@code modelName}, a model's
- *       record — may only use what that source has ({@link TemplateSourceRules}); a name it does not
- *       have could only ever print nothing. And whatever the source, a body the template engine
- *       cannot compile is refused here rather than at the first send. Checked on create, and on an
- *       update that touches the source or the content.</li>
+ *   <li><b>The content fits its variables and can be compiled.</b> A template that names the
+ *       declared set its variables come from ({@code variablesName}) may only use what that set has
+ *       ({@link TemplateSourceRules}); a name it does not have could only ever print nothing. And
+ *       whatever the set, a body the template engine cannot compile is refused here rather than at
+ *       the first send. Checked on create, and on an update that touches the set or the content.</li>
+ *   <li><b>The set is fixed once saved.</b> Code fills a template with the set's values; a template
+ *       moved to another set would be refused at every send.</li>
  * </ul>
  */
 @Component
@@ -45,7 +45,6 @@ public class MailTemplateWriteValidator implements ModelWriteValidator {
     static final String PREFERRED_SERVER = "preferredServerConfigId";
 
     static final String VARIABLES_NAME = "variablesName";
-    static final String MODEL_NAME = "modelName";
     static final String SUBJECT = "subject";
     static final String BODY_HTML = "bodyHtml";
     static final String BODY_TEXT = "bodyText";
@@ -53,7 +52,7 @@ public class MailTemplateWriteValidator implements ModelWriteValidator {
     private static final Set<String> MODELS = Set.of(TENANT_MODEL, PLATFORM_MODEL);
 
     /** The columns whose change calls for the content to be checked again. */
-    private static final Set<String> CONTENT = Set.of(VARIABLES_NAME, MODEL_NAME, SUBJECT, BODY_HTML, BODY_TEXT);
+    private static final Set<String> CONTENT = Set.of(VARIABLES_NAME, SUBJECT, BODY_HTML, BODY_TEXT);
 
     private final PlatformMailTemplateService platformTemplateService;
 
@@ -93,6 +92,10 @@ public class MailTemplateWriteValidator implements ModelWriteValidator {
         if (ctx.patch().containsKey(PREFERRED_SERVER)) {
             checkPreferredServer(ctx);
         }
+        if (ctx.patch().containsKey(VARIABLES_NAME)) {
+            TemplateSourceRules.changedSetProblem(ctx.originalRow(), ctx.patch().get(VARIABLES_NAME))
+                    .ifPresent(problem -> ctx.reject(VARIABLES_NAME, problem));
+        }
         if (ctx.patch().keySet().stream().anyMatch(CONTENT::contains)) {
             checkContent(ctx);
         }
@@ -100,8 +103,6 @@ public class MailTemplateWriteValidator implements ModelWriteValidator {
 
     private void checkContent(WriteContext ctx) {
         String variablesName = text(ctx.row().get(VARIABLES_NAME));
-        // A platform template has no model: it is always filled by code.
-        String modelName = TENANT_MODEL.equals(ctx.modelName()) ? text(ctx.row().get(MODEL_NAME)) : null;
         String bodyHtml = text(ctx.row().get(BODY_HTML));
         String bodyText = text(ctx.row().get(BODY_TEXT));
         TemplateUsage usage = TemplateUsage.ofMail(text(ctx.row().get(SUBJECT)), bodyHtml, bodyText);
@@ -111,10 +112,8 @@ public class MailTemplateWriteValidator implements ModelWriteValidator {
             rejectUncompilable(ctx, BODY_HTML, TemplateBlocks.toPebble(bodyHtml));
         }
         rejectUncompilable(ctx, BODY_TEXT, bodyText);
-        String sourceField = StringUtils.hasText(modelName) && !StringUtils.hasText(variablesName)
-                ? MODEL_NAME : VARIABLES_NAME;
-        for (String problem : sourceRules.problems(variablesName, modelName, usage)) {
-            ctx.reject(sourceField, problem);
+        for (String problem : sourceRules.problems(variablesName, usage)) {
+            ctx.reject(VARIABLES_NAME, problem);
         }
     }
 

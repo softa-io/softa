@@ -14,7 +14,6 @@ import io.softa.starter.message.mail.entity.PlatformMailTemplate;
 import io.softa.starter.message.mail.service.MailSendServerConfigService;
 import io.softa.starter.message.mail.service.PlatformMailSendServerService;
 import io.softa.starter.message.mail.service.PlatformMailTemplateService;
-import io.softa.starter.message.template.TemplateModels;
 import io.softa.starter.message.template.TemplateSourceRules;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -33,7 +32,6 @@ class MailTemplateWriteValidatorTest {
     private PlatformMailTemplateService platformTemplates;
     private MailSendServerConfigService tenantServers;
     private PlatformMailSendServerService platformServers;
-    private TemplateModels models;
     private MailTemplateWriteValidator validator;
 
     @BeforeEach
@@ -41,9 +39,8 @@ class MailTemplateWriteValidatorTest {
         platformTemplates = mock(PlatformMailTemplateService.class);
         tenantServers = mock(MailSendServerConfigService.class);
         platformServers = mock(PlatformMailSendServerService.class);
-        models = mock(TemplateModels.class);
         validator = new MailTemplateWriteValidator(platformTemplates, tenantServers, platformServers,
-                new TemplateSourceRules(models));
+                new TemplateSourceRules());
     }
 
     private static Map<String, Object> row(Object... keyValues) {

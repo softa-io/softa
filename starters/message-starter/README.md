@@ -39,10 +39,8 @@ mail DTO may address multiple `to` recipients in one MIME message; an SMS DTO
 always contains exactly one phone number.
 
 A templated send is built with `SendMailDTO.ofTemplate` / `SendSmsDTO.ofTemplate` —
-from a map, or from an object of a declared set of template variables — or, for a
-template bound to a model, with `SendMailDTO.ofRecord`; see *Where a template's
-variables come from*. `mailTemplateModel(code)` tells a sender holding a record whether
-a tenant template is bound to a model.
+from a map, or from an object of a declared set of template variables; see *Where a
+template's variables come from*.
 
 Delivery is asynchronous, so a send that cannot go out as configured is only
 known on its record. A caller that must tell its user at once — "Failed to
@@ -525,15 +523,14 @@ receives that text; another format names it:
 
 #### Where a template's variables come from
 
-A template may name the source of its variables, in one of two columns; at most one
-is set, and a template that sets neither takes whatever map it is sent with, as before.
-
-| | `variablesName` | `modelName` |
-|---|---|---|
-| Names | a set of variables code fills — a record carrying `@TemplateVariables` | a model whose record fills the template |
-| On | `MailTemplate`, `PlatformMailTemplate`, `SmsTemplate` | `MailTemplate` only |
-| A send passes | the object: `SendMailDTO.ofTemplate(to, code, variables, scope)` | the record's id: `SendMailDTO.ofRecord(to, code, id, scope)` |
-| The editor offers | the set's fields (`GET /TemplateVariables/get?name=`) | the model's fields (model metadata) |
+A template may name the set of variables it is written against in `variablesName`
+(`MailTemplate`, `PlatformMailTemplate`, `SmsTemplate`): a record carrying
+`@TemplateVariables`, which code fills and sends as an object with
+`SendMailDTO.ofTemplate(to, code, variables, scope)`. The editor offers the set's
+fields (`GET /TemplateVariables/get?name=`). A template that names no set takes
+whatever map it is sent with, as before. Once saved, a template's set cannot be
+changed: code fills it with that set's values. The templates read no records — every
+value comes from the sender.
 
 **Declaring a set.** A record, one component per variable; label, description and
 sample value come from the component's `@Schema` (`title` / `description` /
@@ -554,27 +551,23 @@ record, or a component of another type stop the application, naming the class.
 check over its own packages so a duplicate name fails in CI, not at deployment.
 
 **On save** (`MailTemplateWriteValidator`, `SmsTemplateWriteValidator` — every
-write path, seed loading included), a template that names a source may only use what
-the source has (`TemplateSourceRules`): an unknown variable, a path the model cannot
-read, a loop over something that is not a list, a condition that does not fit its
-field's type are refused, listing what is wrong. For a model, a sensitive field the
-saving user has no access to is refused too — the picker never offers it, and a
-template is the place that is checked, not the send. Whatever the source, a mail
-body the template engine cannot compile is refused. Only what can be recognised as a
+write path, seed loading included), a template that names a set may only use what
+the set has (`TemplateSourceRules`): an unknown variable, a loop over something that
+is not a list, a condition that does not fit its field's type are refused, listing
+what is wrong, and so is moving a saved template to another set. Whatever the set, a
+mail body the template engine cannot compile is refused. Only what can be recognised as a
 name is checked: `{{ a + b }}` is not, `{{ name | upper }}` is.
 
-**On send**, an object sent through a template that names another set — or one bound
-to a model — is refused at acceptance with a `BusinessException`; nothing is stored.
-A plain map is never checked. A record is read at acceptance (`TemplateRecordReader`):
-exactly the fields the template uses, as display values (an option's label, a
-relation's display name), **as the system and unmasked** — who triggers the send must
-not change what the mail says. The values are stored on the send record like any
-other variables, so a retry sends what was read then. A field the model no longer has
-prints blank. `SendMailDTO.recordId` and `variablesName` are set by code only and are
-never read from a request body.
+**On send**, an object sent through a template that names another set is refused at
+acceptance with a `BusinessException`; nothing is stored. A plain map is never
+checked. `SendMailDTO.variablesName` is set by code only and never read from a
+request body. In a mail a component left null is sent empty — a list as an empty list,
+a nested set as a set with no values.
 
 In an SMS a component left null is not sent at all, instead of sent empty: a provider
-that fills its own registered template is handed the variables, some by position.
+that fills its own registered template is handed the variables, some by position. A
+value an SMS template prints must therefore not be null — the sender passes `""` —
+or the text goes out with the literal `{{ name }}`.
 
 #### Blocks: loop tables and conditions
 
@@ -598,13 +591,14 @@ from the three attributes, so an author cannot put an expression of their own in
 template through it. The comparison is decided in code (`TemplateCondition.holds`), not by
 the engine's operators: a number or boolean that arrives as text — from a preview form, a
 mapped flow variable — is compared as what it spells, and a value that is no number is
-simply not greater, rather than an error that fails the send. A condition compares the field's stored value (an option's code,
-a real boolean) while `{{ }}` prints its display value; a send from a record supplies
-both, the former under `_raw`.
+simply not greater, rather than an error that fails the send. A condition reads its
+field under `_raw`, which for a mail sent with template variables is the variables
+themselves.
 
-Hand-written `{% %}` and `{{ }}` may sit beside the blocks: they are held aside while
-the HTML is parsed and put back byte for byte. A body without blocks is not parsed at
-all. A field inserted by the editor is a `<span data-tpl-field … data-tpl-label …>`
+Hand-written `{% %}` and `{{ }}` may sit beside the blocks — in text, in a table,
+inside a start tag, in a comment: the HTML is parsed only to find where the blocks are,
+and the output is the body's own text with the generated tags inserted there. A body
+without blocks is not parsed at all. A field inserted by the editor is a `<span data-tpl-field … data-tpl-label …>`
 around `{{ name }}`; the two attributes are for the editor only, and a mail goes out
 with them.
 

@@ -357,7 +357,8 @@ public class MyCredentialServiceImpl implements MyCredentialService {
      */
     private List<Runnable> mobileChangeNotices(Long profileId, String oldMobile, String newMobile, UserSecurityLog row) {
         LoginMobileChangedVariables vars = new LoginMobileChangedVariables(
-                mobileFormat.spaced(oldMobile), mobileFormat.spaced(newMobile));
+                StringUtils.defaultString(mobileFormat.spaced(oldMobile)),
+                StringUtils.defaultString(mobileFormat.spaced(newMobile)));
         List<String> channels = new ArrayList<>();
         List<Runnable> notices = new ArrayList<>();
         if (StringUtils.isNotBlank(oldMobile)) {

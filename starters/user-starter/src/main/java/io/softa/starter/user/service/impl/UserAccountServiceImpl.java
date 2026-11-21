@@ -952,7 +952,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         // The new number masked: the old one may be in a stranger's hands, and a notice sent there
         // must not hand them the number that now signs the person in.
         ResetUserVariables vars = new ResetUserVariables(this.noticeNameOf(account),
-                this.companyNameOf(tenantId), mobileFormat.mask(newMobile), this.noticeTimeOf(account));
+                this.companyNameOf(tenantId), StringUtils.defaultString(mobileFormat.mask(newMobile)), this.noticeTimeOf(account));
         List<String> channels = new ArrayList<>();
         List<String> results = new ArrayList<>();
         if (StringUtils.isNotBlank(oldMobile)) {
@@ -1029,7 +1029,8 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         // The new address masked, for the reason Reset User masks the new number: the old address
         // may no longer be the person's.
         EnterpriseEmailChangedVariables vars = new EnterpriseEmailChangedVariables(this.noticeNameOf(account),
-                this.companyNameOf(account.getTenantId()), ContactMasking.email(wanted), this.noticeTimeOf(account));
+                this.companyNameOf(account.getTenantId()), StringUtils.defaultString(ContactMasking.email(wanted)),
+                this.noticeTimeOf(account));
         List<String> channels = new ArrayList<>();
         List<String> results = new ArrayList<>();
         if (StringUtils.isNotBlank(previous)) {

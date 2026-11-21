@@ -16,8 +16,8 @@ import io.softa.starter.message.template.TemplateUsage;
  * sent to the person as the literal {@code {{ name }}}.
  *
  * <p>Checked on create, and on an update that touches the set or the content. A template that names
- * no set is not checked. The same rule as a mail template's ({@link TemplateSourceRules}); an SMS
- * has no model source and no control flow, so there is nothing else to check.
+ * no set is not checked. The same rule as a mail template's ({@link TemplateSourceRules}), and like
+ * it the set is fixed once saved; an SMS has no control flow, so there is nothing else to check.
  */
 @Component
 @Order(150)
@@ -47,6 +47,10 @@ public class SmsTemplateWriteValidator implements ModelWriteValidator {
 
     @Override
     public void validateUpdate(WriteContext ctx) {
+        if (ctx.patch().containsKey(VARIABLES_NAME)) {
+            TemplateSourceRules.changedSetProblem(ctx.originalRow(), ctx.patch().get(VARIABLES_NAME))
+                    .ifPresent(problem -> ctx.reject(VARIABLES_NAME, problem));
+        }
         if (ctx.patch().keySet().stream().anyMatch(CHECKED::contains)) {
             check(ctx);
         }
@@ -56,8 +60,7 @@ public class SmsTemplateWriteValidator implements ModelWriteValidator {
         Object variablesName = ctx.row().get(VARIABLES_NAME);
         Object content = ctx.row().get(CONTENT);
         TemplateUsage usage = TemplateUsage.ofText(content == null ? null : content.toString());
-        for (String problem : sourceRules.problems(variablesName == null ? null : variablesName.toString(),
-                null, usage)) {
+        for (String problem : sourceRules.problems(variablesName == null ? null : variablesName.toString(), usage)) {
             ctx.reject(VARIABLES_NAME, problem);
         }
     }

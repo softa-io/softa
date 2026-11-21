@@ -2,17 +2,13 @@ package io.softa.starter.flow.runtime.task.builtin;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.beans.factory.ObjectProvider;
 
 import io.softa.framework.orm.dto.FileInfo;
 import io.softa.framework.orm.service.FileService;
 import io.softa.starter.flow.enums.FlowNodeType;
-import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
-import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.task.TaskExecutionRequest;
 import io.softa.starter.message.mail.dto.SendMailDTO;
 import io.softa.starter.message.mail.enums.MailPriority;
@@ -24,7 +20,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -36,18 +31,13 @@ class SendEmailTaskExecutorTest {
 
     private MessageService messageService;
     private FileService fileService;
-    private FlowRuntimeEngine runtimeEngine;
     private SendEmailTaskExecutor executor;
 
     @BeforeEach
     void setUp() {
         messageService = mock(MessageService.class);
         fileService = mock(FileService.class);
-        runtimeEngine = mock(FlowRuntimeEngine.class);
-        @SuppressWarnings("unchecked")
-        ObjectProvider<FlowRuntimeEngine> engineProvider = mock(ObjectProvider.class);
-        when(engineProvider.getObject()).thenReturn(runtimeEngine);
-        executor = new SendEmailTaskExecutor(messageService, fileService, engineProvider);
+        executor = new SendEmailTaskExecutor(messageService, fileService);
     }
 
     private static FileInfo file(long id) {
@@ -181,97 +171,6 @@ class SendEmailTaskExecutorTest {
         assertEquals("ORDER_CONFIRMATION", captor.getValue().getTemplateCode());
         assertEquals(List.of("a@example.com", "b@example.com"), captor.getValue().getTo());
         assertEquals(Map.of("orderId", "O-1"), captor.getValue().getTemplateVariables());
-    }
-
-    @Test
-    void aTemplateWithoutMappedVariablesGetsEveryFlowVariable() {
-        TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .input(Map.of("to", List.of("a@example.com"), "templateCode", "FREE_FORM"))
-                .instanceId("inst-1")
-                .build();
-
-        executor.execute(request, Map.of("orderId", "O-1", "amount", 12));
-
-        ArgumentCaptor<SendMailDTO> captor = ArgumentCaptor.forClass(SendMailDTO.class);
-        verify(messageService).sendMail(captor.capture());
-        assertEquals(Map.of("orderId", "O-1", "amount", 12), captor.getValue().getTemplateVariables());
-        assertNull(captor.getValue().getRecordId());
-        // A template bound to nothing needs nothing of the instance.
-        verifyNoInteractions(runtimeEngine);
-    }
-
-    @Test
-    void aTemplateBoundToTheFlowsModelIsFilledFromTheFlowsOwnRecord() {
-        when(messageService.mailTemplateModel("ORDER_NOTICE")).thenReturn(Optional.of("Order"));
-        FlowExecutionState state = new FlowExecutionState();
-        state.setModelName("Order");
-        state.setRowId("77");
-        when(runtimeEngine.getInstance("inst-1")).thenReturn(Optional.of(state));
-        TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .input(Map.of("to", List.of("a@example.com"), "templateCode", "ORDER_NOTICE"))
-                .instanceId("inst-1")
-                .build();
-
-        executor.execute(request, Map.of("orderId", "O-1"));
-
-        ArgumentCaptor<SendMailDTO> captor = ArgumentCaptor.forClass(SendMailDTO.class);
-        verify(messageService).sendMail(captor.capture());
-        assertEquals("77", captor.getValue().getRecordId());
-        assertEquals("ORDER_NOTICE", captor.getValue().getTemplateCode());
-        // The record fills the template: the flow's variables are not sent along.
-        assertNull(captor.getValue().getTemplateVariables());
-    }
-
-    @Test
-    void mappedVariablesWinOverTheTemplatesModel() {
-        when(messageService.mailTemplateModel("ORDER_NOTICE")).thenReturn(Optional.of("Order"));
-        TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .input(Map.of("to", List.of("a@example.com"), "templateCode", "ORDER_NOTICE",
-                        "templateVariables", Map.of("code", "{{ orderId }}")))
-                .instanceId("inst-1")
-                .build();
-
-        executor.execute(request, Map.of("orderId", "O-1"));
-
-        ArgumentCaptor<SendMailDTO> captor = ArgumentCaptor.forClass(SendMailDTO.class);
-        verify(messageService).sendMail(captor.capture());
-        assertEquals(Map.of("code", "O-1"), captor.getValue().getTemplateVariables());
-        assertNull(captor.getValue().getRecordId());
-        verifyNoInteractions(runtimeEngine);
-    }
-
-    @Test
-    void aTemplateOfAnotherModelFailsTheNode_insteadOfReadingARecordThatSharesAnId() {
-        when(messageService.mailTemplateModel("ORDER_NOTICE")).thenReturn(Optional.of("Order"));
-        FlowExecutionState state = new FlowExecutionState();
-        state.setModelName("LeaveRequest");
-        state.setRowId("77");
-        when(runtimeEngine.getInstance("inst-1")).thenReturn(Optional.of(state));
-        TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .input(Map.of("to", List.of("a@example.com"), "templateCode", "ORDER_NOTICE"))
-                .instanceId("inst-1")
-                .build();
-
-        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
-                () -> executor.execute(request, Map.of()));
-
-        assertTrue(e.getMessage().contains("Order record") && e.getMessage().contains("LeaveRequest"), e.getMessage());
-        verify(messageService, never()).sendMail(any());
-    }
-
-    @Test
-    void aModelBoundTemplateInAFlowWithoutARecordFailsTheNode() {
-        when(messageService.mailTemplateModel("ORDER_NOTICE")).thenReturn(Optional.of("Order"));
-        when(runtimeEngine.getInstance("inst-1")).thenReturn(Optional.of(new FlowExecutionState()));
-        TaskExecutionRequest request = TaskExecutionRequest.builder()
-                .input(Map.of("to", List.of("a@example.com"), "templateCode", "ORDER_NOTICE"))
-                .instanceId("inst-1")
-                .build();
-
-        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
-                () -> executor.execute(request, Map.of()));
-
-        assertTrue(e.getMessage().contains("no record"), e.getMessage());
     }
 
     @Test

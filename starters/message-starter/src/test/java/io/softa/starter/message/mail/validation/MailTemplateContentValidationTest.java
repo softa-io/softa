@@ -15,7 +15,6 @@ import io.softa.framework.orm.service.validation.WriteValidationException;
 import io.softa.starter.message.mail.service.MailSendServerConfigService;
 import io.softa.starter.message.mail.service.PlatformMailSendServerService;
 import io.softa.starter.message.mail.service.PlatformMailTemplateService;
-import io.softa.starter.message.template.TemplateModels;
 import io.softa.starter.message.template.TemplateSourceRules;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,16 +31,14 @@ class MailTemplateContentValidationTest {
     public record CodeNotice(String code, int expiryMinutes) {
     }
 
-    private TemplateModels models;
     private MailTemplateWriteValidator validator;
 
     @BeforeEach
     void setUp() {
         TemplateVariablesRegistry.register(Set.of(CodeNotice.class));
-        models = mock(TemplateModels.class);
         validator = new MailTemplateWriteValidator(mock(PlatformMailTemplateService.class),
                 mock(MailSendServerConfigService.class), mock(PlatformMailSendServerService.class),
-                new TemplateSourceRules(models));
+                new TemplateSourceRules());
     }
 
     @AfterEach
@@ -132,31 +129,15 @@ class MailTemplateContentValidationTest {
     }
 
     @Test
-    void aTenantTemplateIsCheckedAgainstItsModel() {
-        when(models.exists("Order")).thenReturn(true);
-        when(models.pathProblem("Order", "code")).thenReturn(null);
-        when(models.pathProblem("Order", "cod")).thenReturn("'cod' is not a field of Order.");
-        WriteContext ctx = create("MailTemplate", row("code", "x", "modelName", "Order",
-                "subject", "{{ code }}", "bodyHtml", "<p>{{ cod }}</p>"));
-        assertThat(ctx.errors()).singleElement().satisfies(error -> {
-            assertThat(error.field()).isEqualTo("modelName");
-            assertThat(error.message()).contains("'cod'");
+    void aSavedSetCannotBeChanged() {
+        Map<String, Object> stored = row("code", "x", "variablesName", "test.code-notice",
+                "subject", "s", "bodyHtml", "<p>x</p>");
+        assertThat(update("MailTemplate", stored, row("variablesName", "")).errors()).anySatisfy(error -> {
+            assertThat(error.field()).isEqualTo("variablesName");
+            assertThat(error.message()).contains("cannot be changed");
         });
-    }
-
-    @Test
-    void aTemplateNamingBothSourcesIsRefused() {
-        WriteContext ctx = create("MailTemplate", row("code", "x", "modelName", "Order",
-                "variablesName", "test.code-notice", "subject", "s", "bodyHtml", "<p>x</p>"));
-        assertThat(ctx.errors()).singleElement().satisfies(error -> assertThat(error.message()).contains("not both"));
-    }
-
-    @Test
-    void aPlatformTemplateHasNoModelSource() {
-        // The column does not exist there: a stray value is not read as a source.
-        WriteContext ctx = create("PlatformMailTemplate", row("code", "x", "modelName", "Order",
-                "subject", "s", "bodyHtml", "<p>{{ anything }}</p>"));
-        assertThat(ctx.hasErrors()).isFalse();
+        assertThat(update("PlatformMailTemplate", stored, row("variablesName", "test.code-notice")).hasErrors())
+                .isFalse();
     }
 
     @Test

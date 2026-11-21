@@ -188,6 +188,45 @@ class TemplateBlocksTest {
     }
 
     @Test
+    void theTemplatesOwnTextIsKept_onlyTheTagsAreAdded() {
+        String block = "<div  data-tpl-if=\"urgent\" data-tpl-op=\"isTrue\" ><p style='x'>a &amp; b<br></p></div>";
+        String out = TemplateBlocks.toPebble("<p>before</p>" + block + "<p>after</p>");
+        assertTrue(out.startsWith("<p>before</p>{% if "), out);
+        assertTrue(out.endsWith(" %}" + block + "{% endif %}<p>after</p>"), out);
+    }
+
+    @Test
+    void handWrittenTagsInStartTagsAndCommentsSurviveBesideABlock() {
+        String own = "<p {% if odd %}class=\"odd\"{% endif %}>hi</p>"
+                + "<!-- {{ note }} -->"
+                + "<!--[if mso]><table width=\"{{ w }}\"><tr><td><![endif]-->"
+                + "<table><tbody>{% for l in lines %}<tr {% if l.qty > 2 %}class=\"big\"{% endif %}>"
+                + "<td>{{ l.name }}</td></tr>{% endfor %}</tbody></table>";
+        String out = TemplateBlocks.toPebble(own + condition("urgent", "isTrue", null, null));
+        assertTrue(out.startsWith(own), out);
+        String rendered = render(own + condition("urgent", "isTrue", null, null), Map.of("odd", true, "w", 600,
+                "urgent", true, "lines", List.of(Map.of("name", "a", "qty", 3))));
+        assertTrue(rendered.startsWith("<p class=\"odd\">hi</p><!--  --><!--[if mso]><table width=\"600\"><tr><td><![endif]-->"
+                + "<table><tbody><tr class=\"big\"><td>a</td></tr></tbody></table>"), rendered);
+        assertTrue(rendered.contains("shown"), rendered);
+    }
+
+    @Test
+    void aConditionValueCannotBreakOutOfItsLiteral() {
+        String html = "<div data-tpl-if=\"name\" data-tpl-op=\"eq\" data-tpl-value=\"{{' or true or '}}\">"
+                + "<p>shown</p></div>";
+        assertFalse(render(html, Map.of("name", "Alex")).contains("shown"));
+        assertTrue(render(html, Map.of("name", "{{' or true or '}}")).contains("shown"));
+    }
+
+    @Test
+    void aRowWithoutItsEndTagStillRepeats() {
+        String html = "<table data-tpl-loop=\"lines\"><tbody><tr><td>{{name}}</td></tbody></table>";
+        String out = render(html, Map.of("lines", List.of(Map.of("name", "a"), Map.of("name", "b"))));
+        assertTrue(out.contains("<td>a</td>") && out.contains("<td>b</td>"), out);
+    }
+
+    @Test
     void conditionMayWrapALoopTableAndFieldBlocks() {
         String html = "<div data-tpl-if=\"lines\" data-tpl-op=\"isNotEmpty\"><p>"
                 + "<span data-tpl-field=\"title\" data-tpl-label=\"Title\">{{title}}</span></p>" + LOOP_TABLE + "</div>";

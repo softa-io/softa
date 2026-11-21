@@ -1,17 +1,15 @@
 package io.softa.framework.base.placeholder;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jsoup.Jsoup;
-import org.jsoup.nodes.Comment;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
-import org.jsoup.nodes.Node;
-import org.jsoup.nodes.TextNode;
+import org.jsoup.nodes.Range;
+import org.jsoup.parser.Parser;
 
 import io.softa.framework.base.placeholder.TemplateCondition.ValueType;
 
@@ -35,9 +33,9 @@ import io.softa.framework.base.placeholder.TemplateCondition.ValueType;
  * rendering, into a string that is not parsed as HTML again.
  *
  * <p><b>Hand-written tags stay as written.</b> A template may carry its own {@code {% %}} and
- * {@code {{ }}} beside the blocks. Translating means parsing the HTML, which would do to those what
- * an editor does, so each is first swapped for an HTML comment — the one thing a parser leaves in
- * place anywhere, a table included — and swapped back, byte for byte, in the output.
+ * {@code {{ }}} beside the blocks — in text, in a table, inside a start tag, in a comment. The HTML is
+ * parsed only to find where the blocks are; the output is the template's own text with the generated
+ * tags inserted at those places, so nothing else in it is rewritten.
  *
  * <p><b>Where a condition reads its field.</b> A condition compares the field's own value, while
  * the same field printed with {@code {{ }}} may be a display text (an option's label, a relation's
@@ -67,7 +65,6 @@ public final class TemplateBlocks {
     /** A template comment, a tag or an output, whichever starts first. */
     private static final Pattern TEMPLATE_SYNTAX =
             Pattern.compile("\\{#.*?#\\}|\\{%.*?%\\}|\\{\\{.*?\\}\\}", Pattern.DOTALL);
-    private static final Pattern FULL_DOCUMENT = Pattern.compile("<html[\\s>]", Pattern.CASE_INSENSITIVE);
 
     private TemplateBlocks() {
     }
@@ -101,9 +98,10 @@ public final class TemplateBlocks {
     public static List<Condition> conditions(String html) {
         List<Condition> conditions = new ArrayList<>();
         if (hasBlocks(html)) {
-            for (Element block : shield(html).document.select("[" + IF_ATTR + "]")) {
+            Shielded shielded = shield(html);
+            for (Element block : shielded.document.select("[" + IF_ATTR + "]")) {
                 conditions.add(new Condition(block.attr(IF_ATTR).trim(), block.attr(OP_ATTR).trim(),
-                        block.hasAttr(VALUE_ATTR) ? block.attr(VALUE_ATTR) : null,
+                        block.hasAttr(VALUE_ATTR) ? shielded.restore(block.attr(VALUE_ATTR)) : null,
                         block.attr(VALUE_TYPE_ATTR).trim()));
             }
         }
@@ -112,7 +110,8 @@ public final class TemplateBlocks {
 
     /**
      * The template with every block written out as the engine's {@code for} / {@code if}. A template
-     * without blocks is returned as it is, untouched.
+     * without blocks is returned as it is, untouched; one with blocks keeps every character it had —
+     * the generated tags are inserted around the blocks, nothing is re-serialized.
      *
      * @throws IllegalArgumentException naming the block that cannot be translated: a list or field
      *                                  that is not a plain path, an unknown comparison, a value that
@@ -123,21 +122,30 @@ public final class TemplateBlocks {
             return html;
         }
         Shielded shielded = shield(html);
-        Map<String, String> generated = new LinkedHashMap<>();
+        List<Insert> inserts = new ArrayList<>();
         for (Element table : shielded.document.select("table[" + LOOP_ATTR + "]")) {
-            translateLoop(table, shielded, generated);
+            translateLoop(table, shielded, inserts);
         }
         for (Element block : shielded.document.select("[" + IF_ATTR + "]")) {
-            translateCondition(block, shielded, generated);
+            translateCondition(block, shielded, inserts);
         }
-        String out = shielded.fullDocument ? shielded.document.outerHtml() : shielded.document.body().html();
-        for (Map.Entry<String, String> tag : generated.entrySet()) {
-            out = out.replace(tag.getKey(), tag.getValue());
+        // At one position a block that ends comes before one that starts: </div><div> → endif, if.
+        inserts.sort(Comparator.comparingInt(Insert::position).thenComparing(Insert::opens));
+        StringBuilder out = new StringBuilder(shielded.text.length() + 64 * inserts.size());
+        int from = 0;
+        for (Insert insert : inserts) {
+            out.append(shielded.restore(shielded.text.substring(from, insert.position()))).append(insert.tag());
+            from = insert.position();
         }
-        return shielded.restore(out);
+        out.append(shielded.restore(shielded.text.substring(from)));
+        return out.toString();
     }
 
-    private static void translateLoop(Element table, Shielded shielded, Map<String, String> generated) {
+    /** A generated tag and where it goes in the template's text. */
+    private record Insert(int position, boolean opens, String tag) {
+    }
+
+    private static void translateLoop(Element table, Shielded shielded, List<Insert> inserts) {
         String list = table.attr(LOOP_ATTR).trim();
         if (!PATH.matcher(list).matches()) {
             throw new IllegalArgumentException("A loop table names the list '" + list
@@ -147,22 +155,20 @@ public final class TemplateBlocks {
         if (row == null) {
             throw new IllegalArgumentException("The loop table over '" + list + "' has no row to repeat.");
         }
+        int start = startOf(row, "The loop table over '" + list + "'");
+        int end = endOf(row, "The loop table over '" + list + "'");
         // Inside the row a printed field is the item's: {{name}} reads {{ tplRow.name }}.
-        for (Comment placeholder : commentsIn(row)) {
-            Integer index = shielded.indexOf(placeholder.getData());
-            if (index == null) {
-                continue;
-            }
+        for (int index : shielded.tokensBetween(start, end)) {
             Matcher printed = PRINTED_PATH.matcher(shielded.tokens.get(index));
             if (printed.matches()) {
                 shielded.tokens.set(index, "{{ " + ROW_VAR + "." + printed.group(1) + " }}");
             }
         }
-        row.before(new TextNode(mark(generated, shielded, "{% for " + ROW_VAR + " in " + list + " %}")));
-        row.after(new TextNode(mark(generated, shielded, "{% endfor %}")));
+        inserts.add(new Insert(start, true, "{% for " + ROW_VAR + " in " + list + " %}"));
+        inserts.add(new Insert(end, false, "{% endfor %}"));
     }
 
-    private static void translateCondition(Element block, Shielded shielded, Map<String, String> generated) {
+    private static void translateCondition(Element block, Shielded shielded, List<Insert> inserts) {
         String field = block.attr(IF_ATTR).trim();
         if (!PATH.matcher(field).matches()) {
             throw new IllegalArgumentException("A condition names the field '" + field
@@ -176,12 +182,35 @@ public final class TemplateBlocks {
                         + block.attr(VALUE_TYPE_ATTR) + "' value; it must be string, number or boolean."));
         String expression;
         try {
-            expression = op.expression(RAW_ROOT + "." + field, block.attr(VALUE_ATTR), type);
+            // The value as written, template syntax included: quoted as one literal, it stays text.
+            expression = op.expression(RAW_ROOT + "." + field, shielded.restore(block.attr(VALUE_ATTR)), type);
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("The condition on '" + field + "': " + e.getMessage());
         }
-        block.before(new TextNode(mark(generated, shielded, "{% if " + expression + " %}")));
-        block.after(new TextNode(mark(generated, shielded, "{% endif %}")));
+        String where = "The condition on '" + field + "'";
+        inserts.add(new Insert(startOf(block, where), true, "{% if " + expression + " %}"));
+        inserts.add(new Insert(endOf(block, where), false, "{% endif %}"));
+    }
+
+    /** Where an element's start tag begins in the template's text. */
+    private static int startOf(Element element, String what) {
+        Range range = element.sourceRange();
+        if (!range.isTracked() || range.isImplicit()) {
+            throw new IllegalArgumentException(what + " could not be located in the template.");
+        }
+        return range.start().pos();
+    }
+
+    /**
+     * Where an element ends in the template's text: after its end tag, or — when the HTML leaves the
+     * end tag out — where the parser closed it.
+     */
+    private static int endOf(Element element, String what) {
+        Range range = element.endSourceRange();
+        if (!range.isTracked()) {
+            throw new IllegalArgumentException(what + " could not be located in the template.");
+        }
+        return range.isImplicit() ? range.start().pos() : range.end().pos();
     }
 
     /** The row a loop table repeats: the first row of its body, or its first row outside the header. */
@@ -208,11 +237,13 @@ public final class TemplateBlocks {
             }
         }
         Element row = bodyRowOf(table);
-        if (row != null) {
-            for (Comment placeholder : commentsIn(row)) {
-                Integer index = shielded.indexOf(placeholder.getData());
-                Matcher printed = index == null ? null : PRINTED_PATH.matcher(shielded.tokens.get(index));
-                if (printed != null && printed.matches() && !columns.contains(printed.group(1))) {
+        Range start = row == null ? null : row.sourceRange();
+        Range end = row == null ? null : row.endSourceRange();
+        if (start != null && start.isTracked() && end.isTracked()) {
+            int to = end.isImplicit() ? end.start().pos() : end.end().pos();
+            for (int index : shielded.tokensBetween(start.start().pos(), to)) {
+                Matcher printed = PRINTED_PATH.matcher(shielded.tokens.get(index));
+                if (printed.matches() && !columns.contains(printed.group(1))) {
                     columns.add(printed.group(1));
                 }
             }
@@ -220,23 +251,12 @@ public final class TemplateBlocks {
         return columns;
     }
 
-    private static List<Comment> commentsIn(Element element) {
-        List<Comment> comments = new ArrayList<>();
-        element.traverse((Node node, int depth) -> {
-            if (node instanceof Comment comment) {
-                comments.add(comment);
-            }
-        });
-        return comments;
-    }
-
-    /** A stand-in for a generated tag, replaced by the tag once the document is a string again. */
-    private static String mark(Map<String, String> generated, Shielded shielded, String tag) {
-        String key = shielded.marker + "g" + generated.size() + "@@";
-        generated.put(key, tag);
-        return key;
-    }
-
+    /**
+     * The template with each piece of its own template syntax swapped for a plain-text stand-in, and
+     * parsed with every element's place in that text recorded. Parsing only locates the blocks: what
+     * the parser does to the stand-ins — move them out of a table, read them as an attribute — never
+     * reaches the output, which is the text itself with tags inserted.
+     */
     private static Shielded shield(String html) {
         // A marker the template does not already contain, so a stand-in is never mistaken for content.
         String marker = "@@tpl-";
@@ -248,44 +268,45 @@ public final class TemplateBlocks {
         StringBuilder shielded = new StringBuilder();
         while (syntax.find()) {
             tokens.add(syntax.group());
-            syntax.appendReplacement(shielded,
-                    Matcher.quoteReplacement("<!--" + marker + (tokens.size() - 1) + "@@-->"));
+            syntax.appendReplacement(shielded, Matcher.quoteReplacement(marker + (tokens.size() - 1) + "@@"));
         }
         syntax.appendTail(shielded);
-        boolean fullDocument = FULL_DOCUMENT.matcher(html).find();
-        Document document = fullDocument
-                ? Jsoup.parse(shielded.toString())
-                : Jsoup.parseBodyFragment(shielded.toString());
-        document.outputSettings().prettyPrint(false);
-        return new Shielded(document, tokens, marker, fullDocument);
+        String text = shielded.toString();
+        Document document = Jsoup.parse(text, "", Parser.htmlParser().setTrackPosition(true));
+        return new Shielded(document, text, tokens, marker,
+                Pattern.compile(Pattern.quote(marker) + "(\\d+)@@"));
     }
 
     /** A parsed template whose own template syntax is held aside, to be put back unchanged. */
-    private record Shielded(Document document, List<String> tokens, String marker, boolean fullDocument) {
+    private record Shielded(Document document, String text, List<String> tokens, String marker, Pattern standIn) {
 
-        /** The token a comment stands in for, or null when it is a comment of the template's own. */
-        Integer indexOf(String commentData) {
-            if (!commentData.startsWith(marker) || !commentData.endsWith("@@")) {
-                return null;
+        /** The tokens whose stand-ins lie in {@code [from, to)} of the shielded text, in order. */
+        List<Integer> tokensBetween(int from, int to) {
+            List<Integer> found = new ArrayList<>();
+            Matcher matcher = standIn.matcher(text).region(Math.max(0, from), Math.min(text.length(), to));
+            while (matcher.find()) {
+                int index = Integer.parseInt(matcher.group(1));
+                if (index < tokens.size()) {
+                    found.add(index);
+                }
             }
-            try {
-                int index = Integer.parseInt(commentData.substring(marker.length(), commentData.length() - 2));
-                return index >= 0 && index < tokens.size() ? index : null;
-            } catch (NumberFormatException e) {
-                return null;
-            }
+            return found;
         }
 
-        String restore(String out) {
-            String restored = out;
-            for (int i = 0; i < tokens.size(); i++) {
-                String inner = marker + i + "@@";
-                // In text a stand-in comes back as the comment; inside an attribute value, escaped.
-                restored = restored.replace("<!--" + inner + "-->", tokens.get(i))
-                        .replace("&lt;!--" + inner + "--&gt;", tokens.get(i))
-                        .replace("&lt;!--" + inner + "-->", tokens.get(i));
+        /** {@code part} with every stand-in replaced by the token it stands for. */
+        String restore(String part) {
+            if (part == null || part.isEmpty()) {
+                return part;
             }
-            return restored;
+            Matcher matcher = standIn.matcher(part);
+            StringBuilder restored = new StringBuilder();
+            while (matcher.find()) {
+                int index = Integer.parseInt(matcher.group(1));
+                matcher.appendReplacement(restored, Matcher.quoteReplacement(
+                        index < tokens.size() ? tokens.get(index) : matcher.group()));
+            }
+            matcher.appendTail(restored);
+            return restored.toString();
         }
     }
 }
