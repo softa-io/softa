@@ -15,6 +15,8 @@ import io.softa.starter.flow.service.support.FlowUserNames;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -73,6 +75,32 @@ class FlowDirectoryServiceImplTest {
         // Every other picker — a CC, a filter by submitter — still finds everyone who signs in.
         assertEquals(List.of(1L, 2L, 3L), withAccounts.searchPeople("a", null).stream()
                 .map(DirectoryPerson::id).toList());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void anApproversOnlyPage_isFilledFromFurtherDown_soAShortPageStillMeansTheEnd() {
+        // 60 people, every even one unable to approve: the first 20 read hold only 10 approvers.
+        List<DirectoryPerson> everyone = LongStream.rangeClosed(1, 60)
+                .mapToObj(id -> new DirectoryPerson(id, "P" + id, "E" + id, "Finance", null, true))
+                .toList();
+        when(organization.searchPeople(eq("p"), anyInt())).thenAnswer(invocation ->
+                everyone.subList(0, Math.min(invocation.<Integer>getArgument(1), everyone.size())));
+        ObjectProvider<OrganizationService> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(organization);
+        ObjectProvider<ActorAccounts> accounts = mock(ObjectProvider.class);
+        Set<Long> unable = new HashSet<>();
+        LongStream.rangeClosed(1, 60).filter(id -> id % 2 == 0).forEach(unable::add);
+        ActorAccounts oddOnesApprove = TestActorAccounts.of(Map.of(), Map.of(), unable);
+        when(accounts.getIfAvailable()).thenReturn(oddOnesApprove);
+        FlowDirectoryServiceImpl withAccounts = new FlowDirectoryServiceImpl(provider, userNames, accounts);
+
+        List<Long> page = withAccounts.searchPeople("p", 20, true).stream().map(DirectoryPerson::id).toList();
+        assertEquals(LongStream.iterate(1, id -> id + 2).limit(20).boxed().toList(), page,
+                "the first 20 approvers by name, read past the first 20 people");
+
+        // Only 30 approvers exist: asked for 40, the page is short, which the picker reads as the end.
+        assertEquals(30, withAccounts.searchPeople("p", 40, true).size());
     }
 
     @Test

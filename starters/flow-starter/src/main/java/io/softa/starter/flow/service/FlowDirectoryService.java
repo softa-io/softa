@@ -26,7 +26,8 @@ public interface FlowDirectoryService {
 
     /**
      * As {@link #searchPeople(String, Integer)}; with {@code approversOnly}, only those allowed to approve — whom a task
-     * can be handed to decide. Filtered after the page is read, so a page may hold fewer than {@code limit}.
+     * can be handed to decide. The page still holds {@code limit} of them while there are that many: a shorter
+     * page is the end of the list, as for every search.
      */
     List<DirectoryPerson> searchPeople(String keyword, Integer limit, boolean approversOnly);
 

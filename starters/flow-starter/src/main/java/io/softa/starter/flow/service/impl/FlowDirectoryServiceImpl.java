@@ -29,6 +29,12 @@ public class FlowDirectoryServiceImpl implements FlowDirectoryService {
      */
     static final int MAX_LIMIT = 200;
 
+    /**
+     * The most people read to fill one page of approvers. Past it a page may hold fewer than asked, and the picker narrows
+     * by typing, as it does past {@link #MAX_LIMIT}.
+     */
+    static final int APPROVER_SCAN_LIMIT = 1000;
+
     /** The most ids one lookup names: the values picked in one picker. */
     static final int MAX_IDS = 200;
 
@@ -55,16 +61,32 @@ public class FlowDirectoryServiceImpl implements FlowDirectoryService {
         int size = limitOf(limit);
         // As the caller: their roles' scope on the directory model decides whom they find.
         OrganizationService organization = organizationService.getIfAvailable();
-        List<DirectoryPerson> found = organization == null ? List.of() : organization.searchPeople(keyword, size).stream()
-                .map(DirectoryPerson::withoutActive)
-                .toList();
-        ActorAccounts accounts = actorAccounts == null ? null : actorAccounts.getIfAvailable();
-        if (!approversOnly || accounts == null || found.isEmpty()) {
-            return found;
+        if (organization == null) {
+            return List.of();
         }
-        Set<String> able = new HashSet<>(accounts.ableToApprove(
-                found.stream().map(person -> String.valueOf(person.id())).toList()));
-        return found.stream().filter(person -> able.contains(String.valueOf(person.id()))).toList();
+        ActorAccounts accounts = actorAccounts == null ? null : actorAccounts.getIfAvailable();
+        if (!approversOnly || accounts == null) {
+            return read(organization, keyword, size);
+        }
+        // A picker reads a page shorter than it asked for as the end of the list, so the approvers are counted, not the
+        // people read: more of the directory is read until there are enough of them, or there is no one left to read.
+        int window = size;
+        while (true) {
+            List<DirectoryPerson> found = read(organization, keyword, window);
+            Set<String> able = new HashSet<>(accounts.ableToApprove(
+                    found.stream().map(person -> String.valueOf(person.id())).toList()));
+            List<DirectoryPerson> approvers = found.stream()
+                    .filter(person -> able.contains(String.valueOf(person.id())))
+                    .toList();
+            if (approvers.size() >= size || found.size() < window || window >= APPROVER_SCAN_LIMIT) {
+                return approvers.size() > size ? approvers.subList(0, size) : approvers;
+            }
+            window = Math.min(window * 2, APPROVER_SCAN_LIMIT);
+        }
+    }
+
+    private static List<DirectoryPerson> read(OrganizationService organization, String keyword, int limit) {
+        return organization.searchPeople(keyword, limit).stream().map(DirectoryPerson::withoutActive).toList();
     }
 
     @Override

@@ -42,7 +42,7 @@ public class FlowDirectoryController {
             + "code or name (all when blank), by name, as the caller's roles let them read the directory. limit "
             + "defaults to 20, at most 200: a picker asks again for more as its list is scrolled. approvers=true keeps "
             + "only those allowed to approve, for a picker choosing whom to hand a task to decide — a transfer or a "
-            + "delegation; a page may then hold fewer than limit.")
+            + "delegation; the page is still filled with them, so a shorter one is the end of the list.")
     public ApiResponse<List<DirectoryPerson>> searchPeople(@RequestParam(required = false) String keyword,
                                                            @RequestParam(required = false) Integer limit,
                                                            @RequestParam(required = false) Boolean approvers) {
