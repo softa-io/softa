@@ -13,6 +13,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import io.softa.framework.base.context.Context;
+import io.softa.framework.base.constant.BaseConstant;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.web.session.SessionRecord;
 import io.softa.framework.web.session.SessionRevokeReason;
@@ -59,8 +60,8 @@ public class LoginHistoryRecorder {
      * the person's password, which every company they work in shares. Kept without a tenant they were
      * invisible to every company — the rows were there, and no company's history showed them. So a
      * known person's such event is written once to each company they have joined and not left, under
-     * their account there; an identifier that is nobody's names no company and stays with the
-     * platform.
+     * their account there — a consultancy and the platform's own tenant excepted; an identifier that
+     * is nobody's, or a person with no such company, names none and stays with the platform.
      *
      * @param accountId the account involved, or null before a company is chosen
      * @param tenantId  that account's tenant, or null
@@ -89,7 +90,7 @@ public class LoginHistoryRecorder {
             List<UserAccount> joined = new ArrayList<>();
             try {
                 for (UserAccount membership : accountService.listMembershipsOf(profileId)) {
-                    if (membership.getTenantId() != null && joinedAndNotLeft(membership.getStatus())) {
+                    if (employedThere(membership) && joinedAndNotLeft(membership.getStatus())) {
                         joined.add(membership);
                     }
                 }
@@ -105,6 +106,16 @@ public class LoginHistoryRecorder {
         named.setId(accountId);
         named.setTenantId(tenantId);
         return List.of(named);
+    }
+
+    /**
+     * A company the person works in: not a consultancy, whose customer has no business seeing how the consultant
+     * signs in, and not the platform's own tenant.
+     */
+    private static boolean employedThere(UserAccount membership) {
+        return membership.getTenantId() != null
+                && !BaseConstant.PLATFORM_TENANT_ID.equals(membership.getTenantId())
+                && !Boolean.TRUE.equals(membership.getConsultant());
     }
 
     private static boolean joinedAndNotLeft(AccountStatus status) {

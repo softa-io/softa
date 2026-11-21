@@ -78,6 +78,23 @@ class LoginHistoryRecorderTest {
     }
 
     @Test
+    void aConsultancyAndThePlatformTenant_areNotCompaniesTheyWorkIn() {
+        UserAccount consultancy = membership(500L, 5L, AccountStatus.ACTIVE);
+        consultancy.setConsultant(true);
+        when(accountService.listMembershipsOf(ADA)).thenReturn(List.of(
+                membership(100L, 1L, AccountStatus.ACTIVE),
+                consultancy,
+                membership(600L, io.softa.framework.base.constant.BaseConstant.PLATFORM_TENANT_ID,
+                        AccountStatus.ACTIVE)));
+
+        recorder.record(LoginEvent.LOGIN_FAILED, ADA, null, null, LoginChannel.MOBILE, LoginMethod.PASSWORD,
+                "PASSWORD_INCORRECT");
+
+        // A customer does not see how the consultant serving it signs in.
+        assertThat(written()).extracting(UserLoginHistory::getTenantId).containsExactly(1L);
+    }
+
+    @Test
     void aLock_isWrittenToEachCompanyToo() {
         when(accountService.listMembershipsOf(ADA)).thenReturn(List.of(
                 membership(100L, 1L, AccountStatus.ACTIVE), membership(200L, 2L, AccountStatus.ACTIVE)));
