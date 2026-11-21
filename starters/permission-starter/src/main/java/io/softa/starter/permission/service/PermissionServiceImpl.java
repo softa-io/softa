@@ -2083,13 +2083,18 @@ public class PermissionServiceImpl implements PermissionService {
      * update, which is checked against the owner's range. A new row nothing ever points at is reachable
      * by no one. Updating, deleting or naming an existing row by id keeps its own check, since that row
      * may already belong to an owner outside the range.
+     *
+     * <p>Only a row owned one-to-one and in no other way. A row that is also the child of a one-to-many
+     * collection carries its parent's id from the moment it is created, so its own check can place it,
+     * and must: nothing obliges an owner to point at it one-to-one afterwards, so handing the check over
+     * would leave a new row naming an out-of-range parent checked by no one.
      */
     private boolean judgedOnOwner(Grant g, String model, AccessType accessType) {
         if (!AccessType.CREATE.equals(accessType) || hasExplicitRules(g, model)) {
             return false;
         }
         List<Referencer> refs = findReferencers(model, g);
-        return !refs.isEmpty() && refs.getFirst().kind() == Kind.OWNED_ONE_TO_ONE;
+        return !refs.isEmpty() && refs.stream().allMatch(ref -> ref.kind() == Kind.OWNED_ONE_TO_ONE);
     }
 
     /**
@@ -2359,6 +2364,11 @@ public class PermissionServiceImpl implements PermissionService {
         return false;
     }
 
+    private static boolean isProjection(String model) {
+        MetaModel meta = ModelManager.getModel(model);
+        return meta != null && meta.isProjection();
+    }
+
     /**
      * How an anchorless model is reachable from the caller's GRANTED models,
      * derived purely from metadata (no hard-coded model names): scan the granted
@@ -2382,7 +2392,7 @@ public class PermissionServiceImpl implements PermissionService {
      *   <li>none → empty (not reachable from any grant → stays fail-closed).</li>
      * </ul>
      *
-     * <p>Every owner of the winning kind is returned, not the first one met: which granted model the
+     * <p>Every owner is returned, not the first one met: which granted model the
      * scan reaches first is an accident of iteration order, and a child owned twice (a person's profile
      * by the employee record and by a report over it) must resolve the same way however the grant
      * happens to hold its models. {@link #followOwners} takes the union.
@@ -2392,15 +2402,16 @@ public class PermissionServiceImpl implements PermissionService {
      * OneToMany children as separately grantable models, precisely because they are
      * "bounded by the parent's scope". This resolves that contract at runtime.
      *
-     * <p>Priority ONE_TO_ONE &gt; ONE_TO_MANY &gt; MANY_TO_ONE: an ownership edge is a
-     * tighter statement than a shared reference, so it wins when a model is reachable
-     * both ways.
+     * <p>Ownership edges win over a shared reference: an ownership edge is a tighter statement, so it
+     * wins when a model is reachable both ways. The two ownership kinds are not ranked against each
+     * other, though — both are returned, the one-to-one owners first. A model can be both: the rows of
+     * a one-to-many collection, one of which the parent also points at one-to-one as "the current one".
+     * Answering with the one-to-one owners alone made every row the parent does not point at
+     * unreachable, although its parent is in range. {@link #followOwners} takes the union, which is
+     * still bounded by the parents' own range. A caller deciding by the kind of edge has to look at
+     * all of them, not the first: {@link #judgedOnOwner} hands a create to the owner only when every
+     * edge is one-to-one.
      */
-    private static boolean isProjection(String model) {
-        MetaModel meta = ModelManager.getModel(model);
-        return meta != null && meta.isProjection();
-    }
-
     private List<Referencer> findReferencers(String childModel, Grant g) {
         List<Referencer> owners = new ArrayList<>();
         List<Referencer> backRefs = new ArrayList<>();
@@ -2455,8 +2466,11 @@ public class PermissionServiceImpl implements PermissionService {
                 }
             }
         }
-        if (!owners.isEmpty()) return owners;
-        if (!backRefs.isEmpty()) return backRefs;
+        if (!owners.isEmpty() || !backRefs.isEmpty()) {
+            List<Referencer> owned = new ArrayList<>(owners);
+            owned.addAll(backRefs);
+            return owned;
+        }
         if (shared != null) return List.of(shared);
         Referencer viaOwnedChild = sharedThroughOwnedChild(childModel, ownedChildren);
         return viaOwnedChild == null ? List.of() : List.of(viaOwnedChild);
