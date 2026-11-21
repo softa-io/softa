@@ -17,6 +17,7 @@ import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.enums.MailSendStatus;
 import io.softa.starter.message.mail.service.MailSendRecordService;
 import io.softa.starter.message.mail.support.MailBodies;
+import io.softa.starter.message.mail.support.MailTemplateLocator;
 import io.softa.starter.message.shared.TenantScopes;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -39,12 +40,14 @@ import static org.mockito.Mockito.when;
 class MailMessageHandlerTest {
 
     private MailSendRecordService recordService;
+    private MailTemplateLocator templateLocator;
     private MailMessageHandler handler;
 
     @BeforeEach
     void setUp() {
         recordService = mock(MailSendRecordService.class);
-        handler = new MailMessageHandler(recordService);
+        templateLocator = mock(MailTemplateLocator.class);
+        handler = new MailMessageHandler(recordService, templateLocator);
         when(recordService.createOne(any(MailSendRecord.class))).thenReturn(42L);
     }
 

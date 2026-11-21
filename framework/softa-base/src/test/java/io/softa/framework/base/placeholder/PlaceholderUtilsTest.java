@@ -73,4 +73,18 @@ class PlaceholderUtilsTest {
         Assertions.assertNull(PlaceholderUtils.extractVariable(token,
                 Map.of("TriggerParams", ownerMap)));
     }
+
+    @Test
+    void replacePlaceholdersFollowsADottedNameThroughNestedMaps() {
+        Map<String, Object> variables = new HashMap<>();
+        variables.put("department", Map.of("name", "Sales", "manager", Map.of("name", "Alex")));
+        variables.put("a.b", "flat");
+        Assertions.assertEquals("Sales / Alex", PlaceholderUtils.replacePlaceholders(
+                "{{ department.name }} / {{department.manager.name}}", variables));
+        // A key that is itself dotted wins over the path of the same spelling.
+        Assertions.assertEquals("flat", PlaceholderUtils.replacePlaceholders("{{ a.b }}", variables));
+        // A path that leads nowhere stays visible, like any unknown name.
+        Assertions.assertEquals("{{ department.code }} {{ department.name.x }}", PlaceholderUtils.replacePlaceholders(
+                "{{ department.code }} {{ department.name.x }}", variables));
+    }
 }

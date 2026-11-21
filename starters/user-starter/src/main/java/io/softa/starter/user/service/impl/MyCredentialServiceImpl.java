@@ -45,6 +45,8 @@ import io.softa.starter.user.service.UserSecurityLogService;
 import io.softa.starter.user.service.UserSessionService;
 import io.softa.starter.user.util.ClientInfo;
 import io.softa.starter.user.util.LoginIdentifiers;
+import io.softa.starter.user.template.LoginMobileChangedVariables;
+import io.softa.starter.user.template.VerificationCodeVariables;
 
 @Slf4j
 @Service
@@ -354,9 +356,9 @@ public class MyCredentialServiceImpl implements MyCredentialService {
      * {@link #send} adds how each went.
      */
     private List<Runnable> mobileChangeNotices(Long profileId, String oldMobile, String newMobile, UserSecurityLog row) {
-        Map<String, Object> vars = Map.of(
-                "oldMobile", StringUtils.defaultString(mobileFormat.spaced(oldMobile)),
-                "newMobile", StringUtils.defaultString(mobileFormat.spaced(newMobile)));
+        LoginMobileChangedVariables vars = new LoginMobileChangedVariables(
+                StringUtils.defaultString(mobileFormat.spaced(oldMobile)),
+                StringUtils.defaultString(mobileFormat.spaced(newMobile)));
         List<String> channels = new ArrayList<>();
         List<Runnable> notices = new ArrayList<>();
         if (StringUtils.isNotBlank(oldMobile)) {
@@ -466,7 +468,7 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         codeGuard.store(number, code);
         // A number message-starter rejects refuses the step, like any other refusal here.
         messageService.sendSms(SendSmsDTO.ofTemplate(number, TEMPLATE_CODE,
-                Map.of("code", code, "expiryMinutes", VerificationCodeGuard.CODE_TTL_SECONDS / 60),
+                new VerificationCodeVariables(code, VerificationCodeGuard.CODE_TTL_SECONDS / 60),
                 MessageScope.TENANT));
     }
 

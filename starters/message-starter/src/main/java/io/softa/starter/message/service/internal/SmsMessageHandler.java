@@ -15,9 +15,11 @@ import io.softa.framework.base.utils.PhoneUtils;
 import io.softa.starter.message.shared.TenantScopes;
 import io.softa.starter.message.sms.dto.SendSmsDTO;
 import io.softa.starter.message.sms.entity.SmsSendRecord;
+import io.softa.starter.message.sms.entity.SmsTemplate;
 import io.softa.starter.message.sms.enums.SmsDeliveryStatus;
 import io.softa.starter.message.sms.enums.SmsSendStatus;
 import io.softa.starter.message.sms.service.SmsSendRecordService;
+import io.softa.starter.message.sms.service.SmsTemplateService;
 import io.softa.starter.message.sms.service.impl.SmsDeliveryProcessor;
 import io.softa.starter.message.sms.support.SmsProviderDispatcher;
 
@@ -39,6 +41,8 @@ final class SmsMessageHandler {
     private final SmsSendRecordService recordService;
 
     private final SmsProviderDispatcher providerDispatcher;
+
+    private final SmsTemplateService templateService;
 
     Long send(SendSmsDTO dto) {
         return insert(accept(dto));
@@ -84,6 +88,7 @@ final class SmsMessageHandler {
             throw new BusinessException(
                     "SMS send rejected: no content — provide content or a templateCode that renders one");
         }
+        requireMatchingVariables(dto);
 
         SmsSendRecord record = new SmsSendRecord();
         record.setPlatformScope(dto.getScope() == MessageScope.PLATFORM);
@@ -106,5 +111,29 @@ final class SmsMessageHandler {
         record.setVersion(0L);
         record.setDeliveryStatus(SmsDeliveryStatus.UNKNOWN);
         return record;
+    }
+
+    /**
+     * An object of a variable set ({@code @TemplateVariableSet}), sent through a template that names a set, must
+     * be of that set — the wrong one would go out with its {@code {{ names }}} unfilled. A template
+     * that cannot be found is left to the first delivery attempt, which records why.
+     */
+    private void requireMatchingVariables(SendSmsDTO dto) {
+        if (!StringUtils.hasText(dto.getVariableSetName()) || !StringUtils.hasText(dto.getTemplateCode())) {
+            return;
+        }
+        SmsTemplate template;
+        try {
+            // Platform configuration: not something the person whose action sends the SMS holds a permission on.
+            template = ContextUtils.withoutPermissionChecks(() -> templateService.resolve(dto.getTemplateCode()));
+        } catch (BusinessException e) {
+            return;
+        }
+        String set = template == null || !StringUtils.hasText(template.getVariableSetName())
+                ? null : template.getVariableSetName().trim();
+        if (set != null && !set.equals(dto.getVariableSetName().trim())) {
+            throw new BusinessException("SMS send rejected: template ''{0}'' is written against the template "
+                    + "variables ''{1}'', but was sent ''{2}''.", template.getCode(), set, dto.getVariableSetName().trim());
+        }
     }
 }

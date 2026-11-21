@@ -19,6 +19,7 @@ import io.softa.starter.user.entity.UserRoleRel;
 import io.softa.starter.user.service.RoleService;
 import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserRoleRelService;
+import io.softa.starter.user.template.SubscriptionReminderVariables;
 
 /**
  * Emails a subscription-expiry reminder to every {@code TENANT_ADMIN} of a tenant. Driven by
@@ -94,13 +95,9 @@ public class SubscriptionExpiryReminderMailer {
             return;
         }
 
-        Map<String, Object> variables = Map.of(
-                "tenantName", message.tenantName() == null ? "" : message.tenantName(),
-                "planId", message.planId() == null ? "" : message.planId(),
-                "expiryDate", message.effectiveTo() == null ? "" : message.effectiveTo(),
-                "daysLeft", message.daysLeft(),
-                "nextStartDate", message.nextStartDate() == null ? "" : message.nextStartDate(),
-                "successorPlanId", message.successorPlanId() == null ? "" : message.successorPlanId());
+        SubscriptionReminderVariables variables = new SubscriptionReminderVariables(message.tenantName(),
+                message.planId(), message.effectiveTo(), message.daysLeft(), message.nextStartDate(),
+                message.successorPlanId());
         // Four mutually exclusive asks, ordered by what the reader actually loses.
         //
         // The downgrade case is FIRST and outranks everything, because it is the only one where access does

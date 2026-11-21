@@ -2,11 +2,13 @@ package io.softa.starter.message.mail.dto;
 
 import java.util.List;
 import java.util.Map;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.orm.dto.FileInfo;
+import io.softa.framework.orm.meta.TemplateVariableSetRegistry;
 import io.softa.starter.message.mail.enums.BodyMode;
 import io.softa.starter.message.mail.enums.MailPriority;
 
@@ -89,6 +91,16 @@ public class SendMailDTO {
             + "serverConfigId and templateId are looked up in the scope's table.")
     private MessageScope scope;
 
+    /**
+     * The variable set ({@code @TemplateVariableSet}) the variables were taken from, when the sender handed over
+     * an object ({@link #ofTemplate(List, String, Object, MessageScope)}). A template that names a
+     * set refuses the object of another one. Set by code only: never read from a request body.
+     */
+    @JsonIgnore
+    @Schema(hidden = true)
+    private String variableSetName;
+
+
     /** A templated mail: the template's code and variables, sent in {@code scope}. */
     public static SendMailDTO ofTemplate(List<String> to, String templateCode, Map<String, Object> variables,
                                          MessageScope scope) {
@@ -99,4 +111,19 @@ public class SendMailDTO {
         mail.setScope(scope);
         return mail;
     }
+
+    /**
+     * A templated mail filled from a {@code @TemplateVariableSet} object. The object is turned into the
+     * template's variables — a missing value becomes empty — and its set is remembered, so a template
+     * written against another set refuses it.
+     *
+     * @param variables a record carrying {@code @TemplateVariableSet}
+     */
+    public static SendMailDTO ofTemplate(List<String> to, String templateCode, Object variables,
+                                         MessageScope scope) {
+        SendMailDTO mail = ofTemplate(to, templateCode, TemplateVariableSetRegistry.toMap(variables), scope);
+        mail.setVariableSetName(TemplateVariableSetRegistry.nameOf(variables));
+        return mail;
+    }
+
 }

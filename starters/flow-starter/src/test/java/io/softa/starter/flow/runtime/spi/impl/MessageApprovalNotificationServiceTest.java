@@ -255,6 +255,17 @@ class MessageApprovalNotificationServiceTest {
         assertEquals("https://hr.example.com/home/approvals/i1", message.getTemplateVariables().get("link"));
         assertEquals("Leave of Alice", message.getTemplateVariables().get("subject"));
         assertEquals("LR-000042", message.getTemplateVariables().get("recordCode"));
+        // The line My Tasks shows under the title: the email says what is asked for, too.
+        assertEquals("Annual Leave · 12 Nov 2026 – 14 Nov 2026 · 3 days", message.getTemplateVariables().get("summary"));
+    }
+
+    @Test
+    void aRecordThatWordsNoSummaryIsEmailedWithAnEmptyOne() {
+        FlowExecutionState state = state();
+        state.setSummary(null);
+        notifications.notify(new FlowNotificationEvent.FlowCompleted(state));
+
+        assertEquals("", mail().getFirst().getTemplateVariables().get("summary"));
     }
 
     @Test
@@ -292,6 +303,7 @@ class MessageApprovalNotificationServiceTest {
                 .bundleId(7L)
                 .title("Leave of Alice")
                 .recordCode("LR-000042")
+                .summary("Annual Leave · 12 Nov 2026 – 14 Nov 2026 · 3 days")
                 .initiatorId("1001")
                 .modelName("LeaveRequest")
                 .rowId("42")

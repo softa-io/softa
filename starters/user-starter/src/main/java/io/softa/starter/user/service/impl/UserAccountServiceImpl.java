@@ -52,6 +52,8 @@ import io.softa.starter.user.service.*;
 import io.softa.starter.message.push.service.AppPushDeviceService;
 import io.softa.starter.user.util.ClientInfo;
 import io.softa.starter.user.util.LoginIdentifiers;
+import io.softa.starter.user.template.ResetUserVariables;
+import io.softa.starter.user.template.EnterpriseEmailChangedVariables;
 
 /**
  * UserAccount Model Service Implementation
@@ -949,11 +951,8 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         Long tenantId = account.getTenantId();
         // The new number masked: the old one may be in a stranger's hands, and a notice sent there
         // must not hand them the number that now signs the person in.
-        Map<String, Object> vars = Map.of(
-                "employeeName", this.noticeNameOf(account),
-                "companyName", this.companyNameOf(tenantId),
-                "newMobile", StringUtils.defaultString(mobileFormat.mask(newMobile)),
-                "time", this.noticeTimeOf(account));
+        ResetUserVariables vars = new ResetUserVariables(this.noticeNameOf(account),
+                this.companyNameOf(tenantId), StringUtils.defaultString(mobileFormat.mask(newMobile)), this.noticeTimeOf(account));
         List<String> channels = new ArrayList<>();
         List<String> results = new ArrayList<>();
         if (StringUtils.isNotBlank(oldMobile)) {
@@ -1029,11 +1028,9 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         // like the reset-user one: the company cannot rewrite or swallow it.
         // The new address masked, for the reason Reset User masks the new number: the old address
         // may no longer be the person's.
-        Map<String, Object> vars = Map.of(
-                "employeeName", this.noticeNameOf(account),
-                "companyName", this.companyNameOf(account.getTenantId()),
-                "newEmail", StringUtils.defaultString(ContactMasking.email(wanted)),
-                "time", this.noticeTimeOf(account));
+        EnterpriseEmailChangedVariables vars = new EnterpriseEmailChangedVariables(this.noticeNameOf(account),
+                this.companyNameOf(account.getTenantId()), StringUtils.defaultString(ContactMasking.email(wanted)),
+                this.noticeTimeOf(account));
         List<String> channels = new ArrayList<>();
         List<String> results = new ArrayList<>();
         if (StringUtils.isNotBlank(previous)) {

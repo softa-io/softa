@@ -104,6 +104,22 @@ GET /SysOptionSet/getOptionItems/OrderStatus
 
 Response is a list of `MetaOptionItem` objects.
 
+### Template variables
+
+The sets of template variables an application declares with `@TemplateVariableSet`
+(softa-base; registry in softa-orm) are served for a template editor to offer:
+
+```
+GET /TemplateVariableSet/list
+GET /TemplateVariableSet/get?name=flow.approval-notice
+```
+
+Each set is its name, label and fields — field name, label, field type, description,
+sample value, and the fields of a nested set (`DTO`) or of a list's items
+(`OneToMany`) — shaped like a model's fields so one picker serves both. They are
+descriptions only, no record data; like the option dictionary, an application
+whitelists `/TemplateVariableSet/*` for every signed-in user.
+
 ### Programmatic Usage
 Use `OptionManager` in service code:
 
