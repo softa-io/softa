@@ -143,6 +143,26 @@ public interface PermissionService {
     }
 
     /**
+     * The fields {@code filters} tests on {@code model} that the caller may not see on every row: a
+     * sensitive field no role of the caller grants, or one granted on only some of the rows — the
+     * fields {@link #appendScopeAccessFilters} would guard. A dotted path is named as written.
+     *
+     * <p>Asked of a condition that is about to be run past the caller's own range, where the guard
+     * cannot narrow it row by row: a dynamic role's membership rule, whose matches are the whole
+     * tenant's. Run as written, such a rule would count the employees above a salary the caller is
+     * never shown. Depends on the caller's grants only, never on data, so refusing it tells nothing.
+     *
+     * <p>Default: none, which is what an implementation without field guards needs.
+     *
+     * @param model   the model the conditions are on
+     * @param filters the conditions
+     * @return the fields, in the order they are met; empty when every one is seen on every row
+     */
+    default Set<String> conditionFieldsNotSeenEverywhere(String model, Filters filters) {
+        return Set.of();
+    }
+
+    /**
      * Whether the caller's row range on {@code model} stands on its own — an anchor, a declared scope
      * or a rule the caller holds for it — rather than coming only from the parent that owns its rows.
      *

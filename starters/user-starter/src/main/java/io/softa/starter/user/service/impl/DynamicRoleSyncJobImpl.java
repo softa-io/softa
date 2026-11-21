@@ -1,13 +1,19 @@
 package io.softa.starter.user.service.impl;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,11 +25,18 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.enums.Operator;
+import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.JsonUtils;
+import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.domain.Orders;
+import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.service.ModelService;
+import io.softa.framework.orm.service.PermissionService;
+import io.softa.framework.orm.service.validation.WriteValidationException;
+import io.softa.starter.user.dto.DynamicMembersPreview;
 import io.softa.starter.user.entity.Role;
 import io.softa.starter.user.entity.UserRoleRel;
 import io.softa.starter.user.enums.UserRoleSource;
@@ -49,7 +62,7 @@ import io.softa.starter.user.util.ModelRefIds;
  *
  * MANUAL rows are never touched. Each pass:
  *   - DELETE WHERE role_id = R AND source = 'Dynamic'
- *   - SELECT employee.userId WHERE rule AND userId IS SET AND userId.status = 'Active'
+ *   - SELECT employee.userId WHERE rule AND userId IS SET, kept where that account is Active
  *   - INSERT one (userId, R, 'Dynamic') per match
  *
  * The same (user, role) can also have a MANUAL row — schema unique key is
@@ -60,9 +73,14 @@ import io.softa.starter.user.util.ModelRefIds;
 @Service
 public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
 
+    private static final String EMPLOYEE = "Employee";
+    private static final String USER_ACCOUNT = "UserAccount";
+
     private final RoleService roleService;
     private final UserRoleRelService userRoleRelService;
     private final ModelService<?> modelService;
+    /** Absent in an application without the permission starter: nothing is guarded there. */
+    private final ObjectProvider<PermissionService> permissionService;
     /** Explicit tx boundary for {@link #syncRoleInternal} — see the method's
      *  Javadoc for why this doesn't rely on Spring's {@code @Transactional}
      *  proxy interception.
@@ -77,10 +95,12 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
             RoleService roleService,
             UserRoleRelService userRoleRelService,
             ModelService<?> modelService,
+            ObjectProvider<PermissionService> permissionService,
             PlatformTransactionManager transactionManager) {
         this.roleService = roleService;
         this.userRoleRelService = userRoleRelService;
         this.modelService = modelService;
+        this.permissionService = permissionService;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
@@ -158,28 +178,10 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
                 new Filters().eq(UserRoleRel::getRoleId, role.getId())
                         .eq(UserRoleRel::getSource, UserRoleSource.DYNAMIC.getCode()));
 
-        JsonNode rule = role.getDynamicFilter();
-        if (rule == null || rule.isNull() || !rule.isArray()) return 0;
-
-        Object filterList = JsonUtils.jsonNodeToObject(rule);
-        if (!(filterList instanceof List<?> list)) return 0;
-        Filters filters = Filters.of(list);
+        // 3. Who the rule grants — the same members the wizard previews.
+        Filters filters = ruleFilters(role.getDynamicFilter());
         if (filters == null) return 0;
-
-        // 3. AND in the user-account safety clauses (same as wizard's live
-        //    preview) — pure-employee rows or disabled accounts never get
-        //    a dynamic grant.
-        filters.and(Filters.of("userId", Operator.IS_SET, null))
-                .and(Filters.of("userId.status", Operator.EQUAL, "Active"));
-
-        List<Map<String, Object>> employees = modelService.searchList(
-                "Employee", new FlexQuery(List.of("userId"), filters));
-
-        Set<Long> userIds = new LinkedHashSet<>();
-        for (Map<String, Object> emp : employees) {
-            Long uid = ModelRefIds.extractLongId(emp.get("userId"));
-            if (uid != null) userIds.add(uid);
-        }
+        Set<Long> userIds = new LinkedHashSet<>(members(filters).values());
         if (userIds.isEmpty()) return 0;
 
         List<UserRoleRel> rows = new ArrayList<>();
@@ -302,20 +304,15 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
      * precedence).
      */
     private boolean applyPerUser(Role role, Long userId) {
-        JsonNode rule = role.getDynamicFilter();
-        if (rule == null || rule.isNull() || !rule.isArray()) return false;
-        Object filterList = JsonUtils.jsonNodeToObject(rule);
-        if (!(filterList instanceof List<?> list)) return false;
-        Filters filters = Filters.of(list);
+        Filters filters = ruleFilters(role.getDynamicFilter());
         if (filters == null) return false;
-        // AND the safety clauses (userId set + Active status) plus the
-        // single-user anchor — we're asking "does the Employee whose
-        // userId matches this user satisfy the rule?".
-        filters.and(Filters.of("userId", Operator.IS_SET, null))
-                .and(Filters.of("userId.status", Operator.EQUAL, "Active"))
-                .and(Filters.of("userId", Operator.EQUAL, userId));
-        long matches = modelService.count("Employee", filters);
-        if (matches <= 0) return false;
+        // AND the single-user anchor — we're asking "does the Employee whose
+        // userId matches this user satisfy the rule?" — then the Active
+        // safety clause, asked of the account itself.
+        filters.and(Filters.of("userId", Operator.EQUAL, userId));
+        // Tenant-wide, as members() reads it: whether this user matches is not the caller's to scope.
+        long matches = ContextUtils.withoutPermissionChecks(() -> modelService.count(EMPLOYEE, filters));
+        if (matches <= 0 || activeAccounts(List.of(userId)).isEmpty()) return false;
 
         // Manual row check — if one exists, the schema's unique key
         // (tenant_id, user_id, role_id, source) still permits a separate
@@ -342,13 +339,150 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
     }
 
     /**
+     * {@inheritDoc}
+     *
+     * <p>The members are worked out by {@link #members}, as a sync works them out — tenant-wide — so
+     * the count is who saving the rule would grant. Which of them are listed is the caller's: the rows
+     * are read with the caller's permissions, and members outside their data scope are only counted.
+     */
+    @Override
+    public DynamicMembersPreview previewMembers(JsonNode dynamicFilter, List<String> fields,
+                                                Integer pageNumber, Integer pageSize) {
+        assertActiveTenantContext("previewMembers");
+        assertRuleSeenByCaller(dynamicFilter);
+        Page<Map<String, Object>> page = Page.of(pageNumber, pageSize);
+        Filters filters = ruleFilters(dynamicFilter);
+        List<Long> memberIds = filters == null ? List.of() : new ArrayList<>(members(filters).keySet());
+
+        // The members the caller may see, in member order.
+        List<Long> visible = memberIds.isEmpty() ? List.of() : readableEmployees(memberIds);
+        page.setTotalCount(visible.size());
+        int from = Math.min((page.getPageNumber() - 1) * page.getPageSize(), visible.size());
+        List<Long> pageIds = visible.subList(from, Math.min(from + page.getPageSize(), visible.size()));
+        List<Map<String, Object>> rows = List.of();
+        if (!pageIds.isEmpty()) {
+            Set<String> read = new LinkedHashSet<>(fields == null ? List.of() : fields);
+            read.add(ModelConstant.ID);
+            Map<Long, Map<String, Object>> byId = new HashMap<>();
+            for (Map<String, Object> row : modelService.searchList(EMPLOYEE,
+                    new FlexQuery(read, new Filters().in(ModelConstant.ID, pageIds)))) {
+                Long id = ModelRefIds.extractLongId(row.get(ModelConstant.ID));
+                if (id != null) byId.put(id, row);
+            }
+            rows = pageIds.stream().map(byId::get).filter(Objects::nonNull).toList();
+        }
+        page.setRows(rows);
+        return new DynamicMembersPreview(memberIds.size(), memberIds.size() - visible.size(), page);
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>Asked of the caller's grants, never of the data, so a refusal says nothing about who would
+     * match.
+     */
+    @Override
+    public void assertRuleSeenByCaller(JsonNode dynamicFilter) {
+        Filters filters = ruleFilters(dynamicFilter);
+        PermissionService permissions = permissionService.getIfAvailable();
+        if (filters == null || permissions == null) return;
+        Set<String> unseen = permissions.conditionFieldsNotSeenEverywhere(EMPLOYEE, filters);
+        if (!unseen.isEmpty()) {
+            // A refused input, per field, each sentence naming its field by label: a client shows the
+            // sentences of a refusal that names fields, and a bare 403 only as "no access".
+            throw new WriteValidationException(unseen.stream()
+                    .map(field -> new WriteValidationException.FieldError(0, field,
+                            "The membership rule tests " + WriteValidationException.labelOf(EMPLOYEE, field)
+                                    + ", which you cannot see on every employee."))
+                    .toList());
+        }
+    }
+
+    /**
+     * Of {@code employeeIds}, those the caller may read, in the order given. None when the caller may
+     * not read employees at all: they still see how many the rule grants, only not who.
+     */
+    private List<Long> readableEmployees(List<Long> employeeIds) {
+        List<Map<String, Object>> rows;
+        try {
+            rows = modelService.searchList(EMPLOYEE,
+                    new FlexQuery(List.of(ModelConstant.ID), new Filters().in(ModelConstant.ID, employeeIds)));
+        } catch (PermissionException e) {
+            return List.of();
+        }
+        Set<Long> readable = new HashSet<>();
+        for (Map<String, Object> row : rows) {
+            Long id = ModelRefIds.extractLongId(row.get(ModelConstant.ID));
+            if (id != null) readable.add(id);
+        }
+        return employeeIds.stream().filter(readable::contains).toList();
+    }
+
+    /** The rule as filters, or null when the role has none (no rule, or not the Filters array form). */
+    private static Filters ruleFilters(JsonNode rule) {
+        if (rule == null || rule.isNull() || !rule.isArray()) return null;
+        Object filterList = JsonUtils.jsonNodeToObject(rule);
+        if (!(filterList instanceof List<?> list)) return null;
+        return Filters.of(list);
+    }
+
+    /**
+     * Who a rule grants: each employee it matches, mapped to their account, where the employee has
+     * an account and the account is Active — pure-employee rows and disabled accounts never get a
+     * dynamic grant. In employee id order, one entry per account; {@code rule} is left as it was.
+     *
+     * <p>The account's status is asked of the account itself: Employee.userId is a plain id, not a
+     * relation to path through.
+     *
+     * <p>Tenant-wide, past the caller's row scope: who the rule grants is a fact about the tenant's
+     * employees, not about who saved the role. Read through the caller's scope, a save by an HR whose
+     * data scope covers a few departments took the role away from everyone outside them, until the
+     * nightly sync gave it back. What the caller may grant is the grant ceiling's to decide, when the
+     * role is saved; the tenant still applies.
+     */
+    private Map<Long, Long> members(Filters rule) {
+        Filters filters = Filters.and(rule, Filters.of("userId", Operator.IS_SET, null));
+        List<Map<String, Object>> employees = ContextUtils.withoutPermissionChecks(() -> modelService.searchList(
+                EMPLOYEE, new FlexQuery(List.of(ModelConstant.ID, "userId"), filters, Orders.ofAsc(ModelConstant.ID))));
+        Map<Long, Long> accountByEmployee = new LinkedHashMap<>();
+        for (Map<String, Object> employee : employees) {
+            Long employeeId = ModelRefIds.extractLongId(employee.get(ModelConstant.ID));
+            Long userId = ModelRefIds.extractLongId(employee.get("userId"));
+            if (employeeId != null && userId != null) accountByEmployee.put(employeeId, userId);
+        }
+        Set<Long> active = activeAccounts(accountByEmployee.values());
+        Set<Long> seen = new HashSet<>();
+        accountByEmployee.values().removeIf(userId -> !active.contains(userId) || !seen.add(userId));
+        return accountByEmployee;
+    }
+
+    /**
+     * Of {@code accountIds}, the accounts that are Active — Locked, Frozen, Unverified and the rest
+     * never get a dynamic grant.
+     *
+     * <p>Read without permission checks: the status is the job's own safety clause, not data shown to
+     * anyone, and whoever saved the role (or the cron running it) need not hold the account read.
+     */
+    private Set<Long> activeAccounts(Collection<Long> accountIds) {
+        if (accountIds.isEmpty()) return Set.of();
+        Filters active = new Filters().in(ModelConstant.ID, accountIds).eq("status", "Active");
+        List<Map<String, Object>> rows = ContextUtils.withoutPermissionChecks(() -> modelService.searchList(
+                USER_ACCOUNT, new FlexQuery(List.of(ModelConstant.ID), active)));
+        Set<Long> ids = new LinkedHashSet<>();
+        for (Map<String, Object> row : rows) {
+            Long id = ModelRefIds.extractLongId(row.get(ModelConstant.ID));
+            if (id != null) ids.add(id);
+        }
+        return ids;
+    }
+
+    /**
      * Write a membership the role's dynamic rule produced as a system write.
      *
      * <p>The rule was checked when the role was saved — who may hold the role, and what the role may
      * grant, were decided by whoever wrote it. What runs here is its consequence, from a cron or a
      * message consumer with no person behind it, so the checks that ask "may this caller hand out
-     * this role" have nobody to ask about. Only the write is lifted; the Employee lookup that decides
-     * who matches stays as it was.
+     * this role" have nobody to ask about.
      */
     private static <T> T asRuleConsequence(Supplier<T> write) {
         return ContextUtils.withoutPermissionChecks(write);
