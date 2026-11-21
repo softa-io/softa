@@ -64,7 +64,8 @@ class FlowDirectoryServiceImplTest {
         when(provider.getIfAvailable()).thenReturn(organization);
         ObjectProvider<ActorAccounts> accounts = mock(ObjectProvider.class);
         // Bob holds no role that approves.
-        when(accounts.getIfAvailable()).thenReturn(TestActorAccounts.of(Map.of(), Map.of(), Set.of(2L)));
+        ActorAccounts bobMayNotApprove = TestActorAccounts.of(Map.of(), Map.of(), Set.of(2L));
+        when(accounts.getIfAvailable()).thenReturn(bobMayNotApprove);
         FlowDirectoryServiceImpl withAccounts = new FlowDirectoryServiceImpl(provider, userNames, accounts);
 
         assertEquals(List.of(1L, 3L), withAccounts.searchPeople("a", null, true).stream()
