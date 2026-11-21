@@ -193,6 +193,28 @@ class MultiOwnerScopeTest {
     }
 
     @Test
+    void aChildBothCollectedAndPointedAtOneToOneIsReachedThroughEither() {
+        // The parent owns a collection of the child and also points at one of them as "the current
+        // one". Every row of the collection is the parent's, not only the one it points at.
+        MetaField current = oneToOne("currentChildId", OnDelete.SET_NULL);
+        MetaField collection = mock(MetaField.class);
+        when(collection.getRelatedModel()).thenReturn(CHILD);
+        when(collection.getFieldType()).thenReturn(FieldType.ONE_TO_MANY);
+        when(collection.getFieldName()).thenReturn("children");
+        when(collection.getRelatedField()).thenReturn("employeeId");
+        modelManager.when(() -> ModelManager.existModel("Employee")).thenReturn(true);
+        modelManager.when(() -> ModelManager.getModelFields("Employee")).thenReturn(List.of(current, collection));
+        when(modelService.getRelatedIds(eq("Employee"), any(Filters.class), eq("currentChildId")))
+                .thenReturn(List.of(7L));
+        when(modelService.getIds(eq("Employee"), any(Filters.class))).thenReturn(List.of(5L));
+        grant(List.of("Employee"));
+
+        String scope = scopeOf(CHILD).toString();
+
+        assertThat(scope).contains("employeeId").contains("5").contains("7");
+    }
+
+    @Test
     void aReportAloneDoesNotOpenTheProfile() {
         declare("BirthdayCountdown", oneToOne("employeeProfileId", OnDelete.CASCADE));
         grant(List.of("BirthdayCountdown"));

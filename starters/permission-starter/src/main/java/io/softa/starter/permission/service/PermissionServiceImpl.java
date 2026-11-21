@@ -2392,9 +2392,14 @@ public class PermissionServiceImpl implements PermissionService {
      * OneToMany children as separately grantable models, precisely because they are
      * "bounded by the parent's scope". This resolves that contract at runtime.
      *
-     * <p>Priority ONE_TO_ONE &gt; ONE_TO_MANY &gt; MANY_TO_ONE: an ownership edge is a
-     * tighter statement than a shared reference, so it wins when a model is reachable
-     * both ways.
+     * <p>Ownership edges win over a shared reference: an ownership edge is a tighter statement, so it
+     * wins when a model is reachable both ways. The two ownership kinds are not ranked against each
+     * other, though — both are returned, the one-to-one owners first. A model can be both: the rows of
+     * a one-to-many collection, one of which the parent also points at one-to-one as "the current one".
+     * Answering with the one-to-one owners alone made every row the parent does not point at
+     * unreachable, although its parent is in range. {@link #followOwners} takes the union, which is
+     * still bounded by the parents' own range; the callers that ask only for the first kind see the
+     * one-to-one owner first, as before.
      */
     private static boolean isProjection(String model) {
         MetaModel meta = ModelManager.getModel(model);
@@ -2455,8 +2460,11 @@ public class PermissionServiceImpl implements PermissionService {
                 }
             }
         }
-        if (!owners.isEmpty()) return owners;
-        if (!backRefs.isEmpty()) return backRefs;
+        if (!owners.isEmpty() || !backRefs.isEmpty()) {
+            List<Referencer> owned = new ArrayList<>(owners);
+            owned.addAll(backRefs);
+            return owned;
+        }
         if (shared != null) return List.of(shared);
         Referencer viaOwnedChild = sharedThroughOwnedChild(childModel, ownedChildren);
         return viaOwnedChild == null ? List.of() : List.of(viaOwnedChild);
