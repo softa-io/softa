@@ -34,7 +34,7 @@ import io.softa.starter.user.entity.UserProfile;
 import io.softa.starter.user.enums.*;
 import io.softa.starter.user.exception.MultipleMembershipsException;
 import io.softa.starter.user.service.*;
-import io.softa.starter.user.spi.PushDeviceRegistry;
+import io.softa.starter.message.push.service.AppPushDeviceService;
 import io.softa.starter.user.util.ClientInfo;
 import io.softa.starter.user.util.LoginIdentifiers;
 import io.softa.starter.user.template.VerificationCodeVariables;
@@ -145,9 +145,9 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     @Autowired
     private JoinMobileFormat mobileFormat;
 
-    /** Optional: present only where APP push is deployed. */
+    /** message-starter's push-device registrations; optional so a unit test may leave them out. */
     @Autowired(required = false)
-    private PushDeviceRegistry pushDeviceRegistry;
+    private AppPushDeviceService pushDeviceService;
 
     /**
      * Tenant lifecycle gate at login: only ACTIVE tenants may log in. Enforced at the single
@@ -964,8 +964,8 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
             // A replaced password ends every session that knew the old one, and every device's
             // notifications, as a reset does.
             sessionService.revokePerson(profileId, null, SessionRevokeReason.PASSWORD_RESET);
-            if (pushDeviceRegistry != null) {
-                pushDeviceRegistry.unregisterPerson(profileId);
+            if (pushDeviceService != null) {
+                pushDeviceService.unregisterPerson(profileId);
             }
             securityLog.record(securityLog.entry(SecurityAction.PASSWORD_RESET, SecurityLogSource.WEB,
                     account, profileId));
@@ -1024,8 +1024,8 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         // ends, and no device keeps receiving this person's notifications. There is no "current"
         // session to keep — the person is not signed in.
         sessionService.revokePerson(identity.getProfileId(), null, SessionRevokeReason.PASSWORD_RESET);
-        if (pushDeviceRegistry != null) {
-            pushDeviceRegistry.unregisterPerson(identity.getProfileId());
+        if (pushDeviceService != null) {
+            pushDeviceService.unregisterPerson(identity.getProfileId());
         }
         securityLog.record(securityLog.entry(SecurityAction.PASSWORD_RESET,
                 ClientInfo.current().isApp() ? SecurityLogSource.APP : SecurityLogSource.WEB,
@@ -1401,7 +1401,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
             throw webOnly;
         }
         String sessionId = sessionStore.create(account.getId(), account.getProfileId(), account.getTenantId(),
-                client.platform(), client.appVersion(), client.deviceModel());
+                client.platform(), client.appVersion(), client.deviceModel(), client.osVersion());
         this.rememberLastAccount(account);
         return sessionId;
     }

@@ -7,6 +7,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.NullNode;
@@ -41,15 +42,28 @@ public abstract class AbstractSmsProviderAdapter implements SmsProviderAdapter {
         this.restClient = smsRestClient;
     }
 
+    /**
+     * A failed attempt is logged at WARN: the send-failure handler logs the outcome once per
+     * record — at ERROR when the record will not go out — so an attempt that is retried does not
+     * report the same failure several times. Only an exception the adapter did not expect, a
+     * defect rather than a provider answer, is logged at ERROR here, with its stack.
+     */
     @Override
     public final SmsSendResult send(SmsProviderConfig config, SmsAdapterRequest request) {
         try {
             return doSend(config, request);
         } catch (RestClientResponseException e) {
-            log.error("{} SMS send failed: HTTP {}", getProvider(), e.getStatusCode().value());
-            return handleHttpError(e);
+            SmsSendResult result = handleHttpError(e);
+            log.warn("{} SMS send failed: HTTP {} [{}] {}", getProvider(), e.getStatusCode().value(),
+                    result.getErrorCode(), result.getErrorMessage());
+            return result;
+        } catch (RestClientException e) {
+            // No answer from the provider: connection refused, timeout, unreadable response.
+            log.warn("{} SMS send failed: {}", getProvider(), e.getMessage());
+            return SmsSendResult.failure(null,
+                    getProvider() + " API call failed: " + e.getMessage());
         } catch (Exception e) {
-            log.error("{} SMS send failed: {}", getProvider(), e.getMessage());
+            log.error("{} SMS send failed unexpectedly", getProvider(), e);
             return SmsSendResult.failure(null,
                     getProvider() + " API call failed: " + e.getMessage());
         }

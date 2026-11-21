@@ -2,9 +2,12 @@ package io.softa.starter.message.shared.retry;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.MDC;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.starter.message.dlq.service.DeadLetterMessageService;
@@ -134,5 +137,32 @@ class SendFailureHandlerTest {
         handler.handle("mail", "smtp", 5L, 0L, 3, "EC", "EM", tx);
 
         verifyNoInteractions(deadLetterMessageService, metrics);
+    }
+
+    @Test
+    void failureLabelsAreMdcTagsWhileLoggingAndRemovedAfter() {
+        // sentry-starter turns tag.* MDC entries into tags on the event the ERROR line becomes.
+        when(retryPolicy.decide(anyInt(), any())).thenReturn(new RetryDecision.Fail());
+        when(errorClassifier.classify(any(), any())).thenReturn(ErrorCategory.CONFIG);
+        Map<String, String> seen = new HashMap<>();
+        when(markFailed.apply(9L, 2L, "REJECTED_SOURCE", "Sender not registered")).thenAnswer(inv -> {
+            seen.put("channel", MDC.get("tag.message_channel"));
+            seen.put("provider", MDC.get("tag.message_provider"));
+            seen.put("category", MDC.get("tag.error_category"));
+            seen.put("code", MDC.get("tag.error_code"));
+            return true;
+        });
+        MDC.put("tag.error_code", "OUTER");
+        try {
+            handler.handle("sms", "infobip", 9L, 2L, 0, "REJECTED_SOURCE", "Sender not registered", tx);
+
+            assertThat(seen).containsEntry("channel", "sms").containsEntry("provider", "infobip")
+                    .containsEntry("category", "CONFIG").containsEntry("code", "REJECTED_SOURCE");
+            // Closing restores what was there before rather than clearing it.
+            assertThat(MDC.get("tag.error_code")).isEqualTo("OUTER");
+            assertThat(MDC.get("tag.message_channel")).isNull();
+        } finally {
+            MDC.clear();
+        }
     }
 }

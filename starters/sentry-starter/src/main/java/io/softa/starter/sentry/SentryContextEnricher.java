@@ -1,20 +1,24 @@
 package io.softa.starter.sentry;
 
+import java.util.Map;
 import io.sentry.EventProcessor;
 import io.sentry.Hint;
 import io.sentry.SentryBaseEvent;
 import io.sentry.SentryEvent;
 import io.sentry.protocol.SentryTransaction;
 import org.jspecify.annotations.NonNull;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.MdcKeys;
 
 /**
  * Copies the softa {@link Context} identity (traceId / tenantId / userId) onto every
  * Sentry event and transaction as searchable tags, so issues can be filtered by tenant
- * and cross-referenced with log lines carrying the same traceId.
+ * and cross-referenced with log lines carrying the same traceId. MDC entries named
+ * {@code tag.<name>} ({@link MdcKeys#TAG_PREFIX}) become the tag {@code <name>} as well.
  *
  * <p>EventProcessor beans are collected automatically by sentry-spring-boot's
  * auto-configuration. Events captured outside a bound context (startup, schedulers,
@@ -38,6 +42,7 @@ public class SentryContextEnricher implements EventProcessor {
     }
 
     private void enrich(SentryBaseEvent event) {
+        tagFromMdc(event);
         if (!ContextHolder.existContext()) {
             return;
         }
@@ -51,5 +56,23 @@ public class SentryContextEnricher implements EventProcessor {
         if (ctx.getUserId() != null) {
             event.setTag("user_id", String.valueOf(ctx.getUserId()));
         }
+    }
+
+    /**
+     * MDC entries named {@code tag.<name>} become the tag {@code <name>}. Event processors run on
+     * the thread that captured the event — for a log-based event, the thread that logged — so the
+     * entries the code put around its log call are still there.
+     */
+    private static void tagFromMdc(SentryBaseEvent event) {
+        Map<String, String> mdc = MDC.getCopyOfContextMap();
+        if (mdc == null) {
+            return;
+        }
+        mdc.forEach((key, value) -> {
+            if (key.startsWith(MdcKeys.TAG_PREFIX) && key.length() > MdcKeys.TAG_PREFIX.length()
+                    && value != null && !value.isEmpty()) {
+                event.setTag(key.substring(MdcKeys.TAG_PREFIX.length()), value);
+            }
+        });
     }
 }

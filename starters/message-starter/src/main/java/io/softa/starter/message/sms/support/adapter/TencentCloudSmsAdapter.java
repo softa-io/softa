@@ -115,7 +115,7 @@ public class TencentCloudSmsAdapter extends AbstractSmsProviderAdapter {
         if (!errorNode.isMissingNode()) {
             String errCode = errorNode.path("Code").asString(null);
             String errMsg = errorNode.path("Message").asString("Tencent Cloud API error");
-            log.error("Tencent Cloud SMS API error: {} - {}", errCode, errMsg);
+            log.warn("Tencent Cloud SMS API error: {} - {}", errCode, errMsg);
             return SmsSendResult.failure(errCode, errMsg);
         }
 
@@ -127,7 +127,7 @@ public class TencentCloudSmsAdapter extends AbstractSmsProviderAdapter {
                 return SmsSendResult.success(firstStatus.path("SerialNo").asString(null));
             }
             String errMsg = firstStatus.path("Message").asString("Tencent Cloud SMS send failed");
-            log.error("Tencent Cloud SMS send failed: {} - {}", code, errMsg);
+            log.warn("Tencent Cloud SMS send failed: {} - {}", code, errMsg);
             return SmsSendResult.failure(code, errMsg);
         }
         return SmsSendResult.failure(null, "Tencent Cloud SMS returned empty SendStatusSet");

@@ -22,7 +22,7 @@ import io.softa.starter.user.enums.SecurityAction;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserSecurityLogService;
 import io.softa.starter.user.service.UserSessionService;
-import io.softa.starter.user.spi.PushDeviceRegistry;
+import io.softa.starter.message.push.service.AppPushDeviceService;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -50,7 +50,7 @@ class ResetUserTest {
 
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final MessageService messageService = mock(MessageService.class);
-    private final PushDeviceRegistry devices = mock(PushDeviceRegistry.class);
+    private final AppPushDeviceService devices = mock(AppPushDeviceService.class);
     private final UserAccountServiceImpl accountService = spy(new UserAccountServiceImpl());
     private final UserSecurityLogService securityLog = AccountServiceTestSupport.quiet(accountService);
     private final UserAccount account = new UserAccount();
@@ -59,7 +59,7 @@ class ResetUserTest {
     ResetUserTest() {
         ReflectionTestUtils.setField(accountService, "identityService", identityService);
         ReflectionTestUtils.setField(accountService, "messageService", messageService);
-        ReflectionTestUtils.setField(accountService, "pushDeviceRegistry", devices);
+        ReflectionTestUtils.setField(accountService, "pushDeviceService", devices);
         account.setId(ACCOUNT);
         account.setTenantId(1L);
         account.setProfileId(PROFILE);

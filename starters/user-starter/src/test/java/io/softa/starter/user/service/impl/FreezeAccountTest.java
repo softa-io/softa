@@ -71,8 +71,8 @@ class FreezeAccountTest {
         // A frozen company must not keep notifying the person; the sessions end on their next
         // request, but a device that never asks again would go on receiving pushes.
         given(AccountStatus.ACTIVE);
-        io.softa.starter.user.spi.PushDeviceRegistry devices = mock(io.softa.starter.user.spi.PushDeviceRegistry.class);
-        ReflectionTestUtils.setField(accountService, "pushDeviceRegistry", devices);
+        io.softa.starter.message.push.service.AppPushDeviceService devices = mock(io.softa.starter.message.push.service.AppPushDeviceService.class);
+        ReflectionTestUtils.setField(accountService, "pushDeviceService", devices);
 
         accountService.freezeAccount(ACCOUNT, "Under investigation");
 
@@ -82,9 +82,9 @@ class FreezeAccountTest {
     @Test
     void freezing_dropsTheDevicesOnlyOnceItCommits_andAFailingRegistryDoesNotUndoIt() {
         UserAccount account = given(AccountStatus.ACTIVE);
-        io.softa.starter.user.spi.PushDeviceRegistry devices = mock(io.softa.starter.user.spi.PushDeviceRegistry.class);
+        io.softa.starter.message.push.service.AppPushDeviceService devices = mock(io.softa.starter.message.push.service.AppPushDeviceService.class);
         org.mockito.Mockito.doThrow(new IllegalStateException("push store down")).when(devices).unregisterAccount(ACCOUNT);
-        ReflectionTestUtils.setField(accountService, "pushDeviceRegistry", devices);
+        ReflectionTestUtils.setField(accountService, "pushDeviceService", devices);
         org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
         try {
             accountService.freezeAccount(ACCOUNT, "Under investigation");

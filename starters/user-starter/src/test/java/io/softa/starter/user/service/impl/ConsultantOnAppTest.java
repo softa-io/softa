@@ -170,7 +170,7 @@ class ConsultantOnAppTest {
 
         assertThatThrownBy(() -> loginService.generateSessionId(CONSULTANCY))
                 .satisfies(e -> assertThat(codeOf(e)).isEqualTo(AccountErrorCodes.CONSULTANT_APP_UNSUPPORTED));
-        verify(sessionStore, never()).create(any(), any(), any(), any(), any(), any());
+        verify(sessionStore, never()).create(any(), any(), any(), any(), any(), any(), any());
     }
 
     // ── platform accounts: web-only as well ─────────────────────────
@@ -229,6 +229,6 @@ class ConsultantOnAppTest {
                 .satisfies(e -> assertThat(codeOf(e)).isEqualTo(AccountErrorCodes.PLATFORM_APP_UNSUPPORTED));
         assertThatThrownBy(() -> loginService.generateSessionId(PLATFORM_ACCOUNT))
                 .satisfies(e -> assertThat(codeOf(e)).isEqualTo(AccountErrorCodes.PLATFORM_APP_UNSUPPORTED));
-        verify(sessionStore, never()).create(any(), any(), any(), any(), any(), any());
+        verify(sessionStore, never()).create(any(), any(), any(), any(), any(), any(), any());
     }
 }

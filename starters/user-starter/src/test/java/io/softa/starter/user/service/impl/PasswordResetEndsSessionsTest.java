@@ -15,7 +15,7 @@ import io.softa.starter.user.service.UserAccountService;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserSecurityLogService;
 import io.softa.starter.user.service.UserSessionService;
-import io.softa.starter.user.spi.PushDeviceRegistry;
+import io.softa.starter.message.push.service.AppPushDeviceService;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -36,7 +36,7 @@ class PasswordResetEndsSessionsTest {
     private final UserIdentityService identityService = mock(UserIdentityService.class);
     private final UserAccountService accountService = mock(UserAccountService.class);
     private final UserSessionService sessionService = mock(UserSessionService.class);
-    private final PushDeviceRegistry devices = mock(PushDeviceRegistry.class);
+    private final AppPushDeviceService devices = mock(AppPushDeviceService.class);
     private final UserSecurityLogService securityLog = mock(UserSecurityLogService.class);
     private final LoginHistoryRecorder history = mock(LoginHistoryRecorder.class);
     private final LoginServiceImpl loginService = new LoginServiceImpl();
@@ -45,7 +45,7 @@ class PasswordResetEndsSessionsTest {
         ReflectionTestUtils.setField(loginService, "identityService", identityService);
         ReflectionTestUtils.setField(loginService, "accountService", accountService);
         ReflectionTestUtils.setField(loginService, "sessionService", sessionService);
-        ReflectionTestUtils.setField(loginService, "pushDeviceRegistry", devices);
+        ReflectionTestUtils.setField(loginService, "pushDeviceService", devices);
         ReflectionTestUtils.setField(loginService, "securityLog", securityLog);
         ReflectionTestUtils.setField(loginService, "history", history);
         ReflectionTestUtils.setField(loginService, "codeGuard", mock(VerificationCodeGuard.class));
