@@ -17,11 +17,11 @@ import org.springframework.core.type.filter.AnnotationTypeFilter;
 import org.springframework.stereotype.Component;
 import org.springframework.util.ClassUtils;
 
-import io.softa.framework.base.annotation.TemplateVariables;
+import io.softa.framework.base.annotation.TemplateVariableSet;
 
 /**
- * Finds every {@link TemplateVariables} record on the classpath at startup and hands them to
- * {@link TemplateVariablesRegistry}.
+ * Finds every {@link TemplateVariableSet} record on the classpath at startup and hands them to
+ * {@link TemplateVariableSetRegistry}.
  *
  * <p>Looks under the framework's own namespace, the application's packages, and the roots the
  * application already names for discovering its {@code @Model} classes
@@ -36,7 +36,7 @@ import io.softa.framework.base.annotation.TemplateVariables;
  */
 @Slf4j
 @Component
-public class TemplateVariablesScanner implements InitializingBean {
+public class TemplateVariableSetScanner implements InitializingBean {
 
     /** The framework and its starters; the application's own packages are added to it. */
     static final String FRAMEWORK_PACKAGE = "io.softa";
@@ -48,7 +48,7 @@ public class TemplateVariablesScanner implements InitializingBean {
 
     private final Environment environment;
 
-    public TemplateVariablesScanner(BeanFactory beanFactory, Environment environment) {
+    public TemplateVariableSetScanner(BeanFactory beanFactory, Environment environment) {
         this.beanFactory = beanFactory;
         this.environment = environment;
     }
@@ -60,18 +60,18 @@ public class TemplateVariablesScanner implements InitializingBean {
         try {
             packages.addAll(AutoConfigurationPackages.get(beanFactory));
         } catch (IllegalStateException e) {
-            log.debug("TemplateVariablesScanner: no application packages registered; scanning {} only",
+            log.debug("TemplateVariableSetScanner: no application packages registered; scanning {} only",
                     FRAMEWORK_PACKAGE);
         }
         packages.addAll(Binder.get(environment).bind(SCAN_BASE_PACKAGES, Bindable.listOf(String.class))
                 .orElse(List.of()));
         Set<Class<?>> found = scan(packages);
-        TemplateVariablesRegistry.register(found);
-        log.info("TemplateVariablesScanner: registered {} template variable set(s)", found.size());
+        TemplateVariableSetRegistry.register(found);
+        log.info("TemplateVariableSetScanner: registered {} template variable set(s)", found.size());
     }
 
     /**
-     * Every class carrying {@link TemplateVariables} under {@code packages}. Public for a test that
+     * Every class carrying {@link TemplateVariableSet} under {@code packages}. Public for a test that
      * registers an application's sets the way its boot does, to catch a duplicate name in CI.
      */
     public static Set<Class<?>> scan(Set<String> packages) {
@@ -84,7 +84,7 @@ public class TemplateVariablesScanner implements InitializingBean {
                         return definition.getMetadata().isIndependent();
                     }
                 };
-        provider.addIncludeFilter(new AnnotationTypeFilter(TemplateVariables.class));
+        provider.addIncludeFilter(new AnnotationTypeFilter(TemplateVariableSet.class));
         Set<Class<?>> found = new LinkedHashSet<>();
         List<String> unloadable = new ArrayList<>();
         for (String basePackage : packages) {
@@ -103,7 +103,7 @@ public class TemplateVariablesScanner implements InitializingBean {
         if (!unloadable.isEmpty()) {
             // Not skipped: a set that silently goes missing turns every template written against
             // it into one that cannot be saved or sent.
-            throw new IllegalStateException("Cannot load @TemplateVariables class(es): " + unloadable);
+            throw new IllegalStateException("Cannot load @TemplateVariableSet class(es): " + unloadable);
         }
         return found;
     }

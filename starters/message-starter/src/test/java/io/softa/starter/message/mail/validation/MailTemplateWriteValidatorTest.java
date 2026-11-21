@@ -14,7 +14,7 @@ import io.softa.starter.message.mail.entity.PlatformMailTemplate;
 import io.softa.starter.message.mail.service.MailSendServerConfigService;
 import io.softa.starter.message.mail.service.PlatformMailSendServerService;
 import io.softa.starter.message.mail.service.PlatformMailTemplateService;
-import io.softa.starter.message.template.TemplateSourceRules;
+import io.softa.starter.message.template.VariableSetRules;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -40,7 +40,7 @@ class MailTemplateWriteValidatorTest {
         tenantServers = mock(MailSendServerConfigService.class);
         platformServers = mock(PlatformMailSendServerService.class);
         validator = new MailTemplateWriteValidator(platformTemplates, tenantServers, platformServers,
-                new TemplateSourceRules());
+                new VariableSetRules());
     }
 
     private static Map<String, Object> row(Object... keyValues) {

@@ -2,13 +2,13 @@ package io.softa.starter.user.template;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-import io.softa.framework.base.annotation.TemplateVariables;
+import io.softa.framework.base.annotation.TemplateVariableSet;
 
 /**
  * What the {@code user.verification-code} mail and SMS are filled with: a one-time code for signing
  * in, joining, or confirming a change of credentials.
  */
-@TemplateVariables(name = "user.verification-code", label = "Verification code")
+@TemplateVariableSet(name = "user.verification-code", label = "Verification code")
 public record VerificationCodeVariables(
         @Schema(title = "Code", description = "The one-time code the person types in", example = "482913")
         String code,

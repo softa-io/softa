@@ -7,8 +7,7 @@ import java.lang.annotation.Target;
 
 /**
  * Marks a {@code record} as a named set of template variables: the values a piece of code hands to
- * a template that has no model to read them from — a verification code, an invitation link, an
- * approval notice.
+ * a mail or SMS template — a verification code, an invitation link, an approval notice.
  *
  * <p>A template names the set it is written against ({@code variableSetName}); the editor then offers
  * exactly these fields, a save refuses a variable the set does not have, and a send refuses an object
@@ -21,12 +20,12 @@ import java.lang.annotation.Target;
  * loop).
  *
  * <p>Declared sets are collected at startup into
- * {@code io.softa.framework.orm.meta.TemplateVariablesRegistry}; nothing is stored in the database.
+ * {@code io.softa.framework.orm.meta.TemplateVariableSetRegistry}; nothing is stored in the database.
  * Two classes declaring the same {@link #name()} stop the application from starting.
  */
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
-public @interface TemplateVariables {
+public @interface TemplateVariableSet {
 
     /**
      * The set's name, as a template stores it. Written like a template code, with the owning module

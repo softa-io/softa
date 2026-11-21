@@ -7,15 +7,15 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import io.softa.framework.base.annotation.TemplateVariables;
+import io.softa.framework.base.annotation.TemplateVariableSet;
 import io.softa.framework.orm.enums.AccessType;
-import io.softa.framework.orm.meta.TemplateVariablesRegistry;
+import io.softa.framework.orm.meta.TemplateVariableSetRegistry;
 import io.softa.framework.orm.service.validation.WriteContext;
 import io.softa.framework.orm.service.validation.WriteValidationException;
 import io.softa.starter.message.mail.service.MailSendServerConfigService;
 import io.softa.starter.message.mail.service.PlatformMailSendServerService;
 import io.softa.starter.message.mail.service.PlatformMailTemplateService;
-import io.softa.starter.message.template.TemplateSourceRules;
+import io.softa.starter.message.template.VariableSetRules;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -27,7 +27,7 @@ import static org.mockito.Mockito.when;
  */
 class MailTemplateContentValidationTest {
 
-    @TemplateVariables(name = "test.code-notice")
+    @TemplateVariableSet(name = "test.code-notice")
     public record CodeNotice(String code, int expiryMinutes) {
     }
 
@@ -35,15 +35,15 @@ class MailTemplateContentValidationTest {
 
     @BeforeEach
     void setUp() {
-        TemplateVariablesRegistry.register(Set.of(CodeNotice.class));
+        TemplateVariableSetRegistry.register(Set.of(CodeNotice.class));
         validator = new MailTemplateWriteValidator(mock(PlatformMailTemplateService.class),
                 mock(MailSendServerConfigService.class), mock(PlatformMailSendServerService.class),
-                new TemplateSourceRules());
+                new VariableSetRules());
     }
 
     @AfterEach
     void clear() {
-        TemplateVariablesRegistry.register(Set.of());
+        TemplateVariableSetRegistry.register(Set.of());
     }
 
     private static Map<String, Object> row(Object... keyValues) {

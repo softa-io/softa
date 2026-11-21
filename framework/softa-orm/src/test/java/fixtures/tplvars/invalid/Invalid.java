@@ -3,7 +3,7 @@ package fixtures.tplvars.invalid;
 import java.util.List;
 import java.util.Map;
 
-import io.softa.framework.base.annotation.TemplateVariables;
+import io.softa.framework.base.annotation.TemplateVariableSet;
 
 /**
  * Declarations the registry refuses, each for one reason. Kept outside {@code io.softa}, which
@@ -14,22 +14,22 @@ public final class Invalid {
     private Invalid() {
     }
 
-    @TemplateVariables(name = "test.not-a-record")
+    @TemplateVariableSet(name = "test.not-a-record")
     public static class NotARecord {
     }
 
-    @TemplateVariables(name = "test.bad-type")
+    @TemplateVariableSet(name = "test.bad-type")
     public record BadType(Map<String, Object> anything) {
     }
 
-    @TemplateVariables(name = "test.bad-list")
+    @TemplateVariableSet(name = "test.bad-list")
     public record BadList(List<String> names) {
     }
 
     public record Node(String name, Node parent) {
     }
 
-    @TemplateVariables(name = "test.cycle")
+    @TemplateVariableSet(name = "test.cycle")
     public record Cycle(Node node) {
     }
 }

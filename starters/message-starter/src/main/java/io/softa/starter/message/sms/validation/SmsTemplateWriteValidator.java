@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 
 import io.softa.framework.orm.service.validation.ModelWriteValidator;
 import io.softa.framework.orm.service.validation.WriteContext;
-import io.softa.starter.message.template.TemplateSourceRules;
+import io.softa.starter.message.template.VariableSetRules;
 import io.softa.starter.message.template.TemplateUsage;
 
 /**
@@ -16,7 +16,7 @@ import io.softa.starter.message.template.TemplateUsage;
  * sent to the person as the literal {@code {{ name }}}.
  *
  * <p>Checked on create, and on an update that touches the set or the content. A template that names
- * no set is not checked. The same rule as a mail template's ({@link TemplateSourceRules}), and like
+ * no set is not checked. The same rule as a mail template's ({@link VariableSetRules}), and like
  * it the set is fixed once saved; an SMS has no control flow, so there is nothing else to check.
  */
 @Component
@@ -29,10 +29,10 @@ public class SmsTemplateWriteValidator implements ModelWriteValidator {
 
     private static final Set<String> CHECKED = Set.of(VARIABLE_SET_NAME, CONTENT);
 
-    private final TemplateSourceRules sourceRules;
+    private final VariableSetRules variableSetRules;
 
-    public SmsTemplateWriteValidator(TemplateSourceRules sourceRules) {
-        this.sourceRules = sourceRules;
+    public SmsTemplateWriteValidator(VariableSetRules variableSetRules) {
+        this.variableSetRules = variableSetRules;
     }
 
     @Override
@@ -48,7 +48,7 @@ public class SmsTemplateWriteValidator implements ModelWriteValidator {
     @Override
     public void validateUpdate(WriteContext ctx) {
         if (ctx.patch().containsKey(VARIABLE_SET_NAME)) {
-            TemplateSourceRules.changedSetProblem(ctx.originalRow(), ctx.patch().get(VARIABLE_SET_NAME))
+            VariableSetRules.changedSetProblem(ctx.originalRow(), ctx.patch().get(VARIABLE_SET_NAME))
                     .ifPresent(problem -> ctx.reject(VARIABLE_SET_NAME, problem));
         }
         if (ctx.patch().keySet().stream().anyMatch(CHECKED::contains)) {
@@ -60,7 +60,7 @@ public class SmsTemplateWriteValidator implements ModelWriteValidator {
         Object variableSetName = ctx.row().get(VARIABLE_SET_NAME);
         Object content = ctx.row().get(CONTENT);
         TemplateUsage usage = TemplateUsage.ofText(content == null ? null : content.toString());
-        for (String problem : sourceRules.problems(variableSetName == null ? null : variableSetName.toString(), usage)) {
+        for (String problem : variableSetRules.problems(variableSetName == null ? null : variableSetName.toString(), usage)) {
             ctx.reject(VARIABLE_SET_NAME, problem);
         }
     }

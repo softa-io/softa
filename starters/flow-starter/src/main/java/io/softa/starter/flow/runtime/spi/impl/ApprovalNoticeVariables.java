@@ -2,7 +2,7 @@ package io.softa.starter.flow.runtime.spi.impl;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-import io.softa.framework.base.annotation.TemplateVariables;
+import io.softa.framework.base.annotation.TemplateVariableSet;
 
 /**
  * What every approval mail is filled with — the eight {@code flow.*} templates
@@ -10,7 +10,7 @@ import io.softa.framework.base.annotation.TemplateVariables;
  * {@code flow.returned}, {@code flow.terminated}, {@code flow.reassigned}, {@code flow.failed}) share
  * one set: they differ in wording, not in what they are told.
  */
-@TemplateVariables(name = "flow.approval-notice", label = "Approval notice")
+@TemplateVariableSet(name = "flow.approval-notice", label = "Approval notice")
 public record ApprovalNoticeVariables(
         @Schema(title = "Subject", description = "What the request is about", example = "Leave request LR-0012")
         String subject,

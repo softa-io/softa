@@ -8,13 +8,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
-import io.softa.framework.base.annotation.TemplateVariables;
+import io.softa.framework.base.annotation.TemplateVariableSet;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.utils.JsonUtils;
-import io.softa.framework.orm.meta.TemplateVariablesRegistry;
+import io.softa.framework.orm.meta.TemplateVariableSetRegistry;
 import io.softa.starter.message.mail.dto.SendMailDTO;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.entity.MailTemplate;
@@ -44,13 +44,13 @@ import static org.mockito.Mockito.when;
  * A send that hands over an object of a declared set is checked against the template when it is
  * accepted; a plain map is taken as it always was.
  */
-class MessageSourcedVariablesTest {
+class MessageVariableSetTest {
 
-    @TemplateVariables(name = "test.code")
+    @TemplateVariableSet(name = "test.code")
     public record CodeVariables(String code, Integer expiryMinutes, String employeeName) {
     }
 
-    @TemplateVariables(name = "test.other")
+    @TemplateVariableSet(name = "test.other")
     public record OtherVariables(String link) {
     }
 
@@ -63,7 +63,7 @@ class MessageSourcedVariablesTest {
 
     @BeforeEach
     void setUp() {
-        TemplateVariablesRegistry.register(Set.of(CodeVariables.class, OtherVariables.class));
+        TemplateVariableSetRegistry.register(Set.of(CodeVariables.class, OtherVariables.class));
         mailRecords = mock(MailSendRecordService.class);
         locator = mock(MailTemplateLocator.class);
         mail = new MailMessageHandler(mailRecords, locator);
@@ -74,7 +74,7 @@ class MessageSourcedVariablesTest {
 
     @AfterEach
     void clear() {
-        TemplateVariablesRegistry.register(Set.of());
+        TemplateVariableSetRegistry.register(Set.of());
     }
 
     private static PlatformMailTemplate platformTemplate(String code, String variableSetName) {

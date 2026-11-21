@@ -11,8 +11,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.utils.Assert;
-import io.softa.framework.orm.meta.TemplateVariableSet;
-import io.softa.framework.orm.meta.TemplateVariablesRegistry;
+import io.softa.framework.orm.meta.MetaTemplateVariableSet;
+import io.softa.framework.orm.meta.TemplateVariableSetRegistry;
 import io.softa.framework.web.response.ApiResponse;
 
 /**
@@ -22,10 +22,10 @@ import io.softa.framework.web.response.ApiResponse;
  * and no data of any record: the dictionary a template is written against, like an option set's
  * items. A template bound to a model reads the model's metadata instead.
  */
-@Tag(name = "TemplateVariables")
+@Tag(name = "TemplateVariableSet")
 @RestController
-@RequestMapping("/TemplateVariables")
-public class TemplateVariablesController {
+@RequestMapping("/TemplateVariableSet")
+public class TemplateVariableSetController {
 
     /**
      * Every declared set, with its fields.
@@ -34,8 +34,8 @@ public class TemplateVariablesController {
      */
     @GetMapping("/list")
     @Operation(summary = "list", description = "List the declared sets of template variables.")
-    public ApiResponse<List<TemplateVariableSet>> list() {
-        return ApiResponse.success(TemplateVariablesRegistry.all());
+    public ApiResponse<List<MetaTemplateVariableSet>> list() {
+        return ApiResponse.success(TemplateVariableSetRegistry.all());
     }
 
     /**
@@ -47,9 +47,9 @@ public class TemplateVariablesController {
     @GetMapping("/get")
     @Operation(summary = "get", description = "Get one set of template variables by name.")
     @Parameter(name = "name", description = "Name of the set, e.g. flow.approval-notice", required = true)
-    public ApiResponse<TemplateVariableSet> get(@RequestParam String name) {
+    public ApiResponse<MetaTemplateVariableSet> get(@RequestParam String name) {
         Assert.notBlank(name, "The name of the template variables cannot be empty.");
-        return ApiResponse.success(TemplateVariablesRegistry.find(name).orElseThrow(() ->
+        return ApiResponse.success(TemplateVariableSetRegistry.find(name).orElseThrow(() ->
                 new BusinessException("No template variables are declared under the name ''{0}''.", name.trim())));
     }
 }

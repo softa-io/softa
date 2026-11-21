@@ -9,12 +9,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import io.softa.framework.base.annotation.TemplateVariables;
-import io.softa.framework.orm.meta.TemplateVariablesRegistry;
+import io.softa.framework.base.annotation.TemplateVariableSet;
+import io.softa.framework.orm.meta.TemplateVariableSetRegistry;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class TemplateSourceRulesTest {
+class VariableSetRulesTest {
 
     public record Line(String name, int qty) {
     }
@@ -22,22 +22,22 @@ class TemplateSourceRulesTest {
     public record Sender(String fullName) {
     }
 
-    @TemplateVariables(name = "test.notice")
+    @TemplateVariableSet(name = "test.notice")
     public record Notice(@Schema(title = "Record code") String recordCode, String link, BigDecimal amount,
                          boolean urgent, Sender sender, List<Line> lines) {
     }
 
-    private TemplateSourceRules rules;
+    private VariableSetRules rules;
 
     @BeforeEach
     void setUp() {
-        TemplateVariablesRegistry.register(Set.of(Notice.class));
-        rules = new TemplateSourceRules();
+        TemplateVariableSetRegistry.register(Set.of(Notice.class));
+        rules = new VariableSetRules();
     }
 
     @AfterEach
     void clear() {
-        TemplateVariablesRegistry.register(Set.of());
+        TemplateVariableSetRegistry.register(Set.of());
     }
 
     private static String loop(String list, String... columns) {
@@ -130,18 +130,18 @@ class TemplateSourceRulesTest {
     @Test
     void aSavedSetCannotBeChangedOrCleared() {
         Map<String, Object> stored = Map.of("variableSetName", "test.notice");
-        assertThat(TemplateSourceRules.changedSetProblem(stored, "test.other")).get().asString()
+        assertThat(VariableSetRules.changedSetProblem(stored, "test.other")).get().asString()
                 .contains("cannot be changed").contains("'test.notice'");
-        assertThat(TemplateSourceRules.changedSetProblem(stored, "")).isPresent();
-        assertThat(TemplateSourceRules.changedSetProblem(stored, null)).isPresent();
+        assertThat(VariableSetRules.changedSetProblem(stored, "")).isPresent();
+        assertThat(VariableSetRules.changedSetProblem(stored, null)).isPresent();
     }
 
     @Test
     void aSetIsGivenOnce_andWritingTheSameOneAgainPasses() {
-        assertThat(TemplateSourceRules.changedSetProblem(Map.of(), "test.notice")).isEmpty();
-        assertThat(TemplateSourceRules.changedSetProblem(null, "test.notice")).isEmpty();
+        assertThat(VariableSetRules.changedSetProblem(Map.of(), "test.notice")).isEmpty();
+        assertThat(VariableSetRules.changedSetProblem(null, "test.notice")).isEmpty();
         // A seed reload writes the row back whole, its set included.
-        assertThat(TemplateSourceRules.changedSetProblem(Map.of("variableSetName", "test.notice"), " test.notice "))
+        assertThat(VariableSetRules.changedSetProblem(Map.of("variableSetName", "test.notice"), " test.notice "))
                 .isEmpty();
     }
 }

@@ -114,7 +114,7 @@ final class SmsMessageHandler {
     }
 
     /**
-     * An object of a {@code @TemplateVariables} set, sent through a template that names a set, must
+     * An object of a variable set ({@code @TemplateVariableSet}), sent through a template that names a set, must
      * be of that set — the wrong one would go out with its {@code {{ names }}} unfilled. A template
      * that cannot be found is left to the first delivery attempt, which records why.
      */

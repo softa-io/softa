@@ -6,7 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import io.softa.framework.base.message.MessageScope;
-import io.softa.framework.orm.meta.TemplateVariablesRegistry;
+import io.softa.framework.orm.meta.TemplateVariableSetRegistry;
 
 /**
  * Request payload for one SMS recipient. Independent messages use
@@ -45,7 +45,7 @@ public class SendSmsDTO {
     private MessageScope scope;
 
     /**
-     * The {@code @TemplateVariables} set the variables were taken from, when the sender handed over
+     * The variable set ({@code @TemplateVariableSet}) the variables were taken from, when the sender handed over
      * an object. A template that names a set refuses the object of another one. Set by code only:
      * never read from a request body.
      */
@@ -65,18 +65,18 @@ public class SendSmsDTO {
     }
 
     /**
-     * A templated SMS filled from a {@code @TemplateVariables} object; see
+     * A templated SMS filled from a {@code @TemplateVariableSet} object; see
      * {@code SendMailDTO.ofTemplate(List, String, Object, MessageScope)}. A component left null is
      * not sent at all: a provider that fills its own registered template is handed the variables
      * themselves, some by position, and would refuse one more than its template takes.
      *
-     * @param variables a record carrying {@code @TemplateVariables}
+     * @param variables a record carrying {@code @TemplateVariableSet}
      */
     public static SendSmsDTO ofTemplate(String phoneNumber, String templateCode, Object variables,
                                         MessageScope scope) {
         SendSmsDTO sms = ofTemplate(phoneNumber, templateCode,
-                TemplateVariablesRegistry.toMapOmittingMissing(variables), scope);
-        sms.setVariableSetName(TemplateVariablesRegistry.nameOf(variables));
+                TemplateVariableSetRegistry.toMapOmittingMissing(variables), scope);
+        sms.setVariableSetName(TemplateVariableSetRegistry.nameOf(variables));
         return sms;
     }
 }

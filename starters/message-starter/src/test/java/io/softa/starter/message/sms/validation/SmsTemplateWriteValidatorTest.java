@@ -7,18 +7,18 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import io.softa.framework.base.annotation.TemplateVariables;
+import io.softa.framework.base.annotation.TemplateVariableSet;
 import io.softa.framework.orm.enums.AccessType;
-import io.softa.framework.orm.meta.TemplateVariablesRegistry;
+import io.softa.framework.orm.meta.TemplateVariableSetRegistry;
 import io.softa.framework.orm.service.validation.WriteContext;
-import io.softa.starter.message.template.TemplateSourceRules;
+import io.softa.starter.message.template.VariableSetRules;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 class SmsTemplateWriteValidatorTest {
 
-    @TemplateVariables(name = "test.sms-code")
+    @TemplateVariableSet(name = "test.sms-code")
     public record SmsCode(String code, int expiryMinutes) {
     }
 
@@ -26,13 +26,13 @@ class SmsTemplateWriteValidatorTest {
 
     @BeforeEach
     void setUp() {
-        TemplateVariablesRegistry.register(Set.of(SmsCode.class));
-        validator = new SmsTemplateWriteValidator(new TemplateSourceRules());
+        TemplateVariableSetRegistry.register(Set.of(SmsCode.class));
+        validator = new SmsTemplateWriteValidator(new VariableSetRules());
     }
 
     @AfterEach
     void clear() {
-        TemplateVariablesRegistry.register(Set.of());
+        TemplateVariableSetRegistry.register(Set.of());
     }
 
     private static Map<String, Object> row(Object... keyValues) {

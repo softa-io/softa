@@ -18,8 +18,8 @@ import io.softa.starter.message.shared.TenantScopes;
  * With multi-tenancy off there is one owner: the deployment's own templates, then the platform
  * table's.
  *
- * <p>One lookup for the two moments that need it: accepting a send that hands over an object or a
- * record, which is checked against the template there, and the first delivery attempt, which renders.
+ * <p>One lookup for the two moments that need it: accepting a send filled from a variable set, whose
+ * set is checked against the template's there, and the first delivery attempt, which renders.
  */
 @Component
 public class MailTemplateLocator {

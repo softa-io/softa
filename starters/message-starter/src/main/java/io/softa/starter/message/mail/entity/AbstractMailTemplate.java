@@ -42,7 +42,7 @@ public abstract class AbstractMailTemplate extends AuditableModel {
 
     /**
      * Where the template's variables come from when code fills them: the name of a
-     * {@code @TemplateVariables} set. The editor offers that set's fields, a save refuses a variable
+     * variable set ({@code @TemplateVariableSet}). The editor offers that set's fields, a save refuses a variable
      * it does not have, and a send refuses an object of another set. Empty = the template takes
      * whatever map it is sent with, unchecked.
      */

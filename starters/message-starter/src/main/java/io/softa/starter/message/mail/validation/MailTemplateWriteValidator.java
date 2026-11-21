@@ -11,7 +11,7 @@ import io.softa.framework.orm.service.validation.WriteContext;
 import io.softa.starter.message.mail.service.MailSendServerConfigService;
 import io.softa.starter.message.mail.service.PlatformMailSendServerService;
 import io.softa.starter.message.mail.service.PlatformMailTemplateService;
-import io.softa.starter.message.template.TemplateSourceRules;
+import io.softa.starter.message.template.VariableSetRules;
 import io.softa.starter.message.template.TemplateUsage;
 
 /**
@@ -28,7 +28,7 @@ import io.softa.starter.message.template.TemplateUsage;
  *       found".</li>
  *   <li><b>The content fits its variables and can be compiled.</b> A template that names the
  *       declared set its variables come from ({@code variableSetName}) may only use what that set has
- *       ({@link TemplateSourceRules}); a name it does not have could only ever print nothing. And
+ *       ({@link VariableSetRules}); a name it does not have could only ever print nothing. And
  *       whatever the set, a body the template engine cannot compile is refused here rather than at
  *       the first send. Checked on create, and on an update that touches the set or the content.</li>
  *   <li><b>The set is fixed once saved.</b> Code fills a template with the set's values; a template
@@ -60,16 +60,16 @@ public class MailTemplateWriteValidator implements ModelWriteValidator {
 
     private final PlatformMailSendServerService platformSendServerService;
 
-    private final TemplateSourceRules sourceRules;
+    private final VariableSetRules variableSetRules;
 
     public MailTemplateWriteValidator(PlatformMailTemplateService platformTemplateService,
                                       MailSendServerConfigService sendServerService,
                                       PlatformMailSendServerService platformSendServerService,
-                                      TemplateSourceRules sourceRules) {
+                                      VariableSetRules variableSetRules) {
         this.platformTemplateService = platformTemplateService;
         this.sendServerService = sendServerService;
         this.platformSendServerService = platformSendServerService;
-        this.sourceRules = sourceRules;
+        this.variableSetRules = variableSetRules;
     }
 
     @Override
@@ -93,7 +93,7 @@ public class MailTemplateWriteValidator implements ModelWriteValidator {
             checkPreferredServer(ctx);
         }
         if (ctx.patch().containsKey(VARIABLE_SET_NAME)) {
-            TemplateSourceRules.changedSetProblem(ctx.originalRow(), ctx.patch().get(VARIABLE_SET_NAME))
+            VariableSetRules.changedSetProblem(ctx.originalRow(), ctx.patch().get(VARIABLE_SET_NAME))
                     .ifPresent(problem -> ctx.reject(VARIABLE_SET_NAME, problem));
         }
         if (ctx.patch().keySet().stream().anyMatch(CONTENT::contains)) {
@@ -112,7 +112,7 @@ public class MailTemplateWriteValidator implements ModelWriteValidator {
             rejectUncompilable(ctx, BODY_HTML, TemplateBlocks.toPebble(bodyHtml));
         }
         rejectUncompilable(ctx, BODY_TEXT, bodyText);
-        for (String problem : sourceRules.problems(variableSetName, usage)) {
+        for (String problem : variableSetRules.problems(variableSetName, usage)) {
             ctx.reject(VARIABLE_SET_NAME, problem);
         }
     }

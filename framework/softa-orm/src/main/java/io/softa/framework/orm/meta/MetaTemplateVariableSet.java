@@ -6,43 +6,43 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
  * A declared set of template variables: what a
- * {@link io.softa.framework.base.annotation.TemplateVariables} record offers a template.
+ * {@link io.softa.framework.base.annotation.TemplateVariableSet} record offers a template.
  *
  * @param name   the name a template stores in {@code variableSetName}
  * @param label  display label
  * @param fields the variables, in declaration order
  */
-@Schema(name = "TemplateVariableSet")
-public record TemplateVariableSet(
+@Schema(name = "MetaTemplateVariableSet")
+public record MetaTemplateVariableSet(
         @Schema(description = "Name a template stores to say it is written against this set") String name,
         @Schema(description = "Display label") String label,
-        @Schema(description = "The variables, in declaration order") List<TemplateVariableField> fields) {
+        @Schema(description = "The variables, in declaration order") List<MetaTemplateVariable> fields) {
 
     /**
      * The variable a dotted path leads to: each part but the last must be a nested set. A list is
      * reached but not entered — its items are read inside a loop, by {@link #itemField}.
      */
-    public Optional<TemplateVariableField> field(String path) {
+    public Optional<MetaTemplateVariable> field(String path) {
         return find(fields, path);
     }
 
     /** The field {@code path} leads to among the items of the list {@code list}. */
-    public Optional<TemplateVariableField> itemField(String list, String path) {
-        return field(list).filter(TemplateVariableField::isList).flatMap(found -> find(found.fields(), path));
+    public Optional<MetaTemplateVariable> itemField(String list, String path) {
+        return field(list).filter(MetaTemplateVariable::isList).flatMap(found -> find(found.fields(), path));
     }
 
-    private static Optional<TemplateVariableField> find(List<TemplateVariableField> fields, String path) {
+    private static Optional<MetaTemplateVariable> find(List<MetaTemplateVariable> fields, String path) {
         if (path == null || path.isBlank()) {
             return Optional.empty();
         }
-        List<TemplateVariableField> level = fields;
-        TemplateVariableField found = null;
+        List<MetaTemplateVariable> level = fields;
+        MetaTemplateVariable found = null;
         for (String part : path.trim().split("\\.")) {
             if (found != null && !found.isNested()) {
                 return Optional.empty();
             }
             found = null;
-            for (TemplateVariableField field : level) {
+            for (MetaTemplateVariable field : level) {
                 if (field.fieldName().equals(part)) {
                     found = field;
                     break;

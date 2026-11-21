@@ -638,9 +638,9 @@ receives that text; another format names it:
 
 A template may name the set of variables it is written against in `variableSetName`
 (`MailTemplate`, `PlatformMailTemplate`, `SmsTemplate`): a record carrying
-`@TemplateVariables`, which code fills and sends as an object with
+`@TemplateVariableSet`, which code fills and sends as an object with
 `SendMailDTO.ofTemplate(to, code, variables, scope)`. The editor offers the set's
-fields (`GET /TemplateVariables/get?name=`). A template that names no set takes
+fields (`GET /TemplateVariableSet/get?name=`). A template that names no set takes
 whatever map it is sent with, as before. Once saved, a template's set cannot be
 changed: code fills it with that set's values. The templates read no records — every
 value comes from the sender.
@@ -651,13 +651,13 @@ sample value come from the component's `@Schema` (`title` / `description` /
 nested record (`sender.fullName`) or a list of records (a loop).
 
 ```java
-@TemplateVariables(name = "flow.approval-notice", label = "Approval notice")
+@TemplateVariableSet(name = "flow.approval-notice", label = "Approval notice")
 public record ApprovalNoticeVariables(
         @Schema(title = "Record code", example = "LR-0012") String recordCode,
         @Schema(title = "Link", description = "Opens the request") String link) {}
 ```
 
-Sets are collected at startup into `TemplateVariablesRegistry` (softa-orm) and held
+Sets are collected at startup into `TemplateVariableSetRegistry` (softa-orm) and held
 in memory — nothing is stored. Two classes declaring one name, a class that is not a
 record, or a component of another type stop the application, naming the class.
 `SoftaCatalogBootCheckTest` registers every softa set; an application repeats that
@@ -665,7 +665,7 @@ check over its own packages so a duplicate name fails in CI, not at deployment.
 
 **On save** (`MailTemplateWriteValidator`, `SmsTemplateWriteValidator` — every
 write path, seed loading included), a template that names a set may only use what
-the set has (`TemplateSourceRules`): an unknown variable, a loop over something that
+the set has (`VariableSetRules`): an unknown variable, a loop over something that
 is not a list, a condition that does not fit its field's type are refused, listing
 what is wrong, and so is moving a saved template to another set. Whatever the set, a
 mail body the template engine cannot compile is refused. Only what can be recognised as a

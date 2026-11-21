@@ -2,13 +2,13 @@ package io.softa.starter.user.template;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-import io.softa.framework.base.annotation.TemplateVariables;
+import io.softa.framework.base.annotation.TemplateVariableSet;
 
 /**
  * What the {@code user.invitation} mail and SMS and the {@code user.password-reset} mail are filled
  * with: a link that sets the person's password, valid for a number of days.
  */
-@TemplateVariables(name = "user.account-link", label = "Invitation / password reset link")
+@TemplateVariableSet(name = "user.account-link", label = "Invitation / password reset link")
 public record AccountLinkVariables(
         @Schema(title = "Link", description = "Opens the page where the person sets a password",
                 example = "https://app.example.com/join?token=…")

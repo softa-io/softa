@@ -14,20 +14,20 @@ import io.softa.framework.base.placeholder.TemplateBlocks;
 import io.softa.framework.base.placeholder.TemplateCondition;
 import io.softa.framework.base.placeholder.TemplateCondition.ValueType;
 import io.softa.framework.orm.enums.FieldType;
-import io.softa.framework.orm.meta.TemplateVariableField;
-import io.softa.framework.orm.meta.TemplateVariableSet;
-import io.softa.framework.orm.meta.TemplateVariablesRegistry;
+import io.softa.framework.orm.meta.MetaTemplateVariable;
+import io.softa.framework.orm.meta.MetaTemplateVariableSet;
+import io.softa.framework.orm.meta.TemplateVariableSetRegistry;
 
 /**
  * Whether what a template asks for ({@link TemplateUsage}) is something its variables can give.
  *
- * <p>A template names the declared {@code @TemplateVariables} set it is written against in
+ * <p>A template names the declared variable set ({@code @TemplateVariableSet}) it is written against in
  * {@code variableSetName}; code fills it. A name the set does not have is refused when the template is
  * saved — it could only ever print nothing. A template that names no set is not checked at all: it
  * takes whatever it is sent with, as templates always have.
  */
 @Component
-public class TemplateSourceRules {
+public class VariableSetRules {
 
     /**
      * Everything wrong with a template's content given its set; empty when nothing is, and when the
@@ -63,11 +63,11 @@ public class TemplateSourceRules {
     // ---- a declared set -------------------------------------------------------------------------
 
     private List<String> againstSet(String name, TemplateUsage usage) {
-        Optional<TemplateVariableSet> declared = TemplateVariablesRegistry.find(name);
+        Optional<MetaTemplateVariableSet> declared = TemplateVariableSetRegistry.find(name);
         if (declared.isEmpty()) {
             return List.of("No template variables are declared under the name '" + name + "'.");
         }
-        TemplateVariableSet set = declared.get();
+        MetaTemplateVariableSet set = declared.get();
         List<String> problems = new ArrayList<>();
         Set<String> unknown = new LinkedHashSet<>();
         for (String path : usage.printed()) {
@@ -76,7 +76,7 @@ public class TemplateSourceRules {
             }
         }
         for (String list : usage.lists()) {
-            Optional<TemplateVariableField> field = set.field(list);
+            Optional<MetaTemplateVariable> field = set.field(list);
             if (field.isEmpty()) {
                 unknown.add(list);
             } else if (!field.get().isList()) {
@@ -84,7 +84,7 @@ public class TemplateSourceRules {
             }
         }
         for (TemplateBlocks.Loop loop : usage.loops()) {
-            if (set.field(loop.list()).filter(TemplateVariableField::isList).isEmpty()) {
+            if (set.field(loop.list()).filter(MetaTemplateVariable::isList).isEmpty()) {
                 continue;   // reported above, as unknown or as not a list
             }
             for (String column : loop.columns()) {
@@ -95,7 +95,7 @@ public class TemplateSourceRules {
             }
         }
         for (TemplateBlocks.Condition condition : usage.conditions()) {
-            Optional<TemplateVariableField> field = set.field(condition.field());
+            Optional<MetaTemplateVariable> field = set.field(condition.field());
             if (field.isEmpty()) {
                 unknown.add(condition.field());
             } else {
@@ -108,9 +108,9 @@ public class TemplateSourceRules {
         return problems;
     }
 
-    private static String namesOf(TemplateVariableSet set) {
+    private static String namesOf(MetaTemplateVariableSet set) {
         List<String> names = new ArrayList<>();
-        for (TemplateVariableField field : set.fields()) {
+        for (MetaTemplateVariable field : set.fields()) {
             names.add(field.fieldName());
         }
         return String.join(", ", names);

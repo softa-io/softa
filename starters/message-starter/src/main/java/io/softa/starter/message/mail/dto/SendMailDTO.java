@@ -8,7 +8,7 @@ import lombok.Data;
 
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.orm.dto.FileInfo;
-import io.softa.framework.orm.meta.TemplateVariablesRegistry;
+import io.softa.framework.orm.meta.TemplateVariableSetRegistry;
 import io.softa.starter.message.mail.enums.BodyMode;
 import io.softa.starter.message.mail.enums.MailPriority;
 
@@ -92,7 +92,7 @@ public class SendMailDTO {
     private MessageScope scope;
 
     /**
-     * The {@code @TemplateVariables} set the variables were taken from, when the sender handed over
+     * The variable set ({@code @TemplateVariableSet}) the variables were taken from, when the sender handed over
      * an object ({@link #ofTemplate(List, String, Object, MessageScope)}). A template that names a
      * set refuses the object of another one. Set by code only: never read from a request body.
      */
@@ -113,16 +113,16 @@ public class SendMailDTO {
     }
 
     /**
-     * A templated mail filled from a {@code @TemplateVariables} object. The object is turned into the
+     * A templated mail filled from a {@code @TemplateVariableSet} object. The object is turned into the
      * template's variables — a missing value becomes empty — and its set is remembered, so a template
      * written against another set refuses it.
      *
-     * @param variables a record carrying {@code @TemplateVariables}
+     * @param variables a record carrying {@code @TemplateVariableSet}
      */
     public static SendMailDTO ofTemplate(List<String> to, String templateCode, Object variables,
                                          MessageScope scope) {
-        SendMailDTO mail = ofTemplate(to, templateCode, TemplateVariablesRegistry.toMap(variables), scope);
-        mail.setVariableSetName(TemplateVariablesRegistry.nameOf(variables));
+        SendMailDTO mail = ofTemplate(to, templateCode, TemplateVariableSetRegistry.toMap(variables), scope);
+        mail.setVariableSetName(TemplateVariableSetRegistry.nameOf(variables));
         return mail;
     }
 

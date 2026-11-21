@@ -117,7 +117,7 @@ final class MailMessageHandler {
     }
 
     /**
-     * An object of a {@code @TemplateVariables} set, sent through a template that names a set, must
+     * An object of a variable set ({@code @TemplateVariableSet}), sent through a template that names a set, must
      * be of that set — otherwise the wrong values would render as blanks and go out. Checked here,
      * where the mistake is still the caller's to hear about. A plain map is not checked, and a
      * template that cannot be found is left to the first delivery attempt, which records the send as

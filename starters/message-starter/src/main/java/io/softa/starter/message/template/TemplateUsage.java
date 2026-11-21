@@ -15,8 +15,8 @@ import io.softa.starter.message.mail.support.TemplateVariableExtractor;
 
 /**
  * What a template asks of its variables: the names it prints, the lists it loops over, and what its
- * blocks need. The one reading of a template that both a save (is every name known to the source?)
- * and a send from a record (which fields must be read?) work from.
+ * blocks need. A save reads a template once, into this, and checks every name against the template's
+ * variable set.
  *
  * <p>Only what can be recognised as a name is listed. {@code {{ a + b }}} names nothing here and is
  * neither checked nor read; {@code {{ name | upper }}} names {@code name}. Names local to the

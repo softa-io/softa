@@ -2,14 +2,14 @@ package io.softa.starter.user.template;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-import io.softa.framework.base.annotation.TemplateVariables;
+import io.softa.framework.base.annotation.TemplateVariableSet;
 
 /**
  * What the {@code user.reset-user} mail and SMS are filled with: the notice sent when an
  * administrator resets someone's login mobile. The new number is masked — the old number, where the
  * SMS goes, may be in a stranger's hands.
  */
-@TemplateVariables(name = "user.reset-user", label = "Login reset by an administrator")
+@TemplateVariableSet(name = "user.reset-user", label = "Login reset by an administrator")
 public record ResetUserVariables(
         @Schema(title = "Employee name", example = "Alex Chen")
         String employeeName,

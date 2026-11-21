@@ -7,7 +7,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.softa.framework.orm.enums.FieldType;
 
 /**
- * One variable of a {@link TemplateVariableSet}, described the way a model field is: name, label
+ * One variable of a {@link MetaTemplateVariableSet}, described the way a model field is: name, label
  * and type, so the picker that offers a model's fields can offer these unchanged.
  *
  * @param fieldName   the name a template refers to it by
@@ -19,14 +19,14 @@ import io.softa.framework.orm.enums.FieldType;
  * @param example     a sample value, for previewing a template; may be empty
  * @param fields      the fields of a nested set or of a list's items; empty for a plain value
  */
-@Schema(name = "TemplateVariableField")
-public record TemplateVariableField(
+@Schema(name = "MetaTemplateVariable")
+public record MetaTemplateVariable(
         @Schema(description = "Name a template refers to the variable by") String fieldName,
         @Schema(description = "Display label") String label,
         @Schema(description = "Field type; DTO for a nested set, OneToMany for a list") FieldType fieldType,
         @Schema(description = "What the value is") String description,
         @Schema(description = "Sample value") String example,
-        @Schema(description = "Fields of a nested set or of a list's items") List<TemplateVariableField> fields) {
+        @Schema(description = "Fields of a nested set or of a list's items") List<MetaTemplateVariable> fields) {
 
     /** Whether the value is a list a template loops over. */
     @JsonIgnore

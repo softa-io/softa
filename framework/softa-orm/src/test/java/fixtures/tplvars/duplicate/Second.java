@@ -1,8 +1,8 @@
 package fixtures.tplvars.duplicate;
 
-import io.softa.framework.base.annotation.TemplateVariables;
+import io.softa.framework.base.annotation.TemplateVariableSet;
 
 /** The other record declaring {@code test.declared-twice}; see {@link First}. */
-@TemplateVariables(name = "test.declared-twice")
+@TemplateVariableSet(name = "test.declared-twice")
 public record Second(String other) {
 }

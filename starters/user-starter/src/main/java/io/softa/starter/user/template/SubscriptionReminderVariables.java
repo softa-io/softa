@@ -2,7 +2,7 @@ package io.softa.starter.user.template;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
-import io.softa.framework.base.annotation.TemplateVariables;
+import io.softa.framework.base.annotation.TemplateVariableSet;
 
 /**
  * What the four subscription reminders are filled with — {@code subscription.expiry-reminder},
@@ -10,7 +10,7 @@ import io.softa.framework.base.annotation.TemplateVariables;
  * all four: which mail goes out depends on what follows the plan, and a reminder that has nothing
  * following leaves the last two empty.
  */
-@TemplateVariables(name = "subscription.reminder", label = "Subscription reminder")
+@TemplateVariableSet(name = "subscription.reminder", label = "Subscription reminder")
 public record SubscriptionReminderVariables(
         @Schema(title = "Tenant name", example = "Acme Pte Ltd")
         String tenantName,
