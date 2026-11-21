@@ -657,6 +657,17 @@ public record ApprovalNoticeVariables(
         @Schema(title = "Link", description = "Opens the request") String link) {}
 ```
 
+**Naming a set.** A set's name is stored beside the template's `code` and is written
+the same way: `<module>.<words>`, lowercase, words joined by hyphens, the module being
+the one that declares the set (`user`, `flow`, `subscription` in softa). A set filled
+for one template takes that template's code (`user.verification-code`,
+`user.login-mobile-changed`). A set several templates share is named after what they
+have in common: `flow.approval-notice` for the eight approval notices,
+`user.account-link` for the invitation and the password reset, `subscription.reminder`
+for the four contract reminders. The record is named after the set and ends in
+`Variables` (`ApprovalNoticeVariables`). Templates store the name, so renaming a set
+ships SQL that rewrites their `variable_set_name`, like any stored code.
+
 Sets are collected at startup into `TemplateVariableSetRegistry` (softa-orm) and held
 in memory — nothing is stored. Two classes declaring one name, a class that is not a
 record, or a component of another type stop the application, naming the class.
