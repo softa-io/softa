@@ -563,14 +563,19 @@ class MyCredentialServiceTest {
     }
 
     @Test
-    void aChangeProvenWithACodeFromTheOldNumber_isNotTold() {
+    void aChangeProvenWithACodeFromTheOldNumber_isToldAsWell() {
+        // The code only shows the old phone was in hand: a lost or borrowed phone gives the same.
         when(accountService.listMembershipsOf(ADA)).thenReturn(List.of(
                 membership(ACCOUNT, 1L, AccountStatus.ACTIVE, "ada@acme.com")));
 
         changeMobile("code");
 
-        assertThat(notices()).isEmpty();
-        assertThat(loggedChange().getReminderChannels()).isNull();
+        List<Sent> notices = notices();
+        assertThat(notices).extracting(s -> s.message() instanceof SendSmsDTO sms ? sms.getPhoneNumber()
+                : ((SendMailDTO) s.message()).getTo().get(0)).containsExactly(MOBILE, "ada@acme.com");
+        UserSecurityLog row = loggedChange();
+        assertThat(row.getReminderChannels()).isEqualTo("sms,email");
+        assertThat(row.getReminderResult()).isEqualTo("sms:sent,email:sent");
     }
 
     @Test
