@@ -6,6 +6,8 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.orm.constant.FileConstant;
 import io.softa.framework.orm.enums.FieldType;
@@ -737,6 +739,84 @@ class RelationLookupResolverTest {
                 List.of("profileId.notes", "profileId.idType.name"), true, false, true, null,
                 List.of(new RelationLookupResolver.NestedLookup(
                         "idType", "IdType", "name", "profileId.idType.name", null)));
+    }
+
+    /**
+     * A company the importer's roles are not granted is not "not found": it exists, and the row says so.
+     *
+     * <p>The lookup reads as the importer, so a company outside their grant came back as absent and the
+     * row read "Company not found: Zingkey Pte Ltd" — a name spelled right, reported as a typo. Read
+     * again past row scope, it is found, and the row gets the grant sentence the write would give.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aCompanyOutsideTheGrantIsReportedAsOutsideItNotAsMissing() {
+        RelationLookupResolver resolver = createResolver();
+        var group = new RelationLookupResolver.LookupGroup(
+                "legalEntityId", "Company", List.of("name"), List.of("legalEntityId.name"), true, false, false, null);
+        Map<String, Object> row = new LinkedHashMap<>(Map.of("legalEntityId.name", "Zingkey Pte Ltd"));
+
+        ModelService<Long> models = (ModelService<Long>) getModelService(resolver);
+        boolean[] skippedOnRetry = {false};
+        int[] calls = {0};
+        when(models.getIdsByBusinessKeys(eq("Company"), eq(List.of("name")), anyCollection(), any()))
+                .thenAnswer(inv -> {
+                    calls[0]++;
+                    if (!ContextHolder.getContext().isSkipPermissionCheck()) {
+                        return Map.of();   // the importer's read: outside their grant
+                    }
+                    skippedOnRetry[0] = true;
+                    return Map.of(List.<Object>of("Zingkey Pte Ltd"), 7L);
+                });
+
+        ContextHolder.runWith(new Context(), () ->
+                resolver.resolveRows(new ArrayList<>(List.of(row)), List.of(group), true));
+
+        String reason = String.valueOf(row.get(FileConstant.FAILED_REASON));
+        assertTrue(reason.endsWith(": \"Zingkey Pte Ltd\" is outside the companies your role is granted."
+                + " Choose one of those, or ask an administrator to grant your role this company."), reason);
+        assertFalse(reason.contains("not found"), reason);
+        assertTrue(skippedOnRetry[0]);
+        assertEquals(2, calls[0]);
+        // Rejected, not resolved: the id read past the grant is never written into the row.
+        assertNull(row.get("legalEntityId"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aCompanyThatDoesNotExistIsStillNotFound() {
+        RelationLookupResolver resolver = createResolver();
+        var group = new RelationLookupResolver.LookupGroup(
+                "legalEntityId", "Company", List.of("name"), List.of("legalEntityId.name"), true, false, false, null);
+        Map<String, Object> row = new LinkedHashMap<>(Map.of("legalEntityId.name", "No Such Pte Ltd"));
+
+        ModelService<Long> models = (ModelService<Long>) getModelService(resolver);
+        when(models.getIdsByBusinessKeys(eq("Company"), eq(List.of("name")), anyCollection(), any()))
+                .thenReturn(Map.of());
+
+        ContextHolder.runWith(new Context(), () ->
+                resolver.resolveRows(new ArrayList<>(List.of(row)), List.of(group), true));
+
+        assertTrue(String.valueOf(row.get(FileConstant.FAILED_REASON)).contains(" not found: No Such Pte Ltd"));
+    }
+
+    /** Only companies are looked up again: whether another model's unreadable record exists is not the importer's to learn. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aMissingRecordOfAnotherModelIsNotLookedUpAgain() {
+        RelationLookupResolver resolver = createResolver();
+        var group = new RelationLookupResolver.LookupGroup(
+                "deptId", "Department", List.of("code"), List.of("deptId.code"), true, false, false, null);
+        Map<String, Object> row = new LinkedHashMap<>(Map.of("deptId.code", "D999"));
+
+        ModelService<Long> models = (ModelService<Long>) getModelService(resolver);
+        when(models.getIdsByBusinessKeys(eq("Department"), eq(List.of("code")), anyCollection(), any()))
+                .thenReturn(Map.of());
+
+        resolver.resolveRows(new ArrayList<>(List.of(row)), List.of(group), true);
+
+        assertEquals("Department not found: D999", row.get(FileConstant.FAILED_REASON));
+        verify(models, times(1)).getIdsByBusinessKeys(eq("Department"), eq(List.of("code")), anyCollection(), any());
     }
 
     private RelationLookupResolver createResolver() {

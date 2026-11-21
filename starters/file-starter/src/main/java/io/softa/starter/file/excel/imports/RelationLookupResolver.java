@@ -7,6 +7,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.exception.ValidationException;
@@ -528,6 +529,7 @@ public class RelationLookupResolver {
         Map<List<Object>, Map<String, Object>> fileRows = selfReference
                 ? rowsByOwnKey(rows, group.lookupFields()) : Map.of();
         String subject = subjectOf(modelName, group.rootField(), group.relatedModel());
+        Set<List<Object>> outsideGrant = companiesOutsideGrant(group, rows, lookedUp);
 
         // Step 3: Write back the FK id and remove dotted-path columns
         for (Map<String, Object> row : rows) {
@@ -554,6 +556,8 @@ public class RelationLookupResolver {
                     // fills it in before this row goes in.
                     inFile.add(new InFileReferences.Reference(row, group.rootField(),
                             subject, group.lookupFields(), key, target));
+                } else if (outsideGrant.contains(keyValues)) {
+                    markFailure(row, buildOutsideGrantMessage(subject, keyValues), skipException);
                 } else {
                     markFailure(row, buildNotFoundMessage(subject, group, keyValues), skipException);
                 }
@@ -777,6 +781,51 @@ public class RelationLookupResolver {
         for (String dottedPath : group.dottedPaths()) {
             row.remove(dottedPath);
         }
+    }
+
+    /**
+     * The companies a row names that the lookup did not find but that do exist: outside the importer's
+     * company grant, so their read never returned them.
+     *
+     * <p>The lookup reads as the importer, so a company their roles are not granted is as absent as one
+     * that was never created, and the row was rejected as "not found" — a reader then hunts for a typo
+     * in a name that is spelled right. Read past row scope, the tenant still applying, the two come
+     * apart. Only companies: a company names itself in the grant message the write gives anyway
+     * ({@code CompanyReferenceGrantValidator}), while for other models whether an unreadable record
+     * exists is not the importer's to learn.
+     */
+    private Set<List<Object>> companiesOutsideGrant(LookupGroup group, List<Map<String, Object>> rows,
+                                                    Bucketed lookedUp) {
+        if (!ModelConstant.COMPANY_MODEL.equals(group.relatedModel())) {
+            return Set.of();
+        }
+        Set<List<Object>> missing = new LinkedHashSet<>();
+        for (Map<String, Object> row : rows) {
+            if (row.containsKey(FileConstant.FAILED_REASON)) {
+                continue;
+            }
+            List<Object> keyValues = extractKeyValues(row, group);
+            if (keyValues != null && lookedUp.idFor(row, keyValues) == null) {
+                missing.add(keyValues);
+            }
+        }
+        if (missing.isEmpty()) {
+            return Set.of();
+        }
+        Map<List<Object>, ?> existing = ContextUtils.withoutPermissionChecks(() -> modelService.getIdsByBusinessKeys(
+                group.relatedModel(), group.lookupFields(), missing, group.relationFilters()));
+        return existing.keySet();
+    }
+
+    /**
+     * {@code Legal Entity: "Zingkey Pte Ltd" is outside the companies your role is granted. …} — the sentence
+     * the write gives a company outside the grant ({@code CompanyReferenceGrantValidator}), so an import
+     * and a form say the same thing about the same company.
+     */
+    private String buildOutsideGrantMessage(String subject, List<Object> keyValues) {
+        String named = keyValues.stream().map(String::valueOf).collect(Collectors.joining(", "));
+        return subject + ": \"" + named + "\" is outside the companies your role is granted."
+                + " Choose one of those, or ask an administrator to grant your role this company.";
     }
 
     /**
