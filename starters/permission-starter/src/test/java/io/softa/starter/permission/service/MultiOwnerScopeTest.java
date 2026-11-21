@@ -196,6 +196,34 @@ class MultiOwnerScopeTest {
     void aChildBothCollectedAndPointedAtOneToOneIsReachedThroughEither() {
         // The parent owns a collection of the child and also points at one of them as "the current
         // one". Every row of the collection is the parent's, not only the one it points at.
+        declareCollectedAndCurrent();
+        grant(List.of("Employee"));
+
+        // The rows the in-range parent collects, or the one it points at.
+        assertThat(scopeOf(CHILD).toString())
+                .isEqualTo(Filters.or(Filters.of("employeeId", Operator.IN, List.of(5L)),
+                        Filters.of("id", Operator.IN, List.of(7L))).toString());
+    }
+
+    @Test
+    void aNewChildAlsoCollectedOneToManyIsStillJudgedOnItsOwnBackReference() {
+        // Created on its own, it names its parent in its back-reference; no owner's write has to point
+        // at it one-to-one afterwards, so its own range check is the only one it gets.
+        declareCollectedAndCurrent();
+        grant(List.of("Employee"));
+        when(modelService.count(eq(CHILD), any(Filters.class))).thenReturn(0L);
+
+        assertThatThrownBy(() -> asCaller(() -> {
+            service.checkIdsAccess(CHILD, List.<Serializable>of(99L), AccessType.CREATE);
+            return null;
+        })).isNotNull();
+
+        ArgumentCaptor<Filters> checked = ArgumentCaptor.forClass(Filters.class);
+        verify(modelService).count(eq(CHILD), checked.capture());
+        assertThat(checked.getValue().toString()).contains("\"employeeId\",\"IN\",[5]");
+    }
+
+    private void declareCollectedAndCurrent() {
         MetaField current = oneToOne("currentChildId", OnDelete.SET_NULL);
         MetaField collection = mock(MetaField.class);
         when(collection.getRelatedModel()).thenReturn(CHILD);
@@ -207,11 +235,6 @@ class MultiOwnerScopeTest {
         when(modelService.getRelatedIds(eq("Employee"), any(Filters.class), eq("currentChildId")))
                 .thenReturn(List.of(7L));
         when(modelService.getIds(eq("Employee"), any(Filters.class))).thenReturn(List.of(5L));
-        grant(List.of("Employee"));
-
-        String scope = scopeOf(CHILD).toString();
-
-        assertThat(scope).contains("employeeId").contains("5").contains("7");
     }
 
     @Test
