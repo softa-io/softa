@@ -90,6 +90,19 @@ class LoginIdentifiersTest {
     }
 
     @Test
+    void aMobileTypedWithItsTrunkPrefix_isTheSameIdentifierAsTheStandardNumber() {
+        // A New Zealander types 021 after +64, as they write it at home; the stored number has no 0.
+        assertThat(LoginIdentifiers.normalize("+64 021 123 4678")).isEqualTo("+64211234678");
+        assertThat(LoginIdentifiers.normalize("+64211234678")).isEqualTo("+64211234678");
+        // Looked up as the standard number first; a row stored with the 0, before numbers had one spelling, is
+        // still found by typing it as stored.
+        assertThat(LoginIdentifiers.loginSpellings("+64 021 123 4678"))
+                .containsExactly("+64211234678", "+640211234678", "+64 021 123 4678");
+        assertThat(LoginIdentifiers.workContactSpellings("+640211234678"))
+                .containsExactly("+64211234678", "+640211234678");
+    }
+
+    @Test
     void aRowSeededBeforeTheFold_isStillFound_byTheSpellingItWasSeededWith() {
         // Load-bearing for the pre-fold rows: user_identity.login_mobile still holds "+65 9123-4567"
         // and nothing rewrites it. A lookup asking only for "+6591234567" misses it — the person

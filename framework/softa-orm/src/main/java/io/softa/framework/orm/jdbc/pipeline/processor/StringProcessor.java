@@ -6,7 +6,9 @@ import org.apache.commons.lang3.StringUtils;
 import io.softa.framework.base.constant.StringConstant;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.utils.JsonUtils;
+import io.softa.framework.base.utils.PhoneUtils;
 import io.softa.framework.orm.enums.AccessType;
+import io.softa.framework.orm.enums.WidgetType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ValueConstraints;
 
@@ -55,6 +57,12 @@ public class StringProcessor extends BaseProcessor {
         if (StringUtils.isNotBlank(value)) {
             // Remove the leading and trailing spaces
             value = value.trim();
+            if (WidgetType.PHONE.equals(metaField.getWidgetType())) {
+                // One number, one spelling: "+64 021 123 4678" is stored as "+64211234678", the form a sign-in
+                // and every lookup by number use. Anything that is not a number with its calling code is left
+                // for the pattern below to judge.
+                value = PhoneUtils.canonical(value);
+            }
             checkStringLength(value);
             // Trimmed first: a pattern describes the value, and the surrounding space is not part of
             // it — anchoring would otherwise reject a cell someone pasted with a trailing space.
