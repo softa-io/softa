@@ -172,7 +172,13 @@ class LoginControllerTenantSwitchTest {
     }
 
     private void givenMemberships(UserAccount... accounts) {
-        when(accountService.listMembershipsOf(PROFILE)).thenReturn(List.of(accounts));
+        // As the real service answers: the memberships leave out ended ones, the account ids do not.
+        when(accountService.listMembershipsOf(PROFILE)).thenReturn(java.util.Arrays.stream(accounts)
+                .filter(account -> account.getStatus() != AccountStatus.DEACTIVATED)
+                .toList());
+        when(accountService.listAccountIdsOf(PROFILE)).thenReturn(java.util.Arrays.stream(accounts)
+                .map(UserAccount::getId)
+                .toList());
         for (UserAccount account : accounts) {
             when(accountService.getById(account.getId())).thenReturn(Optional.of(account));
         }

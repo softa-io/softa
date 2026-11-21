@@ -260,12 +260,19 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      * else is not theirs, and gets the same answer as an id that does not exist: this ownership check
      * is the whole gate, the caller names a company and nothing else about it is theirs to assert.
      */
-    private static BusinessException notListed(List<UserAccount> memberships, Long accountId) {
-        return memberships.stream()
+    private BusinessException notListed(Long profileId, List<UserAccount> memberships, Long accountId) {
+        Optional<UserAccount> own = memberships.stream()
                 .filter(account -> accountId.equals(account.getId()))
-                .findFirst()
-                .map(account -> orgUnavailable(accountDeniedMessage(account.getStatus())))
-                .orElseGet(() -> new BusinessException("That company is not available for your account."));
+                .findFirst();
+        if (own.isPresent()) {
+            return orgUnavailable(accountDeniedMessage(own.get().getStatus()));
+        }
+        // The memberships leave out ended ones; an ended membership is still the person's own, and the
+        // commonest way a company drops off an open picker.
+        if (accountService.listAccountIdsOf(profileId).contains(accountId)) {
+            return orgUnavailable(accountDeniedMessage(AccountStatus.DEACTIVATED));
+        }
+        return new BusinessException("That company is not available for your account.");
     }
 
     /** Human-readable reason for refusing login to a non-ACTIVE account. */
@@ -1350,7 +1357,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         MembershipOption chosen = this.resolveMemberships(profileId, memberships).stream()
                 .filter(option -> option.accountId().equals(accountId))
                 .findFirst()
-                .orElseThrow(() -> notListed(memberships, accountId));
+                .orElseThrow(() -> this.notListed(profileId, memberships, accountId));
         if (!chosen.selectable()) {
             throw orgUnavailable(deniedMessage(chosen));
         }
