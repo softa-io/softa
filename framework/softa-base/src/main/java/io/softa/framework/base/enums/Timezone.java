@@ -92,8 +92,8 @@ public enum Timezone {
     UTC_P_11_30("UTC+11:30", "UTC+11:30"),
     @OptionItem(label = "UTC+12:00 (New Zealand)")
     UTC_P_12_00("UTC+12:00", "UTC+12:00 (New Zealand)"),
-    @OptionItem(label = "UTC+12:30 (Chatham Island)")
-    UTC_P_12_30("UTC+12:30", "UTC+12:30 (Chatham Island)"),
+    @OptionItem(label = "UTC+12:30")
+    UTC_P_12_30("UTC+12:30", "UTC+12:30"),
     @OptionItem(label = "UTC+13:00 (Tonga)")
     UTC_P_13_00("UTC+13:00", "UTC+13:00 (Tonga)"),
     @OptionItem(label = "UTC+14:00 (Line Islands)")
