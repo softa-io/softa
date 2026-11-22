@@ -61,7 +61,7 @@ public class FlowOrgService implements OrganizationService {
     private static final String SUPERVISOR_ID_FIELD = "piEmployeeId";
 
     /** Department model. */
-    private static final String DEPARTMENT_MODEL = "Department";
+    public static final String DEPARTMENT_MODEL = "Department";
     /** Field on the department model that holds its name. */
     private static final String DEPT_NAME_FIELD = "name";
     /** Field on the department model that holds its code, shown beside the name in the directory. */
@@ -87,7 +87,7 @@ public class FlowOrgService implements OrganizationService {
     private static final String ROLE_NAME_FIELD = "name";
 
     /** Login account model (user-starter's), whose status says whether an account signs in. */
-    private static final String ACCOUNT_MODEL = "UserAccount";
+    public static final String ACCOUNT_MODEL = "UserAccount";
     /** Field on the account model that holds its status. */
     private static final String ACCOUNT_STATUS_FIELD = "status";
     /**

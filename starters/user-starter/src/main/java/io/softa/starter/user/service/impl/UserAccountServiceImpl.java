@@ -1,6 +1,8 @@
 package io.softa.starter.user.service.impl;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -13,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.softa.framework.base.config.SystemConfig;
+import io.softa.framework.base.constant.TimeConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.ContextUtils;
@@ -26,6 +29,7 @@ import io.softa.framework.orm.annotation.SkipPermissionCheck;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.service.CompanyClock;
 import io.softa.framework.orm.service.TenantInfoService;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.framework.web.session.SessionRevokeReason;
@@ -38,15 +42,18 @@ import io.softa.starter.user.dto.UserProfileDTO;
 import io.softa.starter.user.dto.WorkContacts;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
+import io.softa.starter.user.entity.UserProfile;
 import io.softa.starter.user.entity.UserSecurityLog;
 import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.enums.LoginEvent;
 import io.softa.starter.user.enums.SecurityAction;
 import io.softa.starter.user.enums.SecurityLogSource;
 import io.softa.starter.user.service.*;
-import io.softa.starter.user.spi.PushDeviceRegistry;
+import io.softa.starter.message.push.service.AppPushDeviceService;
 import io.softa.starter.user.util.ClientInfo;
 import io.softa.starter.user.util.LoginIdentifiers;
+import io.softa.starter.user.template.ResetUserVariables;
+import io.softa.starter.user.template.EnterpriseEmailChangedVariables;
 
 /**
  * UserAccount Model Service Implementation
@@ -61,6 +68,9 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     private static final String ARCHIVE_USER_FIELD = "userId";
     private static final String ARCHIVE_EMAIL_FIELD = "workEmail";
     private static final String ARCHIVE_MOBILE_FIELD = "workPhone";
+    private static final String ARCHIVE_NAME_FIELD = "fullName";
+    /** The legal entity the employee is contracted with, under the company axis's name. */
+    private static final String ARCHIVE_COMPANY_FIELD = "companyId";
     private static final String ARCHIVE_PROFILE_FIELD = "employeeProfileId";
     private static final String ARCHIVE_PROFILE_MODEL = "EmployeeProfile";
     private static final String ARCHIVE_PERSONAL_MOBILE_FIELD = "personalPhone";
@@ -81,9 +91,9 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     @Autowired
     private UserSessionService sessionService;
 
-    /** Optional: present only where APP push is deployed. */
+    /** message-starter's push-device registrations; optional so a unit test may leave them out. */
     @Autowired(required = false)
-    private PushDeviceRegistry pushDeviceRegistry;
+    private AppPushDeviceService pushDeviceService;
 
     @Autowired
     private UserSecurityLogService securityLog;
@@ -111,6 +121,10 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     /** Optional: the contact-change notice names the company; absent tenant-starter → blank. */
     @Autowired(required = false)
     private TenantInfoService tenantInfoService;
+
+    /** The legal entity's calendar, for the time a security notice prints. */
+    @Autowired(required = false)
+    private CompanyClock companyClock;
 
     /**
      * Every single-entity account write funnels through here, so this is the one place that has to
@@ -369,6 +383,9 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         if (decision.closedRow() != null) {
             UserAccount revived = this.reviveMembership(existingPerson, email, mobile)
                     .orElseThrow(() -> new BusinessException("This person is already a member of this company."));
+            // Reviving clears the name the previous stint carried; the new record's name goes on, as it
+            // would on a new account — the join page shows it so the invitee can spot a misaddressed link.
+            this.nameRevivedAccount(revived.getId(), email, mobile, fullName);
             // Nobody is behind the reopened row until /join binds them, so there is no person to
             // build a full UserInfo from — the caller only needs the account it was given.
             UserInfo reopened = new UserInfo();
@@ -433,12 +450,19 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     /**
      * The one place that decides whether an account with these contacts may be created here.
      *
-     * <p>Does this identifier already belong to somebody? If so this is their SECOND company, not a
+     * <p>Is this mobile already somebody's login? If so this is their SECOND company, not a
      * duplicate: one person keeps one person record, and the account is linked to it instead of
      * minting a rival. Refusing that is what used to make "a person in two tenants" unreachable
      * through the product at all — every creation path funnels here, so the /join flow's own
      * find-or-create could never fire either: it needs an account carrying the person's identifier,
      * and that account was exactly what could not be created.
+     *
+     * <p>Only the mobile names the person. The enterprise email is the company's choice, and HR may
+     * type an address another company has given to somebody else: linking by it filed the new hire
+     * under that somebody, whose own number then did not match at /join, and the link refused the
+     * new hire as "not belonging to that account". Who the person is gets decided at /join by the
+     * number verified there; whether the email collides with another person's is asked of joined
+     * accounts, when the record is saved for a joined account and again when the person joins.
      *
      * <p>Within ONE tenant the identifiers stay unique — that is what uk_user_account_tenant_email
      * enforces, and a person already holding a live membership here is a duplicate rather than a
@@ -455,30 +479,34 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
      * the human being typed into the form — reviving it would hand the newcomer the leaver's
      * person record (and hand the operator the leaver's identity, which a create form must never
      * answer). Nor is it unique: nothing indexes (tenant, mobile), so two closed rows can carry one
-     * number and any pick between them is a guess. When a closed row does hold the contact the
-     * create is refused and the operator is pointed at the explicit {@link #rehire}, where the row
-     * is named by id and the intent is stated rather than inferred.
+     * number and any pick between them is a guess. A closed row's mobile is not a hold at all (see
+     * contactHolder). When a closed row still holds the email — closing clears it, so only a row
+     * closed before that did — the create is refused and the operator is pointed at the explicit
+     * {@link #rehire}, where the row is named by id and the intent is stated rather than inferred.
      */
     private NewAccountDecision decideNewAccount(String email, String mobile, boolean release) {
         Long tenantId = ContextHolder.getContext() == null ? null : ContextHolder.getContext().getTenantId();
-        Long byEmail = this.personHolding(email);
         Long byMobile = this.personHolding(mobile);
         // A number whose holder has left every company is most likely a recycled one: the new
         // employee must not be filed under the leaver's person. Released, and a new person is made.
         // Except when the holder left THIS company: that is the leaver coming back with their own
         // number, and the closed row below is revived for them.
-        if (byMobile != null && !byMobile.equals(byEmail) && this.listMembershipsOf(byMobile).isEmpty()
+        if (byMobile != null && this.listMembershipsOf(byMobile).isEmpty()
                 && !this.belongedToTenant(tenantId, byMobile)
                 && (!release || this.releaseDormantLoginMobile(mobile, "Account created"))) {
             byMobile = null;
         }
-        // A second identifier pointing at a DIFFERENT person is not a second company — it is two
-        // people's credentials on one account, which no later step could untangle.
-        if (byEmail != null && byMobile != null && !byEmail.equals(byMobile)) {
-            return NewAccountDecision.refuse("This email and mobile belong to two different "
-                    + "people. Enter contacts for one person.");
+        Long existingPerson = byMobile;
+        // A consultant's address is their own, not a company's, so it does name them: one already
+        // authorized here is told apart rather than reported as an address somebody uses.
+        Long byEmail = this.personHolding(email);
+        if (byEmail != null && !byEmail.equals(existingPerson)) {
+            Optional<UserAccount> consultantHere = this.findMembershipInTenant(tenantId, byEmail)
+                    .filter(membership -> Boolean.TRUE.equals(membership.getConsultant()));
+            if (consultantHere.isPresent()) {
+                return NewAccountDecision.refuse(liveMembershipRefusal(consultantHere.get()));
+            }
         }
-        Long existingPerson = byEmail != null ? byEmail : byMobile;
 
         UserAccount membershipHere = existingPerson == null ? null
                 : this.findMembershipInTenant(tenantId, existingPerson).orElse(null);
@@ -544,6 +572,9 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                 .orElse(null);
     }
 
+    /** What HR is told wherever an enterprise email is refused because somebody else uses it. */
+    public static final String EMAIL_USED = "This work email is already used by another user.";
+
     /** What an operator is told when a closed row of this tenant still carries the contact. */
     static final String REHIRE_INSTEAD = "A former employee's closed account still holds this "
             + "contact. Re-hire that account instead of creating a new one.";
@@ -561,7 +592,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                 // closed one nobody holds, is simply a duplicate of the address.
                 .map(holder -> holder.getStatus() == AccountStatus.DEACTIVATED && holder.getProfileId() != null
                         ? REHIRE_INSTEAD
-                        : label + " already exists: " + contact)
+                        : "Email".equals(label) ? EMAIL_USED : label + " already exists: " + contact)
                 .orElse(null);
     }
 
@@ -770,8 +801,10 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         // The account being joined or edited never counts against itself: when /join puts the
         // verified person in place of the placeholder minted with the account, the account still
         // names the placeholder until the bind is written.
+        // Only a joined account says whose the address is: a Pending or Invited one names the
+        // placeholder minted with it, nobody yet, and a Deactivated one has let the address go.
         return acrossTenants(() -> this.accountsWithEmail(new Filters(), wanted)).stream()
-                .filter(account -> account.getStatus() != AccountStatus.DEACTIVATED
+                .filter(account -> JOINED_STATUSES.contains(account.getStatus())
                         && !Objects.equals(account.getId(), exceptAccountId))
                 .anyMatch(account -> account.getProfileId() != null && !account.getProfileId().equals(profileId));
     }
@@ -808,6 +841,48 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         row.setNewValue(to.name());
         row.setReason(reason);
         securityLog.record(row);
+    }
+
+    /** How a security notice prints when the change was made: {@code 2026-11-12 13:00}. */
+    private static final DateTimeFormatter NOTICE_TIME =
+            DateTimeFormatter.ofPattern(TimeConstant.DATE_FORMAT + " " + TimeConstant.SIMPLE_TIME_FORMAT);
+
+    /**
+     * Now, as a security notice about this account prints it — to the minute, in the time zone of the
+     * legal entity on the employee record: the notice tells the person when to look back to, on the
+     * clock they work by, and seconds only make it read like a log line.
+     */
+    String noticeTimeOf(UserAccount account) {
+        return LocalDateTime.now(this.noticeZoneOf(account)).format(NOTICE_TIME);
+    }
+
+    /**
+     * The legal entity's zone ({@link CompanyClock}: the company's own, else the tenant's default); the
+     * server's when the account has no employee record, its record names no legal entity, or the zone
+     * cannot be read.
+     */
+    private ZoneId noticeZoneOf(UserAccount account) {
+        Long companyId = companyClock == null ? null : this.archiveCompanyId(account.getId());
+        if (companyId == null) {
+            return ZoneId.systemDefault();
+        }
+        try {
+            // In the account's own tenant: the tenant default the clock falls back to is that company's
+            // tenant's, not the caller's.
+            return account.getTenantId() == null ? companyClock.zoneOf(companyId)
+                    : ContextUtils.inTenantContext(account.getTenantId(), () -> companyClock.zoneOf(companyId));
+        } catch (RuntimeException e) {
+            log.warn("Time zone of company {} unreadable for a notice to account {}", companyId, account.getId(), e);
+            return ZoneId.systemDefault();
+        }
+    }
+
+    /** The company a notice names: the tenant's display name, empty when it cannot be read. */
+    private String companyNameOf(Long tenantId) {
+        if (tenantId == null || tenantInfoService == null) {
+            return "";
+        }
+        return StringUtils.defaultString(tenantInfoService.getTenantName(tenantId));
     }
 
     /** Reset User reminder: the login mobile was replaced, the old number no longer signs in. */
@@ -864,8 +939,8 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         // Every device of the person, in every company: whoever holds the old number may be signed
         // in somewhere. And no device keeps receiving their notifications.
         sessionService.revokePerson(account.getProfileId(), null, SessionRevokeReason.RESET_USER);
-        if (pushDeviceRegistry != null) {
-            pushDeviceRegistry.unregisterPerson(account.getProfileId());
+        if (pushDeviceService != null) {
+            pushDeviceService.unregisterPerson(account.getProfileId());
         }
 
         // Tell the OLD number (it may be lost, but if not, the person learns of it) and the
@@ -874,9 +949,10 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         // can neither rewrite nor swallow the warning that its HR changed someone's login. Sent in
         // the account's company all the same: filed under it and counted against its quota.
         Long tenantId = account.getTenantId();
-        Map<String, Object> vars = Map.of(
-                "employeeName", StringUtils.defaultString(account.getNickname()),
-                "time", LocalDateTime.now());
+        // The new number masked: the old one may be in a stranger's hands, and a notice sent there
+        // must not hand them the number that now signs the person in.
+        ResetUserVariables vars = new ResetUserVariables(this.noticeNameOf(account),
+                this.companyNameOf(tenantId), StringUtils.defaultString(mobileFormat.mask(newMobile)), this.noticeTimeOf(account));
         List<String> channels = new ArrayList<>();
         List<String> results = new ArrayList<>();
         if (StringUtils.isNotBlank(oldMobile)) {
@@ -911,10 +987,14 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
             return null;
         }
         if (this.contactHolderInTenant(account.getTenantId(), wanted, accountId).isPresent()) {
-            return "That work email already belongs to another account in this company.";
+            return EMAIL_USED;
         }
-        if (this.isEmailHeldByAnotherPerson(wanted, account.getProfileId(), accountId)) {
-            return "That work email is already linked to another person's account.";
+        // Another company's use is only asked of an account its person has joined. Before that the
+        // account's person is nobody yet — the employee may well be the one using the address in
+        // the other company — and /join asks again once the number verified there has named them.
+        if (JOINED_STATUSES.contains(account.getStatus())
+                && this.isEmailHeldByAnotherPerson(wanted, account.getProfileId(), accountId)) {
+            return EMAIL_USED;
         }
         return null;
     }
@@ -946,9 +1026,11 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         // The old address (whoever holds it should know it no longer signs in) and the person's
         // login mobile; a failed send is recorded, it does not undo the change. A platform notice,
         // like the reset-user one: the company cannot rewrite or swallow it.
-        Map<String, Object> vars = Map.of(
-                "employeeName", StringUtils.defaultString(account.getNickname()),
-                "time", LocalDateTime.now());
+        // The new address masked, for the reason Reset User masks the new number: the old address
+        // may no longer be the person's.
+        EnterpriseEmailChangedVariables vars = new EnterpriseEmailChangedVariables(this.noticeNameOf(account),
+                this.companyNameOf(account.getTenantId()), StringUtils.defaultString(ContactMasking.email(wanted)),
+                this.noticeTimeOf(account));
         List<String> channels = new ArrayList<>();
         List<String> results = new ArrayList<>();
         if (StringUtils.isNotBlank(previous)) {
@@ -1008,9 +1090,9 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
      * while longer, not an account left open.
      */
     private void unregisterDevices(Long accountId) {
-        if (pushDeviceRegistry != null && accountId != null) {
+        if (pushDeviceService != null && accountId != null) {
             AfterCommit.run("Dropping the push devices of account " + accountId,
-                    () -> pushDeviceRegistry.unregisterAccount(accountId));
+                    () -> pushDeviceService.unregisterAccount(accountId));
         }
     }
 
@@ -1167,6 +1249,71 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         }
     }
 
+    @SkipPermissionCheck
+    @Override
+    public String noticeNameOf(UserAccount account) {
+        if (account == null) {
+            return "";
+        }
+        String name = this.archiveFullName(account.getId());
+        if (StringUtils.isBlank(name)) {
+            name = account.getNickname();
+        }
+        if (StringUtils.isBlank(name) && account.getProfileId() != null) {
+            name = profileService.getById(account.getProfileId()).map(UserProfile::getFullName).orElse(null);
+        }
+        return StringUtils.defaultString(StringUtils.trimToNull(name));
+    }
+
+    /** The full name on the employee record behind this account, or null when there is no record. */
+    private String archiveFullName(Long userId) {
+        return StringUtils.trimToNull(asString(this.archiveField(userId, ARCHIVE_NAME_FIELD)));
+    }
+
+    /** The legal entity on the employee record behind this account, or null when there is no record. */
+    private Long archiveCompanyId(Long userId) {
+        Object value = this.archiveField(userId, ARCHIVE_COMPANY_FIELD);
+        Object id = value instanceof Map<?, ?> ref ? ref.get("id") : value;
+        if (id instanceof Number number) {
+            return number.longValue();
+        }
+        try {
+            return id == null ? null : Long.valueOf(id.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * One field of the employee record behind this account, or null when there is no record or it cannot
+     * be read: what asks for it is a notice, which still goes out with the next value in line.
+     */
+    private Object archiveField(Long userId, String field) {
+        if (userId == null || !ModelManager.existModel(ARCHIVE_MODEL)) {
+            return null;
+        }
+        // Past row scope for the reason archiveWorkContacts gives: this resolves the record of the
+        // account being acted on, not a search.
+        Context ctx = ContextHolder.existContext() ? ContextHolder.getContext() : null;
+        boolean previous = ctx != null && ctx.isSkipPermissionCheck();
+        if (ctx != null) {
+            ctx.setSkipPermissionCheck(true);
+        }
+        try {
+            return modelService.searchOne(ARCHIVE_MODEL, new FlexQuery(
+                            List.of("id", field), new Filters().eq(ARCHIVE_USER_FIELD, userId)))
+                    .map(row -> row.get(field))
+                    .orElse(null);
+        } catch (RuntimeException e) {
+            log.warn("Employee read failed while resolving {} of account {}", field, userId, e);
+            return null;
+        } finally {
+            if (ctx != null) {
+                ctx.setSkipPermissionCheck(previous);
+            }
+        }
+    }
+
     private static String asString(Object value) {
         return value == null ? null : value.toString();
     }
@@ -1181,7 +1328,12 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
                     .filter(account -> email.equalsIgnoreCase(StringUtils.trim(field.apply(account))))
                     .findFirst();
         }
-        return this.searchList(contactFilter(field, spellings).and(inTenant)).stream().findFirst();
+        // A closed row's mobile is the last number it had, not a hold on it: off-boarding released
+        // the person's login when it was the company's phone, nothing indexes the column, and the
+        // company hands the number to whoever it hires next.
+        return this.searchList(contactFilter(field, spellings).and(inTenant)).stream()
+                .filter(account -> account.getStatus() != AccountStatus.DEACTIVATED)
+                .findFirst();
     }
 
     /**
@@ -1382,7 +1534,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         Assert.notNull(tenantId, "A membership must belong to a company to be revived.");
         this.contactHolderInTenant(tenantId, workEmail, account.getId())
                 .ifPresent(other -> {
-                    throw new BusinessException("That work email already belongs to another account.");
+                    throw new BusinessException(EMAIL_USED);
                 });
         this.contactHolderInTenant(tenantId, workMobile, account.getId())
                 .ifPresent(other -> {
@@ -1392,8 +1544,7 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         // aside). The person coming back is the one this row belonged to.
         Long returning = account.getProfileId() != null ? account.getProfileId() : account.getFormerProfileId();
         if (this.isEmailHeldByAnotherPerson(workEmail, returning, account.getId())) {
-            throw AccountErrorCodes.refusal(AccountErrorCodes.EMAIL_TAKEN,
-                    "That work email is already linked to another person's account.");
+            throw AccountErrorCodes.refusal(AccountErrorCodes.EMAIL_TAKEN, EMAIL_USED);
         }
         Long previousPerson = account.getProfileId();
         reviveWith(account, workEmail, workMobile);
@@ -1408,6 +1559,24 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         log.info("Revived membership {} (was profile {}) — reset to PENDING, awaiting a new invitation.",
                 account.getId(), previousPerson != null ? previousPerson : account.getFormerProfileId());
         return account;
+    }
+
+    /**
+     * Name a revived membership the way a new one is named: nickname = the employee's name (else the login
+     * identifier), username = the email (else the mobile). Reviving clears both, since the previous
+     * stint's may not be the new one's; without them the join page has no name to show.
+     */
+    @SkipPermissionCheck
+    @Override
+    @CrossTenant
+    @Transactional
+    public void nameRevivedAccount(Long accountId, String email, String mobile, String fullName) {
+        String identifier = StringUtils.isNotBlank(email) ? email : mobile;
+        UserAccount named = new UserAccount();
+        named.setId(accountId);
+        named.setUsername(identifier);
+        named.setNickname(StringUtils.isNotBlank(fullName) ? fullName : identifier);
+        this.updateOne(named);
     }
 
     /**

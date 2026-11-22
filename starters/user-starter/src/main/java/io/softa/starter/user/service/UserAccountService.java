@@ -77,8 +77,8 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     boolean isDormantLoginMobile(String mobile);
 
     /**
-     * Whether this enterprise email sits on an account (any tenant, any status but Deactivated)
-     * that belongs to a person other than {@code profileId}. One person may use one address in
+     * Whether this enterprise email sits on a joined account (Active, Frozen or Locked, in any
+     * tenant) that belongs to a person other than {@code profileId}. One person may use one address in
      * several companies; two people may not. The account {@code exceptAccountId} never counts —
      * it is the one being joined or edited.
      */
@@ -242,9 +242,22 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     String archivePersonalMobile(Long userId);
 
     /**
+     * The name a notice about this account greets its person by: the full name on the employee record
+     * behind the account, else the account's nickname, else the person's own full name. Empty when none
+     * is known, never null.
+     *
+     * <p>The record comes first because it is the name the company keeps current, and the nickname is
+     * not: a membership reopened for a re-hire or an unbind loses its nickname, and joining again does
+     * not give it one back.
+     */
+    String noticeNameOf(UserAccount account);
+
+    /**
      * Why this enterprise email cannot go on this account, or null when it can: another account of
-     * the same company holds it, or a different person holds it anywhere (Deactivated aside). Asked
-     * before the employee record is saved, so the record and the account cannot disagree.
+     * the same company holds it, or — once this account has been joined — a different person's
+     * joined account holds it anywhere. An account not yet joined is let through on the second
+     * ground; /join asks it when the person is known. Asked before the employee record is saved, so
+     * the record and the account cannot disagree.
      */
     String enterpriseEmailRefusal(Long accountId, String email);
 
@@ -285,6 +298,12 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
      * @return the revived membership, or empty when the account is not closed
      */
     java.util.Optional<UserAccount> reviveAccount(Long accountId, String workEmail, String workMobile);
+
+    /**
+     * Name a revived membership as a new one is named — nickname from the employee's name, username from
+     * the email or mobile. Reviving clears both; the join page shows the nickname to the invitee.
+     */
+    void nameRevivedAccount(Long accountId, String email, String mobile, String fullName);
 
     /**
      * Change the current user's password

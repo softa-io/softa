@@ -65,6 +65,16 @@ public interface LoginService {
     void resetPasswordByCode(String identifier, String code, String newPassword);
 
     /**
+     * Checks a password-reset code without spending it, so the forgot-password page can refuse a
+     * wrong code on the screen it was typed on instead of after the new password has been typed too.
+     * {@link #resetPasswordByCode} checks it again and spends it.
+     *
+     * <p>Answers exactly as the reset would: a code right for nobody's identifier is told what a
+     * wrong code is told, and it draws on the same attempt limits.
+     */
+    void checkResetCode(String identifier, String code);
+
+    /**
      * Proves identity on the /join flow: verifies the code against the invitation's OWN address and
      * returns the person behind it, creating that person if this is their first company.
      *

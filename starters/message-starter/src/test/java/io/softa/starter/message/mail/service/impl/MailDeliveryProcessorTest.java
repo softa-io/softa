@@ -31,6 +31,7 @@ import io.softa.starter.message.mail.smtp.SmtpMailRequest;
 import io.softa.starter.message.mail.smtp.SmtpMailTransport;
 import io.softa.starter.message.mail.smtp.SmtpSendResult;
 import io.softa.starter.message.mail.support.MailServerDispatcher;
+import io.softa.starter.message.mail.support.MailTemplateLocator;
 import io.softa.starter.message.mail.support.MailServerDispatcher.SendServer;
 import io.softa.starter.message.shared.ErrorClassifier;
 import io.softa.starter.message.shared.SendRejection;
@@ -90,7 +91,10 @@ class MailDeliveryProcessorTest {
         processor = new MailDeliveryProcessor();
         ReflectionTestUtils.setField(processor, "dispatcher", dispatcher);
         ReflectionTestUtils.setField(processor, "templateService", templateService);
-        ReflectionTestUtils.setField(processor, "platformTemplateService", platformTemplateService);
+        // The real lookup over the two mocked template services: the tier rules are part of what
+        // these tests pin down.
+        ReflectionTestUtils.setField(processor, "templateLocator",
+                new MailTemplateLocator(templateService, platformTemplateService));
         ReflectionTestUtils.setField(processor, "quotaGuard", quotaGuard);
         ReflectionTestUtils.setField(processor, "smtpMailTransport", smtpMailTransport);
         ReflectionTestUtils.setField(processor, "recordService", recordService);

@@ -1,6 +1,5 @@
 package io.softa.framework.orm.utils;
 
-import me.ahoo.cosid.provider.DefaultIdGeneratorProvider;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -9,7 +8,7 @@ class IDGeneratorTest {
 
     @BeforeAll
     static void setup() {
-        DefaultIdGeneratorProvider.INSTANCE.setShare(MockIdGenerator.INSTANCE);
+        IDGenerator.use(MockIdGenerator.INSTANCE);
     }
 
     @Test

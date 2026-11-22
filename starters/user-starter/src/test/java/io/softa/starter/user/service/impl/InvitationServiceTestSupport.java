@@ -1,6 +1,7 @@
 package io.softa.starter.user.service.impl;
 
 import java.util.List;
+import java.util.Optional;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.starter.referencedata.entity.CountryRegion;
@@ -23,7 +24,9 @@ final class InvitationServiceTestSupport {
 
     static JoinMobileFormat mobileFormat() {
         CountryRegionService countries = mock(CountryRegionService.class);
-        when(countries.searchList()).thenReturn(List.of(country("SG", "Singapore", "65"), country("CN", "China", "86")));
+        for (CountryRegion country : List.of(country("SG", "Singapore", "65"), country("CN", "China", "86"))) {
+            when(countries.findByCode(country.getId())).thenReturn(Optional.of(country));
+        }
         return new JoinMobileFormat(countries);
     }
 

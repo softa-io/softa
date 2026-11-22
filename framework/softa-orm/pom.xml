@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.softa</groupId>
         <artifactId>framework</artifactId>
-        <version>3.0.7</version>
+        <version>3.1.5</version>
     </parent>
 
     <name>Softa ORM</name>
@@ -15,7 +15,7 @@
     <url>https://softa.io</url>
 
     <properties>
-        <cosid.version>3.0.5</cosid.version>
+        <cosid.version>5.0.1</cosid.version>
     </properties>
 
     <dependencies>
@@ -51,7 +51,7 @@
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
-            <version>9.6.0</version>
+            <version>26.10.0</version>
             <optional>true</optional>
         </dependency>
         <!-- Source: https://mvnrepository.com/artifact/org.postgresql/postgresql -->
@@ -61,11 +61,12 @@
             <optional>true</optional>
         </dependency>
 
+
         <!--aviator script-->
         <dependency>
             <groupId>com.googlecode.aviator</groupId>
             <artifactId>aviator</artifactId>
-            <version>5.4.3</version>
+            <version>5.4.4</version>
         </dependency>
 
         <!-- Tool for generating, verifying, and calculating cron expressions -->
@@ -75,7 +76,8 @@
             <version>9.2.1</version>
         </dependency>
 
-        <!-- CosId: Distributed ID Generator -->
+        <!-- CosId: Distributed ID Generator. Machine slots are leased in Redis (Redis 7.0+);
+             the store uses the context's RedisConnectionFactory. -->
         <dependency>
             <groupId>me.ahoo.cosid</groupId>
             <artifactId>cosid-spring-boot-starter</artifactId>
@@ -83,12 +85,7 @@
         </dependency>
         <dependency>
             <groupId>me.ahoo.cosid</groupId>
-            <artifactId>cosid-jdbc</artifactId>
-            <version>${cosid.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>me.ahoo.cosid</groupId>
-            <artifactId>cosid-spring-redis</artifactId>
+            <artifactId>cosid-store-redis</artifactId>
             <version>${cosid.version}</version>
         </dependency>
 
@@ -96,7 +93,7 @@
         <dependency>
             <groupId>io.minio</groupId>
             <artifactId>minio</artifactId>
-            <version>9.0.3</version>
+            <version>9.0.4</version>
             <exclusions>
                 <exclusion>
                     <groupId>com.squareup.okhttp3</groupId>
@@ -104,11 +101,12 @@
                 </exclusion>
             </exclusions>
         </dependency>
-        <!-- Use okhttp-jvm for MinIO to fix the version issue: https://github.com/minio/minio-java/issues/1670 -->
+        <!-- Use okhttp-jvm for MinIO: the okhttp 5.x artifact is an empty Gradle-metadata shell for Maven,
+             https://github.com/minio/minio-java/issues/1670 -->
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>okhttp-jvm</artifactId>
-            <version>5.3.2</version>
+            <version>${okhttp.version}</version>
         </dependency>
 
         <dependency>

@@ -131,7 +131,7 @@ class LoginControllerTenantSwitchTest {
         request.addHeader(io.softa.starter.user.util.ClientInfo.PLATFORM_HEADER, "ios");
         request.addHeader(BaseConstant.SESSION_ID_HEADER, OLD_SESSION);
         when(cacheService.get("session:" + OLD_SESSION, SessionRecord.class))
-                .thenReturn(new SessionRecord(accountId, PROFILE, 1L, "ios", "1.0.0", null, LocalDateTime.now()));
+                .thenReturn(new SessionRecord(accountId, PROFILE, 1L, "ios", "1.0.0", null, null, LocalDateTime.now()));
         return request;
     }
 
@@ -143,7 +143,7 @@ class LoginControllerTenantSwitchTest {
         stolen.addHeader(io.softa.starter.user.util.ClientInfo.PLATFORM_HEADER, "ios");
         stolen.addHeader(BaseConstant.SESSION_ID_HEADER, OLD_SESSION);
         when(cacheService.get("session:" + OLD_SESSION, SessionRecord.class))
-                .thenReturn(new SessionRecord(HERE, PROFILE, 1L, null, null, null, LocalDateTime.now()));
+                .thenReturn(new SessionRecord(HERE, PROFILE, 1L, null, null, null, null, LocalDateTime.now()));
 
         assertThatThrownBy(() -> controller.myTenants(stolen))
                 .isInstanceOf(io.softa.framework.base.exception.UserNotFoundException.class)
@@ -154,7 +154,7 @@ class LoginControllerTenantSwitchTest {
         MockHttpServletRequest asWeb = new MockHttpServletRequest();
         asWeb.setCookies(new Cookie(BaseConstant.SESSION_ID, OLD_SESSION));
         when(cacheService.get("session:" + OLD_SESSION, SessionRecord.class))
-                .thenReturn(new SessionRecord(HERE, PROFILE, 1L, "android", "1.0.0", null, LocalDateTime.now()));
+                .thenReturn(new SessionRecord(HERE, PROFILE, 1L, "android", "1.0.0", null, null, LocalDateTime.now()));
         assertThatThrownBy(() -> controller.switchTenant(switchTo(THERE), asWeb, response))
                 .isInstanceOf(io.softa.framework.base.exception.UserNotFoundException.class);
 
@@ -167,7 +167,7 @@ class LoginControllerTenantSwitchTest {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setCookies(new Cookie(BaseConstant.SESSION_ID, OLD_SESSION));
         when(cacheService.get("session:" + OLD_SESSION, SessionRecord.class))
-                .thenReturn(new SessionRecord(accountId, PROFILE, 1L, null, null, null, LocalDateTime.now()));
+                .thenReturn(new SessionRecord(accountId, PROFILE, 1L, null, null, null, null, LocalDateTime.now()));
         return request;
     }
 

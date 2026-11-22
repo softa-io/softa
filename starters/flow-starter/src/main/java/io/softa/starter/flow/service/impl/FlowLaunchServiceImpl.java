@@ -451,8 +451,8 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     private FlowExecutionState takeBackFailed(ModelApprovalHandler<?> handler, FlowInstance failed, String rowId,
                                              String actorId) {
         if (!Objects.equals(actorId, failed.getInitiatorId())) {
-            throw new FlowAuthorizationException("Only the submitter can withdraw the record after its approval failed: "
-                    + failed.getModelName() + " " + rowId);
+            throw new FlowAuthorizationException(
+                    "Only its submitter can withdraw this record after its approval failed.");
         }
         statusWriter.concluded(handler, rowId, new ApprovalOutcome(ApprovalOutcomeType.WITHDRAWN, failed.getInstanceId()));
         // Taking the record back writes the record only: the failed instance is the whole row already in hand.
@@ -515,7 +515,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
         variables.putAll(submission.approval().variables());
         // The trigger metadata every triggered start carries (see FlowAutomationService).
         variables.put("_triggerType", FlowAutomationService.SUBMIT_TRIGGER_TYPE);
-        variables.put("_sourceModel", modelName);
+        variables.put(ApproverResolutionService.MODEL_KEY, modelName);
         variables.put("_sourceRowId", rowId);
         variables.put(ApproverResolutionService.SUBJECT_ID_KEY, submission.subjectId());
         return variables;

@@ -76,7 +76,7 @@ public class UserLoginHistory extends AuditableModel {
     @Field(length = 255)
     private String failureReason;
 
-    // Platform, APP version and device model are what the client said about itself (request
+    // Platform, APP version, device model and OS version are what the client said about itself (request
     // headers), not proven.
     @Field(description = "ios / android for the APP; empty for Web")
     private String platform;
@@ -86,6 +86,9 @@ public class UserLoginHistory extends AuditableModel {
 
     @Field
     private String deviceModel;
+
+    @Field(label = "OS Version", length = 32)
+    private String osVersion;
 
     @Field(label = "From Account ID", description = "On a tenant switch, the account switched away from")
     private Long fromAccountId;

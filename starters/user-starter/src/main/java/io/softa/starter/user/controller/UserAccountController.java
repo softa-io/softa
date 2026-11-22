@@ -47,7 +47,7 @@ import io.softa.starter.user.dto.*;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.service.*;
-import io.softa.starter.user.spi.PushDeviceRegistry;
+import io.softa.starter.message.push.service.AppPushDeviceService;
 
 /**
  * UserAccount Controller
@@ -71,9 +71,9 @@ public class UserAccountController extends EntityController<UserAccountService, 
     @Autowired
     private SessionStore sessionStore;
 
-    /** Optional: present only where APP push is deployed. */
+    /** message-starter's push-device registrations; optional so a unit test may leave them out. */
     @Autowired(required = false)
-    private PushDeviceRegistry pushDeviceRegistry;
+    private AppPushDeviceService pushDeviceService;
 
     @Autowired
     private ModelService<Long> modelService;
@@ -820,9 +820,9 @@ public class UserAccountController extends EntityController<UserAccountService, 
             sessionStore.revoke(sessionId, SessionRevokeReason.LOGOUT);
         }
         // The device is dropped only for the person whose session this was.
-        if (body != null && StringUtils.isNotBlank(body.getDeviceToken()) && pushDeviceRegistry != null
+        if (body != null && StringUtils.isNotBlank(body.getDeviceToken()) && pushDeviceService != null
                 && profileId != null) {
-            pushDeviceRegistry.unregisterDevice(body.getDeviceToken(), profileId);
+            pushDeviceService.unregisterDevice(body.getDeviceToken(), profileId);
         }
         CookieUtils.clearCookie(response, BaseConstant.SESSION_ID);
         return ApiResponse.success();

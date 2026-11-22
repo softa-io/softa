@@ -46,7 +46,7 @@ public record JoinEntry(boolean usable, Reason reason, String companyName, Strin
     }
 
     /**
-     * @param maskedMobile "+65 912****67" — the dial code, then the masked national number
+     * @param maskedMobile "+65 912****567" — the dial code, then the masked national number
      * @param dialCode     the mobile's country dial code, "+65"
      * @param countryName  that country's name, for the page to show beside it
      * @param rebind       an Unbind &amp; Re-invite link

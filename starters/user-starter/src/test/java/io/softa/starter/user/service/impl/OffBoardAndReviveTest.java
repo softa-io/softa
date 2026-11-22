@@ -121,7 +121,7 @@ class OffBoardAndReviveTest {
         verify(identityService).updateLoginMobile(IDENTITY, null);
         verify(securityLog).entry(eq(SecurityAction.WORK_MOBILE_RELEASED), eq(SecurityLogSource.SYSTEM), eq(membership), any());
         // Masked as everywhere: dial code, space, first three, four stars, last two.
-        assertThat(logged(SecurityAction.WORK_MOBILE_RELEASED).getOldValue()).isEqualTo("+65 900****00");
+        assertThat(logged(SecurityAction.WORK_MOBILE_RELEASED).getOldValue()).isEqualTo("+65 900****000");
     }
 
     @Test
@@ -229,6 +229,26 @@ class OffBoardAndReviveTest {
     }
 
     @Test
+    void aRevivedMembership_isNamedLikeANewOne_fromTheEmployeeAndItsContacts() {
+        // Reviving clears the previous stint's nickname and username; the join page shows the nickname
+        // as the invitee's name, so a re-hire's showed a dash.
+        doReturn(true).when(accountService).updateOne(any(UserAccount.class));
+
+        accountService.nameRevivedAccount(100L, "new@acme.com", "+8613811111111", "Ada Lovelace");
+        accountService.nameRevivedAccount(101L, null, "+8613811111111", " ");
+
+        org.mockito.ArgumentCaptor<UserAccount> named = org.mockito.ArgumentCaptor.forClass(UserAccount.class);
+        verify(accountService, org.mockito.Mockito.times(2)).updateOne(named.capture());
+        assertThat(named.getAllValues().get(0))
+                .extracting(UserAccount::getId, UserAccount::getNickname, UserAccount::getUsername)
+                .containsExactly(100L, "Ada Lovelace", "new@acme.com");
+        // No name on the record: the login identifier, as a new account gets.
+        assertThat(named.getAllValues().get(1))
+                .extracting(UserAccount::getNickname, UserAccount::getUsername)
+                .containsExactly("+8613811111111", "+8613811111111");
+    }
+
+    @Test
     void theResetAndUnbindDialogs_getThePersonalAndTheLoginMobile_besideTheWorkContacts() {
         UserAccount membership = account(AccountStatus.ACTIVE, "alice@acme.com", "+6590000001");
         doReturn(Optional.of(membership)).when(accountService).getById(ACCOUNT);
@@ -304,8 +324,8 @@ class OffBoardAndReviveTest {
 
     @Test
     void offBoarding_dropsTheAccountsPushDevices() {
-        io.softa.starter.user.spi.PushDeviceRegistry devices = mock(io.softa.starter.user.spi.PushDeviceRegistry.class);
-        ReflectionTestUtils.setField(accountService, "pushDeviceRegistry", devices);
+        io.softa.starter.message.push.service.AppPushDeviceService devices = mock(io.softa.starter.message.push.service.AppPushDeviceService.class);
+        ReflectionTestUtils.setField(accountService, "pushDeviceService", devices);
         UserAccount membership = account(AccountStatus.ACTIVE, null, null);
         workContacts(null, null);
         when(identityService.findByProfile(PROFILE)).thenReturn(Optional.empty());
@@ -341,7 +361,7 @@ class OffBoardAndReviveTest {
 
         assertThatThrownBy(() -> accountService.reviveAccount(ACCOUNT, "taken@acme.com", null))
                 .isInstanceOf(io.softa.framework.base.exception.BusinessException.class)
-                .hasMessageContaining("another person");
+                .hasMessage("This work email is already used by another user.");
         assertThat(closed.getStatus()).isEqualTo(AccountStatus.DEACTIVATED);
     }
 

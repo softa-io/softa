@@ -196,8 +196,8 @@ class ConsultantRevokeClosesMembershipTest {
     void revokingAlsoStopsTheClosedMembershipsPushNotifications() {
         UserAccount live = membership(AccountStatus.ACTIVE);
         when(accountService.findMembershipInTenant(TENANT, PROFILE)).thenReturn(Optional.of(live));
-        io.softa.starter.user.spi.PushDeviceRegistry devices = mock(io.softa.starter.user.spi.PushDeviceRegistry.class);
-        ReflectionTestUtils.setField(service, "pushDeviceRegistry", devices);
+        io.softa.starter.message.push.service.AppPushDeviceService devices = mock(io.softa.starter.message.push.service.AppPushDeviceService.class);
+        ReflectionTestUtils.setField(service, "pushDeviceService", devices);
 
         service.applyAuthorizations(PROFILE, revoking(STANDING_GRANT));
 

@@ -133,18 +133,31 @@ public class TaskInstanceContextEnricher {
             }
             if (instance.getBundleId() != null) {
                 definitions.computeIfAbsent(instance.getBundleId(), bundleRegistry::getByBundleId)
-                        .ifPresent(definition -> {
-                            CompiledFlowNode node = definition.getNodeIndex().get(view.getNodeId());
-                            if (node != null) {
-                                applyStepConfig(view, definition, node);
-                            }
-                        });
+                        .ifPresent(definition -> applyStepConfig(view, definition, instance.getStatus()));
             }
         }
         names.name(initiators);
         names.nameEmployees(subjects);
         names.nameDepartments(departments);
         applyCurrentSteps(views);
+    }
+
+    /**
+     * What each step's configuration says about acting on the tasks of one instance — whether they may be returned,
+     * are filled in, may go in a batch — and nothing else of the instance: its own page reads the tasks, and has the
+     * instance in hand. A task is offered the same actions on that page as in the lists, which read the same
+     * configuration in {@link #enrich}: the page had none of it, so its Return showed on a flow that allows none, and
+     * was refused only once clicked (zingkey-hcm#2752). One instance read and one bundle lookup.
+     */
+    public void applyStepConfig(String instanceId, List<FlowApprovalTaskView> views) {
+        if (instanceId == null || views == null || views.isEmpty()) {
+            return;
+        }
+        ContextUtils.withoutPermissionChecks(() -> instanceService.findByInstanceId(instanceId))
+                .filter(instance -> instance.getBundleId() != null)
+                .ifPresent(instance -> bundleRegistry.getByBundleId(instance.getBundleId())
+                        .ifPresent(definition -> views.forEach(view ->
+                                applyStepConfig(view, definition, instance.getStatus()))));
     }
 
     /**
@@ -189,8 +202,9 @@ public class TaskInstanceContextEnricher {
      * waiting) and it is no step to fill in — a batch fills in nothing.
      */
     private static void applyStepConfig(FlowApprovalTaskView view, CompiledFlowDefinition definition,
-                                        CompiledFlowNode node) {
-        if (!(node.getParsedConfig() instanceof ApprovalNodeConfig)) {
+                                        FlowExecutionStatus instanceStatus) {
+        CompiledFlowNode node = definition.getNodeIndex() == null ? null : definition.getNodeIndex().get(view.getNodeId());
+        if (node == null || !(node.getParsedConfig() instanceof ApprovalNodeConfig)) {
             return;
         }
         view.setReturnAllowed(Boolean.TRUE.equals(definition.getReturnEnabled()));
@@ -198,7 +212,7 @@ public class TaskInstanceContextEnricher {
         view.setFillIn(fillIn);
         boolean open = view.getStatus() == FlowApprovalTaskStatus.PENDING
                 && view.getTaskType() == FlowApprovalTaskType.APPROVAL
-                && view.getInstanceStatus() == FlowExecutionStatus.WAITING;
+                && instanceStatus == FlowExecutionStatus.WAITING;
         view.setBatchable(open && !fillIn);
     }
 }

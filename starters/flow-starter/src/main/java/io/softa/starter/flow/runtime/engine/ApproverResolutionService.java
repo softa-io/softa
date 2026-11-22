@@ -1,19 +1,23 @@
 package io.softa.starter.flow.runtime.engine;
 
 import java.util.*;
+import org.jspecify.annotations.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.i18n.I18n;
+import io.softa.framework.orm.meta.MetaField;
 import io.softa.starter.flow.enums.ApproverDeptScope;
 import io.softa.starter.flow.enums.ApproverRelativeTo;
 import io.softa.starter.flow.enums.ApproverSourceType;
 import io.softa.starter.flow.enums.VoteThresholdMode;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
+import io.softa.starter.flow.runtime.context.RecordVariables;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
 import io.softa.starter.flow.runtime.spi.ApproverInfo;
 import io.softa.starter.flow.runtime.spi.OrganizationService;
+import io.softa.starter.flow.runtime.spi.impl.FlowOrgService;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 
 /**
@@ -27,6 +31,21 @@ public class ApproverResolutionService {
      * is about, from its handler's {@code subject()} field. Org-relative sources start from it.
      */
     public static final String SUBJECT_ID_KEY = "_subjectId";
+
+    /**
+     * The start variable a record's approval carries its model in, as every triggered start does: what a field a source
+     * reads from the record ({@link #recordField}) is looked up on.
+     */
+    public static final String MODEL_KEY = "_sourceModel";
+
+    /**
+     * What a {@code RecordField} source's field may point at: the people it names, an employee — who approves under
+     * their login account — or the login account itself.
+     */
+    public static final List<String> PERSON_MODELS = List.of(FlowOrgService.EMPLOYEE_MODEL, FlowOrgService.ACCOUNT_MODEL);
+
+    /** What a department-based source's {@code VARIABLE_DEPT} field points at: a department. */
+    public static final List<String> DEPARTMENT_MODELS = List.of(FlowOrgService.DEPARTMENT_MODEL);
 
     @Autowired(required = false)
     private OrganizationService organizationService;
@@ -102,11 +121,37 @@ public class ApproverResolutionService {
                     "{0} and the departments above it have no leader who can approve");
             case "DeptHrbp" -> organizationService == null ? null : whyNoDeptHead(resolution, source,
                     "{0} and the departments above it have no HR business partner who can approve");
+            case "RecordField" -> whyNoRecordPerson(resolution, source);
             case "RoleQuery" -> I18n.get("nobody who can approve holds its roles");
             case "Position" -> I18n.get("nobody who can approve holds its positions");
             case "Department" -> I18n.get("its departments have nobody who can approve");
             default -> null;
         };
+    }
+
+    /** Why the person a field of the record names is nobody: the field is empty, or they cannot approve. */
+    private String whyNoRecordPerson(Resolution resolution, Map<String, Object> source) {
+        MetaField field = recordField(resolution.modelName(), source.get(ApproverSourceType.FIELD), PERSON_MODELS);
+        if (field == null) {
+            // Published before the field was removed or pointed elsewhere: it reads nobody until the flow changes.
+            return I18n.get("the request has no field {0} naming a person", source.get(ApproverSourceType.FIELD));
+        }
+        Long id = parseLong(RecordVariables.keyOf(resolution.variable(field.getFieldName())));
+        if (id == null) {
+            return I18n.get("{0} on the request is empty", field.getLabel());
+        }
+        String name = organizationService == null ? null : personName(field, id);
+        return I18n.get("{0}, {1} on the request, cannot approve",
+                StringUtils.hasText(name) ? name : I18n.get("the person"), field.getLabel());
+    }
+
+    /** The name of the person {@code id} is on {@code field}: an employee's, or an account's. */
+    private String personName(MetaField field, Long id) {
+        if (FlowOrgService.EMPLOYEE_MODEL.equals(field.getRelatedModel())) {
+            return organizationService.getEmployeeNames(List.of(id)).get(id);
+        }
+        return organizationService.getUsersByIds(List.of(id)).stream()
+                .map(ApproverInfo::getUserName).filter(StringUtils::hasText).findFirst().orElse(null);
     }
 
     private String whyNoSupervisor(Resolution resolution, Map<String, Object> source) {
@@ -157,6 +202,7 @@ public class ApproverResolutionService {
             case "Supervisor" -> resolveSupervisor(resolution, source);
             case "DeptLeader" -> resolveDeptLeader(resolution, source);
             case "DeptHrbp" -> resolveDeptHrbp(resolution, source);
+            case "RecordField" -> resolveRecordField(resolution, source);
             case "RoleQuery" -> resolveRoleQuery(resolution, source);
             case "Position" -> resolvePosition(source);
             case "Department" -> resolveDepartment(resolution, source);
@@ -296,6 +342,47 @@ public class ApproverResolutionService {
                 .toList();
     }
 
+    /**
+     * The person the source's field names, as the record held it at submission — or after an approver's edit: an
+     * employee by their login account, an account as it is. Nobody when the field is empty, or no longer one that
+     * names a person. One who cannot act is left out with the rest ({@link ActorAccounts}); nobody takes it up for
+     * them, as with the people a step names.
+     */
+    private Object resolveRecordField(Resolution resolution, Map<String, Object> source) {
+        MetaField field = recordField(resolution.modelName(), source.get(ApproverSourceType.FIELD), PERSON_MODELS);
+        Long id = field == null ? null : parseLong(RecordVariables.keyOf(resolution.variable(field.getFieldName())));
+        if (id == null) {
+            return null;
+        }
+        if (FlowOrgService.ACCOUNT_MODEL.equals(field.getRelatedModel())) {
+            return id.toString();
+        }
+        if (organizationService == null) {
+            return null;
+        }
+        Long userId = organizationService.getUserIdOfEmployee(id);
+        return userId == null ? null : userId.toString();
+    }
+
+    /**
+     * The field of {@code modelName} a source reads one of {@code models} from — a {@code RecordField} source's person,
+     * a {@code VARIABLE_DEPT} scope's department: a many-to-one or one-to-one field of the record itself that its
+     * approvals route on ({@link RecordVariables#routedRelations}), pointing at one of {@code models}. Not through a
+     * relation: the people and departments the record's relations lead to are the organization's, found by the
+     * sources that walk it — a supervisor, a department's leader. Null when {@code fieldName} names no such field, or
+     * {@code modelName} no model.
+     */
+    public static @Nullable MetaField recordField(@Nullable String modelName, @Nullable Object fieldName,
+                                                  Collection<String> models) {
+        if (!StringUtils.hasText(modelName) || fieldName == null || !StringUtils.hasText(fieldName.toString())) {
+            return null;
+        }
+        String name = fieldName.toString().trim();
+        return RecordVariables.routedRelations(modelName).stream()
+                .filter(field -> field.getFieldName().equals(name) && models.contains(field.getRelatedModel()))
+                .findFirst().orElse(null);
+    }
+
     private Object resolveRoleQuery(Resolution resolution, Map<String, Object> source) {
         if (organizationService == null) {
             return null;
@@ -353,7 +440,7 @@ public class ApproverResolutionService {
     /**
      * The departments a department-based source works on, by its {@code deptScope} — {@code fallback}
      * when it names none. Empty when they cannot be told: no subject or initiator department, nothing
-     * named, an empty variable.
+     * named, an empty field.
      */
     private List<Long> departments(Resolution resolution, Map<String, Object> source, ApproverDeptScope fallback) {
         List<Long> deptIds = switch (ApproverDeptScope.of(source.get("deptScope"), fallback)) {
@@ -364,11 +451,9 @@ public class ApproverResolutionService {
                 List<Long> named = parseLongList(source.get("deptIds"));
                 yield named != null ? named : listOf(parseLong(source.get("deptId")));
             }
-            case VARIABLE_DEPT -> {
-                Object value = resolution.variable(asString(source.get("deptVariable")));
-                List<Long> held = parseLongList(value);
-                yield held != null ? held : listOf(parseLong(value));
-            }
+            // The department a field of the record names, as the record held it at submission (recordField).
+            case VARIABLE_DEPT -> listOf(parseLong(RecordVariables.keyOf(
+                    resolution.variable(asString(source.get("deptVariable"))))));
         };
         return deptIds.stream().filter(Objects::nonNull).distinct().toList();
     }
@@ -454,6 +539,12 @@ public class ApproverResolutionService {
         /** The variable {@code key} names — a path a rule reads is a key of its own — or null. */
         Object variable(String key) {
             return variables == null || !StringUtils.hasText(key) ? null : variables.get(key);
+        }
+
+        /** The model of the record the instance approves ({@link #MODEL_KEY}); null for an instance without one. */
+        String modelName() {
+            Object model = variable(MODEL_KEY);
+            return model == null ? null : model.toString();
         }
     }
 

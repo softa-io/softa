@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import lombok.extern.slf4j.Slf4j;
 
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
@@ -37,6 +38,8 @@ import io.softa.starter.user.service.RoleService;
 @Service
 public class RoleServiceImpl extends EntityServiceImpl<Role, Long> implements RoleService {
 
+    private static final String USER_ROLE_REL = "UserRoleRel";
+
     private final ApplicationEventPublisher events;
 
     public RoleServiceImpl(ApplicationEventPublisher events) {
@@ -58,6 +61,7 @@ public class RoleServiceImpl extends EntityServiceImpl<Role, Long> implements Ro
     @Override
     public boolean deleteById(Long id) {
         guardSystemRole(List.of(id), "Delete");
+        guardNoMembers(List.of(id));
         boolean ok = super.deleteById(id);
         if (ok && id != null) publishRoleGrantChange(Set.of(id));
         return ok;
@@ -66,6 +70,7 @@ public class RoleServiceImpl extends EntityServiceImpl<Role, Long> implements Ro
     @Override
     public boolean deleteByIds(List<Long> ids) {
         guardSystemRole(ids, "Delete");
+        guardNoMembers(ids);
         boolean ok = super.deleteByIds(ids);
         if (ok && ids != null) publishRoleGrantChange(ids);
         return ok;
@@ -127,6 +132,22 @@ public class RoleServiceImpl extends EntityServiceImpl<Role, Long> implements Ro
             Role r = systemRoles.get(0);
             throw new BusinessException(
                     op + " is not allowed on system role '" + r.getName() + "' (code=" + r.getCode() + ")");
+        }
+    }
+
+    /**
+     * Reject deleting a role someone still holds. Its assignments would outlive it: a user's roles would
+     * list an id that names nothing, which no screen can revoke because none can show it. The roles page
+     * already withholds Delete until every assignment is revoked; this holds the API to the same rule.
+     * Counted as the system — whether a role is held does not depend on which assignments the caller
+     * may read.
+     */
+    private void guardNoMembers(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return;
+        long held = ContextUtils.withoutPermissionChecks(
+                () -> modelService.count(USER_ROLE_REL, new Filters().in("roleId", ids)));
+        if (held > 0) {
+            throw new BusinessException("Revoke all role assignments before deleting.");
         }
     }
 

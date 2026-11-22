@@ -6,12 +6,14 @@ import java.util.List;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
+import io.softa.framework.base.utils.PhoneUtils;
 import io.softa.framework.orm.annotation.Field;
 import io.softa.framework.orm.annotation.Index;
 import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.framework.orm.enums.WidgetType;
 import io.softa.starter.user.enums.AccountStatus;
 
 /**
@@ -92,10 +94,20 @@ public class UserAccount extends AuditableModel {
             + "Set when the account is minted; never edited by a tenant")
     private Boolean consultant;
 
-    @Field
+    /**
+     * The person's name as the account shows it. An account minted for a member of the business —
+     * created with them, rather than signed up for — takes their full name, so it has the room a full
+     * name is given (128); the 64 a bare string defaults to refused the long names those records accept,
+     * and the whole create with them.
+     */
+    @Field(length = 128)
     private String nickname;
 
-    @Field
+    /**
+     * The login identifier: the work email when there is one, else the mobile. An email is given the
+     * room the work email it comes from has (256), so a long address does not fail the account.
+     */
+    @Field(length = 256)
     private String username;
 
     // password and passwordSalt moved to UserProfile — a credential belongs to the person, not to
@@ -104,7 +116,7 @@ public class UserAccount extends AuditableModel {
     // them for real is a separate release step (user-02-drop-old-credential-columns.sql).
 
     /** This company's enterprise email: the employee record's Work Email. Cleared when the account closes. */
-    @Field
+    @Field(length = 256)
     private String email;
 
     /**
@@ -112,10 +124,10 @@ public class UserAccount extends AuditableModel {
      * their login mobile after (kept in step when it changes), and on a closed account the number it
      * had when it closed.
      */
-    @Field
+    @Field(widgetType = WidgetType.PHONE, pattern = PhoneUtils.E164, constraintMessage = PhoneUtils.E164_MESSAGE)
     private String mobile;
 
-    @Field(copyable = false, description = "The enterprise email the account had when it closed; "
+    @Field(length = 256, copyable = false, description = "The enterprise email the account had when it closed; "
             + "shown in the account list, never a login or a uniqueness check")
     private String closedEmail;
 

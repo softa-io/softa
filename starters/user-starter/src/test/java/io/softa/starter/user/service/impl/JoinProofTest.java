@@ -141,10 +141,37 @@ class JoinProofTest {
     }
 
     @Test
+    void comingBackToAnUnfinishedSetup_saysSo_theFirstVisitDoesNot() {
+        // Ada has no password yet. The first visit greets her like any newcomer; when she left before
+        // setting one and opens the link again, the page says the setup is unfinished. One record of the
+        // link's passes answers both, so the two never say the same visit is first and second at once.
+        JoinVerification first = loginService.verifyJoinCode(TOKEN, "email", "123456");
+        JoinVerification again = loginService.verifyJoinCode(TOKEN, "email", "123456");
+
+        assertThat(first.nextStep()).isEqualTo(JoinVerification.NextStep.SET_PASSWORD);
+        assertThat(first.signedUp()).isTrue();
+        assertThat(first.resumed()).isFalse();
+        assertThat(again.nextStep()).isEqualTo(JoinVerification.NextStep.SET_PASSWORD);
+        assertThat(again.signedUp()).isFalse();
+        assertThat(again.resumed()).isTrue();
+    }
+
+    @Test
+    void aPersonWhoAlreadyHasAPassword_isNeverResuming_whateverTheLinkSaw() {
+        ada.setPassword("hash");
+
+        loginService.verifyJoinCode(TOKEN, "email", "123456");
+        JoinVerification again = loginService.verifyJoinCode(TOKEN, "email", "123456");
+
+        assertThat(again.nextStep()).isEqualTo(JoinVerification.NextStep.CONFIRM);
+        assertThat(again.resumed()).isFalse();
+    }
+
+    @Test
     void theChain_verifyThenSetPasswordThenConfirm_succeeds_andSpendsTheProof() {
         String proof = passTheCode();
         // The cache holds a digest of the proof, never the proof itself: a dump is not a replay.
-        assertThat(cache.keySet()).allSatisfy(key -> assertThat(key).startsWith("join:proof").doesNotContain(proof));
+        assertThat(cache.keySet()).allSatisfy(key -> assertThat(key).startsWith("join:").doesNotContain(proof));
 
         loginService.setJoinPassword(TOKEN, ADA, PASSWORD, proof);
         verify(identityService).setPassword(11L, PASSWORD);
@@ -156,6 +183,17 @@ class JoinProofTest {
         verify(accountService).updateOne(revived);
         // Load-bearing: spent on success, so the completed flow leaves no standing credential.
         assertThat(cache).isEmpty();
+    }
+
+    @Test
+    void theSameLinkVerifiedTwice_signsUpOnlyOnce() {
+        // The account's placeholder verifies, leaves before setting a password and comes back.
+        JoinVerification first = loginService.verifyJoinCode(TOKEN, "email", "123456");
+        JoinVerification second = loginService.verifyJoinCode(TOKEN, "email", "123456");
+
+        assertThat(first.signedUp()).isTrue();
+        assertThat(second.signedUp()).isFalse();
+        assertThat(second.nextStep()).isEqualTo(JoinVerification.NextStep.SET_PASSWORD);
     }
 
     @Test

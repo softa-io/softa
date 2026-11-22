@@ -102,6 +102,17 @@ finds it in a search (`searchName`).
   stored, looked up or hashed, or a row is written in a spelling the lookups cannot
   find. Distinct from the **work contacts** on `UserAccount` (`email` / `mobile`),
   which are HR's per-company data and keep their case.
+- **Mobiles are E.164** (`+6591234567`). `UserAccount.mobile` declares
+  `pattern = PhoneUtils.E164` and the `PHONE` widget, so a form, an import and the API refuse a
+  number without its country code; `UserIdentity.loginMobile` and `UserInvitation.mobile` are
+  copies of it and carry the widget only, so a row stored before the pattern still copies.
+  `/me/mobile/checkNew` also counts the digits for the number's country, and refuses a country no
+  SMS route serves (`MessageService.canSendSms`) before a code is sent and before the number counts
+  toward the day's probes. The sign-in and join screens do not say so: they answer the same
+  whoever asks. An account whose `mobile` predates the pattern keeps it until its next edit, which
+  must give the number with its country code; find them with
+  `SELECT id, tenant_id, mobile FROM user_account WHERE mobile IS NOT NULL AND mobile !~ '^\+[1-9][0-9]{6,14}$';`
+  (PostgreSQL; MySQL `NOT REGEXP`).
 - **Sessions** are stored in Redis (`SOFTA_SESSION_<id>`). A session names one
   membership — switching company mints a new one.
 - **A session belongs to the kind of client it was issued to.** A request that sends
@@ -132,6 +143,11 @@ finds it in a search (`searchName`).
   version), not a security boundary: any caller can send or omit those headers. The
   source (`APP` / `WEB`) and device model recorded in the security log and the login
   history are what the client said about itself.
+- **Device headers.** Besides `X-App-Platform` / `X-App-Version` the APP sends
+  `X-Device-Model` (the hardware identifier, e.g. `iPhone12,3`) and `X-OS-Version` (the
+  operating system's version, e.g. `18.1`) on every call. `ClientInfo` reads them; the
+  session and the login history keep both (the push device keeps its own `deviceModel`
+  from the registration body, in message-starter). Either may be absent.
 - **Password lockout** lives on the credential (`UserIdentity.passwordLockedUntil`),
   so it is linked across every company the person belongs to. `UserAccount.locked`
   is a **derived, read-only** projection of it for the account list — writes that
@@ -166,7 +182,9 @@ then choose which membership to enter.
 | `leaveTenant` | Drop this tenant's session and return to the company step, **still authenticated** — what the client calls on a 414 instead of signing the person out |
 | `joinEntry` / `sendJoinCode` / `verifyJoinCode` / `setJoinPassword` / `confirmJoin` | The `/join` flow: an invitee proves the contact, sets a password and binds the membership, with no session at any point |
 | `inviteInfo` | What the invitation landing page may show for a token |
-| `forgetPassword` / `resetPasswordByCode` / `resetPassword` | Verification-code password reset |
+| `forgetPassword` / `checkResetCode` / `resetPasswordByCode` / `resetPassword` | Verification-code password reset; `checkResetCode` checks the code on its own step without spending it, under the same attempt limits |
+
+A code send answers the same whether or not the identifier is anybody's. The send limits (one per minute, ten a day per identifier) are the exception that is said — "Too many requests. Try again later." — because they are spent before the lookup, for every identifier alike.
 
 `UserAccountController` (`/UserAccount/*`) — the generic CRUD endpoints are all
 **shadowed** here so the roster scope applies to by-id reads and writes as well as
@@ -174,7 +192,7 @@ to lists, plus:
 
 | Endpoint | Purpose |
 |---|---|
-| `invite` / `revokeInvitation` | Send or withdraw an invitation |
+| `invite` / `revokeInvitation` | Send or withdraw an invitation; `invite` is refused with "Failed to send. Please try again." — the account staying where it was — when none of the account's channels has a mail server or SMS provider to go out through |
 | `freezeAccount` / `unfreezeAccount` / `unfreezeAccounts` | Suspend a membership (replaces the former Lock/Unlock, which collided with the password lockout) |
 | `rehire` | Revive a `DEACTIVATED` membership on its original row |
 | `resetWorkContacts` / `unbindAndReinvite` | Correct a mis-addressed or mis-bound invitation |
@@ -234,6 +252,12 @@ accepts (`{"ticket": "..."}`):
 
 They act on the caller only and carry no business permission: the application lists `/me/**` under
 `permission.authenticated-bypass-patterns`, as `uiContext` already needs.
+
+## Push devices
+
+The APP's push-device registrations (`AppPushDevice`, `/app/devices`) live in message-starter (its README, *Push
+devices*). The account flows here drop them: logout naming its token (`unregisterDevice`), Reset User and password
+reset (`unregisterPerson`), an account frozen or closed (`unregisterAccount`); a revoked session drops its own.
 
 ## Consultants
 

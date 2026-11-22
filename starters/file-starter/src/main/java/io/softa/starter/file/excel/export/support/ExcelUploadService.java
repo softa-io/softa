@@ -41,6 +41,24 @@ public class ExcelUploadService {
      * Generate an Excel workbook with one or more sheets and upload it to file storage.
      */
     public FileInfo generateFileAndUpload(String modelName, String fileName, List<ExcelSheetData> sheetDataList) {
+        try {
+            return this.uploadExcelBytes(modelName, fileName, this.writeWorkbook(sheetDataList));
+        } catch (BaseException e) {
+            // Already carries a diagnosis — a permission refusal, a missing model, a storage failure.
+            // Wrapping it in "error generating Excel with the provided data" blames the data for
+            // something that has nothing to do with it, which is exactly how a denied FileRecord insert
+            // reads as a broken template.
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException("Error generating Excel {0} with the provided data.", fileName, e);
+        }
+    }
+
+    /**
+     * The workbook's bytes, one sheet per entry in order — what {@link #generateFileAndUpload} uploads.
+     * Separate so a workbook can be read back as it will be stored, without storage.
+     */
+    public byte[] writeWorkbook(List<ExcelSheetData> sheetDataList) throws IOException {
         try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
              ExcelWriter excelWriter = FesodSheet.write(outputStream).build()) {
             for (int i = 0; i < sheetDataList.size(); i++) {
@@ -54,15 +72,7 @@ public class ExcelUploadService {
                 excelWriter.write(sheetData.getRowsTable(), writeSheet);
             }
             excelWriter.finish();
-            return this.uploadExcelBytes(modelName, fileName, outputStream.toByteArray());
-        } catch (BaseException e) {
-            // Already carries a diagnosis — a permission refusal, a missing model, a storage failure.
-            // Wrapping it in "error generating Excel with the provided data" blames the data for
-            // something that has nothing to do with it, which is exactly how a denied FileRecord insert
-            // reads as a broken template.
-            throw e;
-        } catch (Exception e) {
-            throw new BusinessException("Error generating Excel {0} with the provided data.", fileName, e);
+            return outputStream.toByteArray();
         }
     }
 

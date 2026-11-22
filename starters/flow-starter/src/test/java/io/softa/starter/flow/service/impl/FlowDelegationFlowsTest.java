@@ -80,10 +80,10 @@ class FlowDelegationFlowsTest {
         assertDoesNotThrow(() -> service.createDelegation(rule("Node", "leave", "hr")));
         assertDoesNotThrow(() -> service.createDelegation(rule("Flow", "claim", null)));
 
-        assertEquals("Flow sync is not an approval flow in use",
+        assertEquals("The flow chosen is not an approval flow in use.",
                 assertThrows(FlowActionValidationException.class,
                         () -> service.createDelegation(rule("Flow", "sync", null))).getMessage());
-        assertEquals("Flow 'Leave' has no approval step notify",
+        assertEquals("The step chosen is not an approval step of 'Leave'.",
                 assertThrows(FlowActionValidationException.class,
                         () -> service.createDelegation(rule("Node", "leave", "notify"))).getMessage());
         assertThrows(FlowActionValidationException.class, () -> service.createDelegation(rule("Node", "leave", null)));

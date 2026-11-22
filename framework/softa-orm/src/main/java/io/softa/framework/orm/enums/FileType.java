@@ -128,11 +128,20 @@ public enum FileType {
     // Compatible image types
     public static final Set<FileType> COMPATIBLE_IMAGE_TYPE = Sets.newHashSet(JPG, PNG, WEBP, BMP);
 
-    // Compatible text types
-    public static final Set<FileType> COMPATIBLE_TEXT_TYPE = Sets.newHashSet(CSV, TXT, JSON, XML, YAML, SVG);
+    // Compatible text types. Not SVG: an image that can carry script is accepted as SVG only, never
+    // under a text file's name or type.
+    public static final Set<FileType> COMPATIBLE_TEXT_TYPE = Sets.newHashSet(CSV, TXT, JSON, XML, YAML);
 
     // Image types
     public static final Set<FileType> IMAGE_TYPE = Sets.newHashSet(JPG, PNG, WEBP, BMP, TIF, SVG, GIF, ICO);
+
+    /**
+     * Types a browser runs scripts in when it opens the file as a page: an SVG or XML document can
+     * carry a script element or an event handler. Their storage links are always downloads
+     * ({@code FileService.getStorageLink}); an img element still shows an SVG, since
+     * Content-Disposition only applies to opening a page.
+     */
+    public static final Set<FileType> SCRIPTABLE_TYPE = Sets.newHashSet(SVG, XML);
 
     // Document types
     public static final Set<FileType> DOCUMENT_TYPE = Sets.newHashSet(CSV, TXT, DOC, DOCX, PPT, PPTX, XLS, XLSX, PDF);
@@ -162,6 +171,25 @@ public enum FileType {
     }
 
     /**
+     * Get file type by the extension a file name or object key ends in, in any case; {@code jpeg}
+     * reads as JPG.
+     *
+     * @param fileName a file name or object key
+     * @return the type its extension names, or empty when it has none or one of no type here
+     */
+    public static Optional<FileType> ofFileName(String fileName) {
+        if (fileName == null) {
+            return Optional.empty();
+        }
+        int dot = fileName.lastIndexOf('.');
+        if (dot < 0 || dot == fileName.length() - 1) {
+            return Optional.empty();
+        }
+        String extension = fileName.substring(dot + 1).toLowerCase(java.util.Locale.ROOT);
+        return ofExtension("jpeg".equals(extension) ? JPG.getType() : extension);
+    }
+
+    /**
      * The Content-Type an object stored under this name should carry: the first mime type of the type
      * its extension names, or {@code application/octet-stream} when the extension is missing or not
      * one of these types. Stored without it, an object is served as octet-stream and a browser
@@ -171,18 +199,7 @@ public enum FileType {
      * @return the Content-Type to store the object with
      */
     public static String contentTypeOf(String fileName) {
-        if (fileName == null) {
-            return OCTET_STREAM;
-        }
-        int dot = fileName.lastIndexOf('.');
-        if (dot < 0 || dot == fileName.length() - 1) {
-            return OCTET_STREAM;
-        }
-        String extension = fileName.substring(dot + 1).toLowerCase(java.util.Locale.ROOT);
-        if ("jpeg".equals(extension)) {
-            extension = JPG.getType();
-        }
-        return ofExtension(extension)
+        return ofFileName(fileName)
                 .map(FileType::getMimeTypeList)
                 .filter(list -> !list.isEmpty())
                 .map(List::getFirst)

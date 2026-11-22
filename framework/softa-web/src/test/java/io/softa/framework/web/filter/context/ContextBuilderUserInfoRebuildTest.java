@@ -69,7 +69,7 @@ class ContextBuilderUserInfoRebuildTest {
                 new SessionStore(cacheService, mock(ApplicationEventPublisher.class)));
 
         when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(SessionRecord.class)))
-                .thenReturn(new SessionRecord(USER_ID, 7L, 9L, null, null, null, LocalDateTime.now()));
+                .thenReturn(new SessionRecord(USER_ID, 7L, 9L, null, null, null, null, LocalDateTime.now()));
         when(cacheService.getExpire(RedisConstant.SESSION + SESSION_ID)).thenReturn((long) SessionStore.TTL_SECONDS);
         when(cacheService.clear(java.util.List.of(RedisConstant.SESSION + SESSION_ID))).thenReturn(1L);
     }
@@ -227,7 +227,7 @@ class ContextBuilderUserInfoRebuildTest {
     @Test
     void anAppSession_worksFromTheApp_andIsRefusedWithoutItsHeaders() {
         when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(SessionRecord.class)))
-                .thenReturn(new SessionRecord(USER_ID, 7L, 9L, "ios", "1.0.0", null, LocalDateTime.now()));
+                .thenReturn(new SessionRecord(USER_ID, 7L, 9L, "ios", "1.0.0", null, null, LocalDateTime.now()));
         cachedUserInfo(userInfo(true));
         MockHttpServletRequest app = new MockHttpServletRequest();
         app.addHeader("X-App-Platform", "ios");
@@ -300,7 +300,7 @@ class ContextBuilderUserInfoRebuildTest {
         ReflectionTestUtils.setField(contextBuilder, "reentryTokenIssuer", provider);
         when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(SessionRecord.class))).thenReturn(null);
         when(cacheService.get(eq(SessionStore.ORG_UNAVAILABLE_SESSIONS + SESSION_ID), eq(SessionRecord.class)))
-                .thenReturn(new SessionRecord(USER_ID, 7L, 9L, null, null, null, LocalDateTime.now()));
+                .thenReturn(new SessionRecord(USER_ID, 7L, 9L, null, null, null, null, LocalDateTime.now()));
 
         assertThatThrownBy(() -> contextBuilder.buildUserContext(request()))
                 .isInstanceOf(UserNotFoundException.class)

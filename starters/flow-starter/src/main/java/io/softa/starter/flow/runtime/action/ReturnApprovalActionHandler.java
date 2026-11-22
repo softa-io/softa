@@ -57,12 +57,12 @@ public class ReturnApprovalActionHandler implements FlowActionHandler<FlowReturn
                     + "' does not allow returning an approval to its initiator");
         }
         if (!StringUtils.hasText(state.getInitiatorId())) {
-            throw new FlowActionValidationException("Flow instance does not record an initiator and cannot be returned: " + state.getInstanceId());
+            throw new FlowActionValidationException("This request cannot be returned: it records no submitter.");
         }
         actorValidator.validateApprovalActor(pendingApproval, request.getActorId(), node);
         // A return says what to change: the initiator edits the record and submits it again.
         if (!StringUtils.hasText(request.getComment())) {
-            throw new FlowActionValidationException("A comment is required to return approval node: " + request.getNodeId());
+            throw new FlowActionValidationException("A comment is required to return: say what to change.");
         }
 
         FlowExecutionStatus statusBefore = state.getStatus();

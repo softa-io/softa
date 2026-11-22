@@ -6,7 +6,7 @@
     <parent>
         <artifactId>softa-parent</artifactId>
         <groupId>io.softa</groupId>
-        <version>3.0.7</version>
+        <version>3.1.5</version>
     </parent>
 
     <artifactId>apps</artifactId>
@@ -30,7 +30,7 @@
             <plugin>
                 <groupId>org.sonatype.central</groupId>
                 <artifactId>central-publishing-maven-plugin</artifactId>
-                <version>0.10.0</version>
+                <version>0.12.0</version>
                 <executions>
                     <execution>
                         <id>injected-central-publishing</id>

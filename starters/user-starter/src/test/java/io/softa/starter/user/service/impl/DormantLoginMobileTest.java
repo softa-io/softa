@@ -60,7 +60,7 @@ class DormantLoginMobileTest {
 
         accountService.releaseDormantLoginMobile(NUMBER, "Join");
 
-        assertThat(logged(SecurityAction.DORMANT_MOBILE_RELEASED).getOldValue()).isEqualTo("+65 912****67");
+        assertThat(logged(SecurityAction.DORMANT_MOBILE_RELEASED).getOldValue()).isEqualTo("+65 912****567");
     }
 
     @Test

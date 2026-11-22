@@ -99,7 +99,8 @@ class FlowApprovalLifecycleScenarioTest {
         late.setActorId(INITIATOR);
         FlowActionValidationException refused = assertThrows(FlowActionValidationException.class,
                 () -> engine.withdraw(late));
-        assertTrue(refused.getMessage().contains("already acted"));
+        assertEquals("This request can no longer be withdrawn: an approver has already acted on it. "
+                + "Refresh to see where it stands.", refused.getMessage());
     }
 
     @Test
@@ -109,7 +110,8 @@ class FlowApprovalLifecycleScenarioTest {
         FlowWithdrawRequest req = new FlowWithdrawRequest();
         req.setInstanceId(started.getInstanceId());
         req.setActorId(INITIATOR);
-        assertThrows(FlowActionValidationException.class, () -> engine.withdraw(req));
+        assertEquals("This request cannot be withdrawn: its approval flow does not allow withdrawal.",
+                assertThrows(FlowActionValidationException.class, () -> engine.withdraw(req)).getMessage());
     }
 
     @Test
@@ -118,7 +120,8 @@ class FlowApprovalLifecycleScenarioTest {
         FlowWithdrawRequest req = new FlowWithdrawRequest();
         req.setInstanceId(started.getInstanceId());
         req.setActorId(OTHER);
-        assertThrows(FlowActionValidationException.class, () -> engine.withdraw(req));
+        assertEquals("Only its submitter can withdraw this request.",
+                assertThrows(FlowActionValidationException.class, () -> engine.withdraw(req)).getMessage());
     }
 
     @Test
@@ -140,7 +143,9 @@ class FlowApprovalLifecycleScenarioTest {
         FlowWithdrawRequest withdraw = new FlowWithdrawRequest();
         withdraw.setInstanceId(started.getInstanceId());
         withdraw.setActorId(INITIATOR);
-        assertThrows(FlowActionValidationException.class, () -> engine.withdraw(withdraw));
+        assertEquals("This request can no longer be withdrawn: it was returned to its submitter. "
+                        + "Refresh to see where it stands.",
+                assertThrows(FlowActionValidationException.class, () -> engine.withdraw(withdraw)).getMessage());
     }
 
     @Test
@@ -152,7 +157,8 @@ class FlowApprovalLifecycleScenarioTest {
         silent.setNodeId("approval");
         silent.setActorId(APPROVER);
         silent.setComment(" ");
-        assertThrows(FlowActionValidationException.class, () -> engine.returnApproval(silent));
+        assertEquals("A comment is required to return: say what to change.",
+                assertThrows(FlowActionValidationException.class, () -> engine.returnApproval(silent)).getMessage());
 
         FlowReturnRequest notTheirs = new FlowReturnRequest();
         notTheirs.setInstanceId(started.getInstanceId());

@@ -15,8 +15,6 @@ import io.softa.framework.base.utils.ListUtils;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
-import io.softa.framework.orm.meta.MetaField;
-import io.softa.framework.orm.meta.ModelManager;
 import io.softa.starter.file.entity.ExportTemplate;
 import io.softa.starter.file.entity.ExportTemplateField;
 import io.softa.starter.file.excel.export.ResolvedTemplateSheet;
@@ -53,12 +51,13 @@ public class ExportTemplateResolver {
                 return;
             }
             exportFields.add(exportField.getFieldName());
+            // Without a header of its own, a column is headed as a dynamic export heads it: a field
+            // two relations down is "Employee › Department › Name", not a bare "Name" that several
+            // columns of one template could share.
             if (StringUtils.isNotBlank(exportField.getCustomHeader())) {
                 headers.add(exportField.getCustomHeader());
             } else {
-                MetaField lastField = ModelManager.getLastFieldOfCascaded(exportTemplate.getModelName(),
-                        exportField.getFieldName());
-                headers.add(lastField.getLabel());
+                headers.add(ExportColumnHeaders.of(exportTemplate.getModelName(), exportField.getFieldName()));
             }
         });
         return new ResolvedTemplateSheet(headers, fetchFields, exportFields);

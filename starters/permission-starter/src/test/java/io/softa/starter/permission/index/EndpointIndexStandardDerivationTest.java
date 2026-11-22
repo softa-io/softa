@@ -180,6 +180,9 @@ class EndpointIndexStandardDerivationTest {
             // One workbook, a sheet per model: the same model-in-the-body shape, the same permission.
             assertThat(idx.lookup("/export/dynamicExportMultiSheet", "POST")).containsExactly("employee.export");
             assertThat(idx.lookup("/export/exportByTemplate", "POST")).containsExactly("employee.export");
+            // A file for re-import: listed and written under the export, like every other export.
+            assertThat(idx.lookup("/export/listImportTemplates", "POST")).containsExactly("employee.export");
+            assertThat(idx.lookup("/export/exportByImportTemplate", "POST")).containsExactly("employee.export");
             assertThat(idx.lookup("/ExportTemplate/listByModel", "POST")).containsExactly("employee.export");
             assertThat(idx.lookup("/ExportHistory/myExportHistory", "POST")).containsExactly("employee.export");
             // Regression guard: the old phantom per-model endpoint must NOT register.

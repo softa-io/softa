@@ -1,13 +1,14 @@
 package io.softa.starter.message.sms.entity;
 
 import java.io.Serial;
+import java.util.List;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 import io.softa.framework.orm.enums.MaskingType;
 import io.softa.framework.orm.annotation.Field;
-import io.softa.framework.orm.annotation.Index;
 import io.softa.framework.orm.annotation.Model;
+import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.starter.message.sms.enums.SmsProvider;
@@ -22,12 +23,14 @@ import io.softa.starter.message.sms.enums.SmsProvider;
  * Platform-owned: SMS is a platform service, so providers, country routing,
  * templates and template bindings exist once, for every tenant. The table is
  * not multi-tenant and has no tenant column; tenants never see or configure it.
+ * <p>
+ * A config sends to no country by itself: which countries it serves, and in which
+ * order, is said only by its {@link SmsProviderRegion} rows.
  */
 @Data
 @Model(label = "SMS Provider Config", idStrategy = IdStrategy.DISTRIBUTED_LONG,
         activeControl = true,
-        defaultOrder = {"priority", "name"})
-@Index(indexName = "idx_sms_provider_cfg_default", fields = {"isDefault"})
+        defaultOrder = {"name"})
 @EqualsAndHashCode(callSuper = true)
 public class SmsProviderConfig extends AuditableModel {
 
@@ -56,13 +59,14 @@ public class SmsProviderConfig extends AuditableModel {
 
     @Field(label = "API Secret", length = 512, encrypted = true, copyable = false, unsearchable = true,
             maskingType = MaskingType.ALL,
-            description = "Secondary credential (Twilio=authToken, Infobip=apiSecret, Aliyun=accessKeySecret) — "
+            description = "Secondary credential (Twilio=authToken, Aliyun=accessKeySecret; unused by Infobip) — "
                     + "AES-encrypted at rest, masked in API reads. Omit the field on update to keep the "
                     + "stored value; a payload containing the mask symbol is rejected.")
     private String apiSecret;
 
     @Field(label = "API Endpoint", length = 500,
-            description = "Provider API base URL (null = adapter default)")
+            description = "Provider API base URL (null = adapter default; required for Infobip, "
+                    + "the account's own base URL, e.g. https://xxxxx.api.infobip.com)")
     private String apiEndpoint;
 
     @Field(label = "Account ID", length = 255,
@@ -73,11 +77,13 @@ public class SmsProviderConfig extends AuditableModel {
     private String extConfig;
 
     @Field(length = 50,
-            description = "Sender phone number (E.164 format)")
+            description = "Numeric sender: a long number in E.164 (e.g. +6591234567) or a short code "
+                    + "(e.g. a New Zealand 4–6 digit code), entered as the provider issued it")
     private String senderNumber;
 
     @Field(label = "Sender ID", length = 50,
-            description = "Alphanumeric sender ID (alternative to phone number)")
+            description = "Alphanumeric sender ID such as a brand name (alternative to a sender number); "
+                    + "some countries require it to be registered first (Singapore: SSIR)")
     private String senderId;
 
     @Field(description = "Max SMS per minute")
@@ -85,13 +91,6 @@ public class SmsProviderConfig extends AuditableModel {
 
     @Field(description = "Max SMS per day (null = unlimited)")
     private Integer dailySendLimit;
-
-    @Field(description = "Marks this provider as a catchall for second-tier dispatch, used when "
-                    + "no enabled sms_provider_region route matches the recipient's country. "
-                    + "Multiple defaults are ordered by priority before one is selected and "
-                    + "persisted. Orthogonal to region routing — a provider can be both a region "
-                    + "route and a catchall.")
-    private Boolean isDefault;
 
     /**
      * Framework active control: reads are auto-filtered to {@code active = true},
@@ -102,8 +101,7 @@ public class SmsProviderConfig extends AuditableModel {
     @Field(renamedFrom = "isEnabled")
     private Boolean active;
 
-    @Field(description = "Lower = higher priority. Used as selection ordering among "
-                    + "isDefault=true providers in the catchall dispatch tier, and as the list-display "
-                    + "order in admin UIs. Defaults to 100 so new configs sort after explicitly-prioritised ones.")
-    private Integer priority;
+    /** The countries this provider serves — edited on the provider's page, queried by country on its own. */
+    @Field(label = "Country Routing", fieldType = FieldType.ONE_TO_MANY, relatedField = "providerConfigId")
+    private List<SmsProviderRegion> regions;
 }

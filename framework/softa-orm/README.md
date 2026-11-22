@@ -911,6 +911,34 @@ mq:
       topic: 
 ```
 
+### Distributed IDs (CosId)
+`DISTRIBUTED_LONG` / `DISTRIBUTED_STRING` ids come from `IDGenerator`, which uses the context's
+`default` CosId generator (the primary `IdGenerator` bean). Machine slots are leased in Redis
+(Redis 7.0+) through the context's `RedisConnectionFactory`:
+```yml
+cosid:
+  namespace: ${spring.application.name}
+  stores:
+    redis:
+      type: redis
+  machine:
+    leased:
+      store: redis
+  generators:
+    default:
+      strategy: snowflake
+```
+CosId 5 fails the boot on any `cosid.*` key it does not know, so the 3.x keys (`machine.enabled`,
+`machine.distributor`, `snowflake.enabled`) must go. `DISTRIBUTED_STRING` is the long id in base36,
+unpadded (as CosId 3 wrote it).
+
+**Upgrading from CosId 3.x is a stop-the-world switch.** 3.x and 5.0 never run in one namespace at
+the same time, so no rolling deployment: stop every old instance, wait at least the largest clock skew
+between hosts and no less than one minute, check the hosts' NTP sync, then start the new version. The
+default layout (`SNOWFLAKE_MS`: epoch `2019-12-24T16:00:00Z`, 41/10/12 bits) is CosId 3's, so new ids
+keep growing above the old ones; nothing in Redis needs migrating (5.0 uses keys of its own). To roll
+back, stop every 5.0 instance and wait at least 31 seconds before starting the old one.
+
 ### Multi-Datasource
 Application Scenarios:
 * Read-write separation

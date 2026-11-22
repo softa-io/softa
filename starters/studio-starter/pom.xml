@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.softa</groupId>
         <artifactId>starters</artifactId>
-        <version>3.0.7</version>
+        <version>3.1.5</version>
     </parent>
 
     <name>Softa Studio Starter</name>
@@ -24,7 +24,7 @@
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
-            <version>2.4.240</version>
+            <version>${h2.version}</version>
             <scope>test</scope>
         </dependency>
 

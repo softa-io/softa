@@ -6,7 +6,7 @@
     <parent>
         <groupId>io.softa</groupId>
         <artifactId>starters</artifactId>
-        <version>3.0.7</version>
+        <version>3.1.5</version>
     </parent>
 
     <name>Softa Tenant Starter</name>
@@ -41,7 +41,7 @@
         <dependency>
             <groupId>com.stripe</groupId>
             <artifactId>stripe-java</artifactId>
-            <version>32.1.0</version>
+            <version>34.1.0</version>
         </dependency>
     </dependencies>
 

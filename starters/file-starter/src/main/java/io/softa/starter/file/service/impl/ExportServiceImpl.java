@@ -22,12 +22,14 @@ import io.softa.starter.file.entity.ExportHistory;
 import io.softa.starter.file.entity.ExportTemplate;
 import io.softa.starter.file.excel.export.strategy.ExportByDynamic;
 import io.softa.starter.file.excel.export.support.ExcelUploadService;
+import io.softa.starter.file.excel.export.support.ImportTemplateExport;
 import io.softa.starter.file.excel.export.strategy.ExportByFieldTemplate;
 import io.softa.starter.file.excel.export.strategy.ExportContext;
 import io.softa.starter.file.excel.export.strategy.ExportStrategyFactory;
 import io.softa.starter.file.service.ExportHistoryService;
 import io.softa.starter.file.service.ExportService;
 import io.softa.starter.file.service.ExportTemplateService;
+import io.softa.starter.file.vo.ExportableImportTemplate;
 import io.softa.starter.file.vo.PivotSpec;
 
 @Service
@@ -47,6 +49,9 @@ public class ExportServiceImpl implements ExportService {
 
     @Autowired
     private ExportHistoryService exportHistoryService;
+
+    @Autowired
+    private ImportTemplateExport importTemplateExport;
 
     /**
      * Validate the exported by file template configuration.
@@ -135,6 +140,21 @@ public class ExportServiceImpl implements ExportService {
         return exportResult.getFileInfo();
     }
 
+    @Override
+    public List<ExportableImportTemplate> listImportTemplates(String modelName) {
+        return importTemplateExport.listFor(modelName);
+    }
+
+    @Override
+    public FileInfo exportByImportTemplate(String modelName, Long importTemplateId, FlexQuery flexQuery) {
+        long startNanos = System.nanoTime();
+        ExportResult exportResult = importTemplateExport.export(modelName, importTemplateId, flexQuery);
+        ExportHistory exportHistory = this.exportHistory(null, modelName, exportResult, startNanos);
+        exportHistory.setImportTemplateId(importTemplateId);
+        exportHistoryService.createOne(exportHistory);
+        return exportResult.getFileInfo();
+    }
+
     /**
      * Export multiple sheets merged to on Excel file by specifying multi export templates.
      * The convertType should be set to DISPLAY to get the display values of the fields.
@@ -170,12 +190,16 @@ public class ExportServiceImpl implements ExportService {
     }
 
     private void generateExportHistory(Long exportTemplateId, String modelName, ExportResult exportResult, long startNanos) {
+        exportHistoryService.createOne(this.exportHistory(exportTemplateId, modelName, exportResult, startNanos));
+    }
+
+    private ExportHistory exportHistory(Long exportTemplateId, String modelName, ExportResult exportResult, long startNanos) {
         ExportHistory exportHistory = new ExportHistory();
         exportHistory.setTemplateId(exportTemplateId);
         exportHistory.setModelName(modelName);
         exportHistory.setExportedFileId(exportResult.getFileInfo().getFileId());
         exportHistory.setTotalRows(exportResult.getTotalRows());
         exportHistory.setDuration(DateUtils.elapsedSeconds(startNanos));
-        exportHistoryService.createOne(exportHistory);
+        return exportHistory;
     }
 }

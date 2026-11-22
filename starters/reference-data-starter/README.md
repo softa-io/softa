@@ -98,7 +98,11 @@ automatically on `updateOne` / `deleteById` paths through the service.
 Seed data lives in `src/main/resources/data-system/`:
 
 - `Currency.AllCurrencies.json` — 155 active ISO 4217 currencies
-- `CountryRegion.AllCountries.json` — 249 ISO 3166-1 alpha-2 territories
+- `CountryRegion.AllCountries.json` — 249 ISO 3166-1 alpha-2 territories. `dialCode` is the country
+  calling code libphonenumber gives the country — `1` for every NANP territory (Puerto Rico,
+  Jamaica, ...), `47` for Svalbard, `358` for Åland, `39` for the Vatican — never with an area code:
+  a phone input builds `"+" + dialCode + national number`, and the national number of a NANP
+  territory already includes its area code. `CountryRegionDialCodeTest` holds every row to it.
 - `CountryTimeZone.Default.json` — 418 zones generated from the tz database's `zone.tab`. The default zone of
   each country is its first `zone.tab` line, except where that is a remote island or enclave (Australia, Brazil,
   Canada, Russia, Ukraine, Uzbekistan), which get the capital's or the most populous zone. Regenerate it when the

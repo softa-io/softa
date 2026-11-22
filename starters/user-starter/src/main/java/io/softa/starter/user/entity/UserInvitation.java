@@ -14,6 +14,7 @@ import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.entity.AuditableModel;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
+import io.softa.framework.orm.enums.WidgetType;
 
 /**
  * A password-set-by-email token record ("邀请明细") — issued when Ops invites a user (first-time
@@ -56,11 +57,11 @@ public class UserInvitation extends AuditableModel {
             description = "The account being invited / reset")
     private Long userId;
 
-    @Field(description = "Recipient email (denormalized for display + auditing); null when the "
+    @Field(length = 256, description = "Recipient email (denormalized for display + auditing); null when the "
             + "account had no work email and the invitation went out by SMS alone")
     private String email;
 
-    @Field(description = "Recipient mobile, dial code included (denormalized for display + auditing); "
+    @Field(widgetType = WidgetType.PHONE, description = "Recipient mobile, dial code included (denormalized for display + auditing); "
             + "null when the account had no work mobile. Together with email this records WHICH "
             + "channels one invitation was addressed to — the delivery OUTCOME lives in "
             + "message-starter's MailSendRecord / SmsSendRecord, which stay the authority on it")

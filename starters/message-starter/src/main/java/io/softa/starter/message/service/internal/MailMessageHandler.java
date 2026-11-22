@@ -7,16 +7,19 @@ import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.starter.message.mail.dto.SendMailDTO;
+import io.softa.starter.message.mail.entity.AbstractMailTemplate;
 import io.softa.starter.message.mail.entity.MailSendRecord;
 import io.softa.starter.message.mail.enums.MailSendStatus;
 import io.softa.starter.message.mail.service.MailSendRecordService;
 import io.softa.starter.message.mail.service.impl.MailDeliveryProcessor;
 import io.softa.starter.message.mail.support.MailAddresses;
 import io.softa.starter.message.mail.support.MailBodies;
+import io.softa.starter.message.mail.support.MailTemplateLocator;
 import io.softa.starter.message.shared.TenantScopes;
 
 /**
@@ -38,6 +41,8 @@ import io.softa.starter.message.shared.TenantScopes;
 final class MailMessageHandler {
 
     private final MailSendRecordService recordService;
+
+    private final MailTemplateLocator templateLocator;
 
     Long send(SendMailDTO dto) {
         return insert(accept(dto));
@@ -75,6 +80,7 @@ final class MailMessageHandler {
         if (hasBody) {
             MailBodies.requireWithinLimit(html, text);
         }
+        requireMatchingVariables(dto);
 
         MailSendRecord record = new MailSendRecord();
         record.setPlatformScope(dto.getScope() == MessageScope.PLATFORM);
@@ -108,6 +114,37 @@ final class MailMessageHandler {
         record.setRetryCount(0);
         record.setVersion(0L);
         return record;
+    }
+
+    /**
+     * An object of a variable set ({@code @TemplateVariableSet}), sent through a template that names a set, must
+     * be of that set — otherwise the wrong values would render as blanks and go out. Checked here,
+     * where the mistake is still the caller's to hear about. A plain map is not checked, and a
+     * template that cannot be found is left to the first delivery attempt, which records the send as
+     * failed with the reason.
+     */
+    private void requireMatchingVariables(SendMailDTO dto) {
+        if (!StringUtils.hasText(dto.getVariableSetName())) {
+            return;
+        }
+        AbstractMailTemplate template;
+        try {
+            // The template is the platform's or the tenant's configuration, not something the person
+            // whose action sends the mail needs a permission on.
+            template = ContextUtils.withoutPermissionChecks(
+                    () -> templateLocator.find(dto.getTemplateId(), dto.getTemplateCode(), dto.getScope()));
+        } catch (BusinessException e) {
+            return;
+        }
+        if (template == null || !StringUtils.hasText(template.getVariableSetName())) {
+            return;
+        }
+        String set = template.getVariableSetName().trim();
+        String sent = dto.getVariableSetName().trim();
+        if (!set.equals(sent)) {
+            throw new BusinessException("Mail send rejected: template ''{0}'' is written against the template "
+                    + "variables ''{1}'', but was sent ''{2}''.", template.getCode(), set, sent);
+        }
     }
 
     private static <T> List<T> immutableCopy(List<T> values) {

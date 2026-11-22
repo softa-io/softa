@@ -130,9 +130,12 @@ public class EndpointIndex implements StartupSnapshot {
             // model rides in a request param (not the path), so these are
             // absolute endpoints (leading "/") emitted verbatim — not the
             // per-model /<Model>/<suffix> shape the CRUD actions use.
+            // The export for re-import rides on the export too; the file-starter service then asks for
+            // the import of the model as well, since such a file is for someone who can import it back.
             Map.entry("export", List.of(
                     "POST /export/dynamicExport", "POST /export/exportByTemplate",
                     "POST /export/countExportable", "POST /export/dynamicExportMultiSheet",
+                    "POST /export/listImportTemplates", "POST /export/exportByImportTemplate",
                     "POST /ExportTemplate/listByModel", "POST /ExportHistory/myExportHistory")),
             Map.entry("import", List.of(
                     "POST /import/dynamicImport", "POST /import/importByTemplate",

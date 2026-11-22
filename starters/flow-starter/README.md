@@ -105,7 +105,7 @@ the approval fields `ApprovalModel` declares, and on a field for the employee th
 many-to-one onto `Employee`; `subject()` names that field (the instance's `subjectId`), and
 `null` — the default — means `employeeId`.
 `submission` (required) works from the record alone, and its `summary` names no sensitive field: everyone the
-approval reaches sees it. `validate` and `validateCancel` run as the user. `afterSubmitted`, `afterApproverEdit` and
+approval reaches sees it, in the lists and in the approval mails (their `summary` variable). `validate` and `validateCancel` run as the user. `afterSubmitted`, `afterApproverEdit` and
 `afterOutcome` run in the action's transaction with permission checks off, so throwing vetoes the action; they write
 to this database only and leave external effects to after the commit. `effectStatuses` reads the records, never
 guesses from dates.
@@ -116,7 +116,10 @@ the caller's row scope. An implementation overrides the defaults that matter: `g
 account counts as able to act), `getRoleNames` (none: a step handed to roles names them by id and code) and the five
 directory methods (empty: the pickers find nobody). `FlowOrgService` implements them all over the HR models —
 `Employee`, `Department`, `UserRoleRel`, `Role`, `UserAccount` — by the field names permission-starter reads, fixed in
-the class; an application on other models implements `OrganizationService` itself.
+the class; an application on other models implements `OrganizationService` itself. The sources that read a field of the
+record pick it by the model it points at, by these same names whatever the implementation: a person on the record
+(`RecordField`) from a field onto `Employee` — bridged with `getUserIdOfEmployee` — or `UserAccount`, a department
+(`VARIABLE_DEPT`) from one onto `Department`.
 
 **`ApprovalNotificationService`** (`runtime/spi`) — `notify(FlowNotificationEvent)`, called inside the action's
 transaction. `ApprovalNotices` maps each event to its recipients, inbox text and mail template, once per event. The
@@ -210,6 +213,10 @@ A change keeps these; each names the class that holds it.
   publishing (`TriggerConsistencyValidator`) and `GET /flow/cron/preview` both ask it.
 - **Identity is the server's.** `actorId`, `initiatorId` and `tenantId` are `@JsonProperty(READ_ONLY)` on every request
   and resolved from the context; `FlowClient` takes none of them as a parameter.
+- **A refusal names no id.** A `FlowActionValidationException` or `FlowAuthorizationException` reaches the person
+  refused as it is, on the web and in the app, so it says what happened in their words — this request, its
+  submitter, this record — never an instance, record, step or account id. `FlowExceptionHandler` logs each with the
+  request that met it, the ids it carried included.
 - **Bookkeeping runs past data permissions; reads are judged.** The instance store, the ledger and the projections
   ignore the caller's row scope; who may act is the action handlers' call (`ApprovalActorValidator`), who may see is
   `FlowInstanceAccessGuard`'s. The caller's own lists carry `@SkipPermissionCheck`, pinned to the caller, and a
@@ -241,6 +248,7 @@ The softa-docs pages state each rule; this is where to change it.
 | When the approval mode and the empty-approver strategy apply | `ApprovalNodeConfig.mayHaveSeveralApprovers` / `findsApproversByRule`, `ApproverSourceType.isFindsOne`, `ApproverResolutionService.resolveApprovalMode`, `PendingApprovalFactory.resolveEmptyApproverStrategy` |
 | Votes needed, capped by the approvers found | `ApproverResolutionService.capRequiredApprovals` |
 | Why a step found nobody | `ApproverResolutionService.whyNobody` |
+| Which field of the record a source reads a person or a department from (`RecordField`, `VARIABLE_DEPT`) | `ApproverResolutionService.recordField` (`PERSON_MODELS`, `DEPARTMENT_MODELS`), on the model the start carries in `MODEL_KEY`; checked by `ApprovalConfigValidator.recordFieldProblem`, for CC rules too |
 | What a submitter may submit or cancel | `FlowLaunchServiceImpl` (`AccessScope.callAs(UPDATE, …)`) |
 | Routing variables, and numbers restored on load | `RecordVariables`, `RecordVariables.restoreNumbers` |
 | A rule reading through relations, up to `RecordVariables.MAX_HOPS` levels: which paths, when read, which a flow needs | `RecordVariables.routedPathField` / `readPaths`; `CompiledFlowDefinition.rulePaths`, `DefaultFlowTriggerRegistry.submitConditionPaths`; read in `FlowLaunchServiceImpl.submitVariables`, `ApprovalFormWriteService.refreshVariables`, `FlowAutomationService.startVariables`; checked by `GatewayValidator.checkRule`; offered as `FlowVariableView.ruleFields` |
@@ -251,7 +259,7 @@ The softa-docs pages state each rule; this is where to change it.
 | A record's approval steps — passed, waited on, ahead — and how a submission ended | `FlowApprovalStepsComposer`; the steps ahead by `ApprovalPathPreviewer.previewRemaining` |
 | A task row's current steps | `CurrentStepsReader` |
 | A subflow that cannot run | `FlowExecutionOrchestrator.executeSubflow` |
-| Refusals answered with their reason | `FlowExceptionHandler`, ordered first (`Ordered.HIGHEST_PRECEDENCE`) |
+| Refusals answered with their reason, and logged with the request that met them | `FlowExceptionHandler`, ordered first (`Ordered.HIGHEST_PRECEDENCE`), with softa-web's `RequestInfoHandler` |
 
 ## Testing
 

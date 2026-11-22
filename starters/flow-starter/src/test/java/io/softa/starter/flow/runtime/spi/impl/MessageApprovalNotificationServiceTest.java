@@ -93,6 +93,7 @@ class MessageApprovalNotificationServiceTest {
         assertEquals(NotificationType.WORKFLOW, sent.getFirst().getNotificationType());
         assertEquals("FlowInstance", sent.getFirst().getSourceModel());
         assertEquals("i1", sent.getFirst().getSourceId());
+        assertEquals(Boolean.TRUE, sent.getFirst().getPush(), "an approval's messages go to the phones too");
     }
 
     @Test
@@ -227,6 +228,7 @@ class MessageApprovalNotificationServiceTest {
                 "admin-1 is not a numeric account id, so only the initiator is addressable");
         assertEquals("Approval failed: Leave of Alice", sent.getFirst().getTitle());
         assertEquals("No approver found", sent.getFirst().getContent());
+        assertEquals(Boolean.FALSE, sent.getFirst().getPush(), "a failure's system error stays in the inbox");
         assertEquals(1, administratorQueries.get(), "the administrators are looked up once for both channels");
     }
 
@@ -253,6 +255,17 @@ class MessageApprovalNotificationServiceTest {
         assertEquals("https://hr.example.com/home/approvals/i1", message.getTemplateVariables().get("link"));
         assertEquals("Leave of Alice", message.getTemplateVariables().get("subject"));
         assertEquals("LR-000042", message.getTemplateVariables().get("recordCode"));
+        // The line My Tasks shows under the title: the email says what is asked for, too.
+        assertEquals("Annual Leave · 12 Nov 2026 – 14 Nov 2026 · 3 days", message.getTemplateVariables().get("summary"));
+    }
+
+    @Test
+    void aRecordThatWordsNoSummaryIsEmailedWithAnEmptyOne() {
+        FlowExecutionState state = state();
+        state.setSummary(null);
+        notifications.notify(new FlowNotificationEvent.FlowCompleted(state));
+
+        assertEquals("", mail().getFirst().getTemplateVariables().get("summary"));
     }
 
     @Test
@@ -290,6 +303,7 @@ class MessageApprovalNotificationServiceTest {
                 .bundleId(7L)
                 .title("Leave of Alice")
                 .recordCode("LR-000042")
+                .summary("Annual Leave · 12 Nov 2026 – 14 Nov 2026 · 3 days")
                 .initiatorId("1001")
                 .modelName("LeaveRequest")
                 .rowId("42")

@@ -1,9 +1,7 @@
 package io.softa.starter.flow.runtime.spi.impl;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
@@ -44,11 +42,14 @@ import io.softa.starter.message.service.MessageService;
  *       {@code FlowInstance}, {@code sourceId} = its instance id) — the client opens the instance and goes on from
  *       there. A task to act on and a CC are told here too, though My Tasks lists them: the inbox is where a newcomer
  *       to the approval hears of it. Texts are translated into the tenant's default language — a message is read
- *       later by people whose own language the action does not know.</li>
+ *       later by people whose own language the action does not know. Every message but a failure's is also
+ *       pushed to the recipients' phones where the application sends pushes: a failure's text is the system's
+ *       error, and administrators get it too.</li>
  *   <li>Email: the notices that name a mail template, to each recipient's account email, on a flow whose
  *       {@code emailNotification} setting is not turned off. The tenant's template of that code words the email; its
- *       variables are {@code subject} (what the approval is about), {@code content} (the comment or reason, when there
- *       is one), {@code flowName}, {@code recordCode} and {@code link} — the approval's page, {@code system.site-url}
+ *       variables are {@code subject} (what the approval is about), {@code summary} (the line the approval lists
+ *       show under it, when the record words one), {@code content} (the comment or reason, when there is one),
+ *       {@code flowName}, {@code recordCode} and {@code link} — the approval's page, {@code system.site-url}
  *       + {@code /home/approvals/{instanceId}} (the frontend's Home module). A recipient without an email is
  *       skipped.</li>
  * </ul>
@@ -114,7 +115,9 @@ public class MessageApprovalNotificationService implements ApprovalNotificationS
                 return;
             }
             List<Runnable> writes = new ArrayList<>(2);
-            channel("inbox", state, () -> writes.add(inbox(state, notice, recipients)));
+            // A failure's text is the system's error and goes to administrators too: it stays in the inbox.
+            boolean push = !(event instanceof FlowNotificationEvent.FlowFailed);
+            channel("inbox", state, () -> writes.add(inbox(state, notice, recipients, push)));
             if (notice.mailTemplate() != null) {
                 channel("email", state, () -> {
                     if (sendsEmail(state)) {
@@ -143,8 +146,11 @@ public class MessageApprovalNotificationService implements ApprovalNotificationS
         }
     }
 
-    /** The inbox messages the notice makes, as a write to run once the action commits. */
-    private Runnable inbox(FlowExecutionState state, Notice notice, List<Long> recipients) {
+    /**
+     * The inbox messages the notice makes, as a write to run once the action commits; {@code push} also sends them
+     * to the recipients' phones where the application pushes.
+     */
+    private Runnable inbox(FlowExecutionState state, Notice notice, List<Long> recipients, boolean push) {
         String title = fit(translate(tenantLanguage(), notice.title(), ApprovalNotices.subjectOf(state)), TITLE_MAX_LENGTH);
         String content = StringUtils.hasText(notice.content()) ? notice.content() : title;
         List<SendInboxDTO> messages = recipients.stream().map(recipient -> {
@@ -155,6 +161,7 @@ public class MessageApprovalNotificationService implements ApprovalNotificationS
             message.setNotificationType(NotificationType.WORKFLOW);
             message.setSourceModel(INSTANCE_MODEL);
             message.setSourceId(state.getInstanceId());
+            message.setPush(push);
             return message;
         }).toList();
         return () -> channel("inbox", state, () -> newTransaction.executeWithoutResult(status -> {
@@ -166,12 +173,10 @@ public class MessageApprovalNotificationService implements ApprovalNotificationS
 
     /** The emails the notice makes, to the recipients' account emails, as a write to run once the action commits. */
     private Runnable email(FlowExecutionState state, Notice notice, List<Long> recipients) {
-        Map<String, Object> variables = new LinkedHashMap<>();
-        variables.put("subject", ApprovalNotices.subjectOf(state));
-        variables.put("content", notice.content() == null ? "" : notice.content());
-        variables.put("flowName", state.getFlowName() == null ? "" : state.getFlowName());
-        variables.put("recordCode", state.getRecordCode() == null ? "" : state.getRecordCode());
-        variables.put("link", link(state.getInstanceId()));
+        // A missing value goes out empty: the object's own conversion sees to it.
+        ApprovalNoticeVariables variables = new ApprovalNoticeVariables(ApprovalNotices.subjectOf(state),
+                state.getSummary(), notice.content(), state.getFlowName(), state.getRecordCode(),
+                link(state.getInstanceId()));
         return () -> channel("email", state, () -> {
             if (!ModelManager.existModel(USER_MODEL)) {
                 log.debug("Approval email not sent: instance={}, no user accounts", state.getInstanceId());
@@ -182,13 +187,7 @@ public class MessageApprovalNotificationService implements ApprovalNotificationS
                     .map(user -> Objects.toString(user.get(EMAIL_FIELD), null))
                     .filter(StringUtils::hasText)
                     .distinct()
-                    .map(email -> {
-                        SendMailDTO mail = new SendMailDTO();
-                        mail.setTo(List.of(email));
-                        mail.setTemplateCode(notice.mailTemplate());
-                        mail.setTemplateVariables(variables);
-                        return mail;
-                    })
+                    .map(email -> SendMailDTO.ofTemplate(List.of(email), notice.mailTemplate(), variables, null))
                     .toList();
             if (!mails.isEmpty()) {
                 newTransaction.executeWithoutResult(status -> messageService.sendMailBatch(mails));

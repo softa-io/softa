@@ -157,7 +157,8 @@ public class PlaceholderUtils {
     /**
      * Replace multiple placeholder variables in the text.
      * The variable name is trimmed before lookup, so the documented spaced form
-     * {{ name }} and the compact form {{name}} resolve the same map key.
+     * {{ name }} and the compact form {{name}} resolve the same map key. A dotted name that is
+     * not itself a key is followed through nested maps.
      * A variable missing from the map is left in place literally, keeping typos
      * visible in the rendered text instead of silently blanking them.
      * @param text text
@@ -171,7 +172,7 @@ public class PlaceholderUtils {
             return text;
         }
         StringLookup trimmedKeyLookup = key -> {
-            Object value = DateUtils.formatTemporal(placeholderMap.get(key.trim()));
+            Object value = DateUtils.formatTemporal(lookup(placeholderMap, key.trim()));
             return value == null ? null : value.toString();
         };
         StringSubstitutor sub = new StringSubstitutor(
@@ -184,6 +185,25 @@ public class PlaceholderUtils {
         sub.setEnableSubstitutionInVariables(false);
         sub.setDisableSubstitutionInValues(true);
         return sub.replace(text);
+    }
+
+    /**
+     * The value of {@code key}: the map's own entry of that name, else — for a dotted name — the
+     * value reached by following the name through nested maps, so {@code {{ department.name }}}
+     * reads the same value here as it does in a template body.
+     */
+    private static Object lookup(Map<String, Object> placeholderMap, String key) {
+        if (placeholderMap.containsKey(key) || key.indexOf('.') < 0) {
+            return placeholderMap.get(key);
+        }
+        Object current = placeholderMap;
+        for (String part : key.split("\\.")) {
+            if (!(current instanceof Map<?, ?> map)) {
+                return null;
+            }
+            current = map.get(part);
+        }
+        return current;
     }
 
     private static String stripReservedPrefix(String content) {

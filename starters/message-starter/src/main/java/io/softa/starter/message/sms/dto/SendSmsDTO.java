@@ -1,10 +1,12 @@
 package io.softa.starter.message.sms.dto;
 
 import java.util.Map;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import io.softa.framework.base.message.MessageScope;
+import io.softa.framework.orm.meta.TemplateVariableSetRegistry;
 
 /**
  * Request payload for one SMS recipient. Independent messages use
@@ -42,6 +44,15 @@ public class SendSmsDTO {
             + "ContextUtils.inTenantContext(tenantId, ...).")
     private MessageScope scope;
 
+    /**
+     * The variable set ({@code @TemplateVariableSet}) the variables were taken from, when the sender handed over
+     * an object. A template that names a set refuses the object of another one. Set by code only:
+     * never read from a request body.
+     */
+    @JsonIgnore
+    @Schema(hidden = true)
+    private String variableSetName;
+
     /** A templated SMS to one number: the template's code and variables, sent in {@code scope}. */
     public static SendSmsDTO ofTemplate(String phoneNumber, String templateCode, Map<String, Object> variables,
                                         MessageScope scope) {
@@ -50,6 +61,22 @@ public class SendSmsDTO {
         sms.setTemplateCode(templateCode);
         sms.setTemplateVariables(variables);
         sms.setScope(scope);
+        return sms;
+    }
+
+    /**
+     * A templated SMS filled from a {@code @TemplateVariableSet} object; see
+     * {@code SendMailDTO.ofTemplate(List, String, Object, MessageScope)}. A component left null is
+     * not sent at all: a provider that fills its own registered template is handed the variables
+     * themselves, some by position, and would refuse one more than its template takes.
+     *
+     * @param variables a record carrying {@code @TemplateVariableSet}
+     */
+    public static SendSmsDTO ofTemplate(String phoneNumber, String templateCode, Object variables,
+                                        MessageScope scope) {
+        SendSmsDTO sms = ofTemplate(phoneNumber, templateCode,
+                TemplateVariableSetRegistry.toMapOmittingMissing(variables), scope);
+        sms.setVariableSetName(TemplateVariableSetRegistry.nameOf(variables));
         return sms;
     }
 }

@@ -1,7 +1,5 @@
 package io.softa.starter.file.controller;
 
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +32,7 @@ import io.softa.starter.file.entity.ImportTemplate;
 import io.softa.starter.file.entity.ImportTemplateField;
 import io.softa.starter.file.excel.imports.ImportFieldAccess;
 import io.softa.starter.file.support.ImportTemplateCountryScope;
+import io.softa.starter.file.support.ImportTemplateDisplayOrder;
 import io.softa.starter.file.support.TemplateScope;
 import io.softa.starter.file.service.ImportService;
 import io.softa.starter.file.service.ImportTemplateService;
@@ -182,15 +181,9 @@ public class ImportTemplateController extends EntityController<ImportTemplateSer
         }
     }
 
-    /** Sequence ascending with unset last, then id. Sorted here: databases disagree on where nulls go. */
-    static final Comparator<ImportTemplate> DISPLAY_ORDER =
-            Comparator.comparing(ImportTemplate::getSequence, Comparator.nullsLast(Comparator.naturalOrder()))
-                    .thenComparing(ImportTemplate::getId, Comparator.nullsLast(Comparator.naturalOrder()));
-
+    /** See {@link ImportTemplateDisplayOrder}: the order every template listing shows. */
     static List<ImportTemplate> inDisplayOrder(List<ImportTemplate> templates) {
-        List<ImportTemplate> sorted = new ArrayList<>(templates);
-        sorted.sort(DISPLAY_ORDER);
-        return sorted;
+        return ImportTemplateDisplayOrder.inDisplayOrder(templates);
     }
 
     /** See {@link ImportTemplateCountryScope}: the same rule every template listing states. */

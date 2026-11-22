@@ -11,6 +11,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.context.UserInfo;
 import io.softa.framework.base.exception.BusinessException;
+import io.softa.starter.user.constant.AccountErrorCodes;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.orm.service.ModelService;
@@ -179,6 +180,41 @@ class PasswordLockoutTest {
 
         loginService.authenticateByPassword(EMAIL, "right");
         verify(identityService).clearPasswordFailures(IDENTITY);
+    }
+
+    @Test
+    void aPersonWithNoAccountLeft_whoKnowsTheirPassword_isToldThereIsNowhereToGo_notThatItIsWrong() {
+        // Unbind & Re-invite hands the account to the right person, leaving the one it was bound to with
+        // none. Their password is still theirs: proving it must say why they cannot go in, so they ask
+        // HR instead of resetting a password that was never the problem.
+        UserIdentity person = identity(null);
+        when(identityService.findByLoginIdentifier(EMAIL)).thenReturn(Optional.of(person));
+        when(accountService.listAccountIdsOf(PROFILE)).thenReturn(List.of());
+        when(accountService.listMembershipsOf(PROFILE)).thenReturn(List.of());
+        when(identityService.isPasswordLocked(person)).thenReturn(false);
+        when(identityService.matchesPassword(person, "right")).thenReturn(true);
+
+        AuthenticationResult result = loginService.authenticateByPassword(EMAIL, "right");
+
+        // Signed in to nothing: no company to list, and the reason the page turns into the "Account
+        // deactivated?" dialog.
+        assertThat(result.userInfo()).isNull();
+        assertThat(result.tenants()).isEmpty();
+        assertThat(result.noEnterableReason()).isEqualTo(AuthenticationResult.NoEnterableReason.DEACTIVATED);
+    }
+
+    @Test
+    void aPersonWithNoAccountLeft_andTheWrongPassword_isRefusedLikeAnyoneElse() {
+        UserIdentity person = identity(null);
+        when(identityService.findByLoginIdentifier(EMAIL)).thenReturn(Optional.of(person));
+        when(accountService.listAccountIdsOf(PROFILE)).thenReturn(List.of());
+        when(identityService.isPasswordLocked(person)).thenReturn(false);
+        when(identityService.matchesPassword(person, "wrong")).thenReturn(false);
+        when(identityService.recordPasswordFailure(person)).thenReturn(1L);
+
+        assertThatThrownBy(() -> loginService.authenticateByPassword(EMAIL, "wrong"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(AccountErrorCodes.PASSWORD_INCORRECT));
     }
 
     // ── what the person is told ────────────────────────────

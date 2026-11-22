@@ -10,6 +10,10 @@ name: Deploy Maven packages (GitHub Packages + Maven Central)
 #   4) Deploy to Maven Central first, then GitHub Packages. Central validates the
 #      whole bundle before publishing, so a failed Central deploy leaves nothing
 #      published anywhere and the same version can simply be re-run.
+#   5) A manual run with skip_central publishes to GitHub Packages only — for
+#      when Central refuses uploads (monthly publishing limit). Such a version
+#      is never published to Central afterwards: GitHub Packages rejects a
+#      second upload of it, so Central gets the next version instead.
 
 on:
   push:
@@ -23,6 +27,11 @@ on:
         description: "Semver version, e.g. 1.2.3 (optional; used when no tag)"
         required: true
         type: string
+      skip_central:
+        description: "Publish to GitHub Packages only (e.g. when the Central monthly publishing limit is reached). The version then never reaches Central; release the next version there."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -232,7 +241,10 @@ jobs:
       # Single-threaded on purpose: the plugin bundles and uploads at the last
       # publishable module in reactor order, and under -T modules finish in no fixed order.
       # Tests already ran above, so neither the test sources nor coverage are rebuilt.
+      # skip_central exists only on manual runs; tag and release runs read it as
+      # empty and always publish to Central.
       - name: Deploy to Maven Central (Central Portal)
+        if: ${{ !inputs.skip_central }}
         shell: bash
         env:
           CENTRAL_TOKEN_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
@@ -273,9 +285,14 @@ jobs:
           version="${{ steps.version.outputs.version }}"
 
           title="chore(release): $version"
+          if [[ "${{ inputs.skip_central }}" == "true" ]]; then
+            published="GitHub Packages (Maven Central skipped)"
+          else
+            published="GitHub Packages and Maven Central"
+          fi
           body="Automated release PR — bumps Maven module versions to $version.
 
-          Deploy to GitHub Packages and Maven Central succeeded; merging version bump into main."
+          Deploy to $published succeeded; merging version bump into main."
 
           # Create PR (or reuse existing one)
           url=$(gh pr create \

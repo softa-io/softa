@@ -3,14 +3,19 @@ package io.softa.starter.flow.compiler.validation;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.jspecify.annotations.Nullable;
 import org.springframework.util.StringUtils;
 
+import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.utils.BeanTool;
 import io.softa.starter.flow.api.CompileDiagnostic;
 import io.softa.starter.flow.compiler.FlowGraphContext;
 import io.softa.starter.flow.design.DesignFlowDefinition;
 import io.softa.starter.flow.design.FlowGraphNode;
 import io.softa.starter.flow.enums.*;
+import io.softa.starter.flow.runtime.engine.ApproverResolutionService;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
 
 /**
@@ -37,11 +42,19 @@ public class ApprovalConfigValidator implements FlowValidator {
     private static final String INVALID_RELATIVE_TO          = "INVALID_RELATIVE_TO";
     private static final String INVALID_DEPT_SCOPE           = "INVALID_DEPT_SCOPE";
     private static final String MISSING_DEPT_VARIABLE        = "MISSING_DEPT_VARIABLE";
+    private static final String INVALID_DEPT_VARIABLE        = "INVALID_DEPT_VARIABLE";
+    private static final String MISSING_RECORD_FIELD         = "MISSING_RECORD_FIELD";
+    private static final String INVALID_RECORD_FIELD         = "INVALID_RECORD_FIELD";
     private static final String UNREADABLE_CONFIG            = "UNREADABLE_CONFIG";
     private static final String MISSING_FIELD_PERMISSION     = "MISSING_FIELD_PERMISSION";
     private static final String FORM_PERMISSIONS             = "formPermissions";
     /** Where a step's groups of approvers are; a group's own fields are under its index ({@link #groupField}). */
     private static final String SOURCES_FIELD                = "config.approverSources";
+
+    /** What a {@code RecordField} source's field points at, as a message names it. */
+    static final String PERSON = "an employee or a user account";
+    /** What a {@code VARIABLE_DEPT} scope's field points at, as a message names it. */
+    static final String DEPARTMENT = "a department";
 
     /** A property named in the reference chain of a failed read: {@code ApprovalNodeConfig["approvalMode"]}. */
     private static final Pattern READ_REFERENCE = Pattern.compile("\\[\"([^\"]+)\"]");
@@ -49,11 +62,17 @@ public class ApprovalConfigValidator implements FlowValidator {
     @Override
     public List<CompileDiagnostic> validate(DesignFlowDefinition definition, FlowGraphContext context) {
         List<CompileDiagnostic> d = new ArrayList<>();
-        validateApprovalConfigs(context.nodeMap().values(), d);
+        validateApprovalConfigs(context.nodeMap().values(), modelOf(definition), d);
         return d;
     }
 
-    private void validateApprovalConfigs(Collection<FlowGraphNode> nodes, List<CompileDiagnostic> d) {
+    /** The model of the records the flow approves, as its trigger names it; null when it names none. */
+    static @Nullable String modelOf(@Nullable DesignFlowDefinition definition) {
+        return definition == null || definition.getTrigger() == null ? null : definition.getTrigger().modelName();
+    }
+
+    private void validateApprovalConfigs(Collection<FlowGraphNode> nodes, @Nullable String modelName,
+                                         List<CompileDiagnostic> d) {
         for (FlowGraphNode node : nodes) {
             if (!FlowNodeType.APPROVAL.equals(node.getType()) || node.getConfig() == null) {
                 continue;
@@ -62,7 +81,7 @@ public class ApprovalConfigValidator implements FlowValidator {
             if (cfg == null) {
                 continue;
             }
-            validateApprovers(node.getId(), node.displayName(), cfg, d);
+            validateApprovers(node.getId(), node.displayName(), cfg, modelName, d);
             validateEmptyApproverRoles(node.getId(), node.displayName(), cfg, d);
         }
     }
@@ -147,7 +166,8 @@ public class ApprovalConfigValidator implements FlowValidator {
      * finds nobody on every run — under the default strategy every submission is refused — so it
      * is not published; the vote thresholds have nothing to count then, and are not judged.
      */
-    private void validateApprovers(String nodeId, String name, ApprovalNodeConfig cfg, List<CompileDiagnostic> d) {
+    private void validateApprovers(String nodeId, String name, ApprovalNodeConfig cfg, @Nullable String modelName,
+                                   List<CompileDiagnostic> d) {
         List<Map<String, Object>> groups = cfg.getApproverSources() == null ? List.of() : cfg.getApproverSources();
         if (groups.isEmpty()) {
             d.add(missingApprovers(nodeId, "Approval node '" + name + "'", SOURCES_FIELD));
@@ -170,7 +190,7 @@ public class ApprovalConfigValidator implements FlowValidator {
                 named.addAll(people);
             } else {
                 dynamic = true;
-                validateSource(nodeId, who, i, type.toString(), group, d);
+                validateSource(nodeId, who, i, type.toString(), group, modelName, d);
             }
         }
         // The mode is judged only where it applies: a step with one approver at most passes on that one's approval.
@@ -214,7 +234,7 @@ public class ApprovalConfigValidator implements FlowValidator {
 
     /** A group that finds its people when the step is reached: a known source, with what it needs. */
     private void validateSource(String nodeId, String who, int index, String type, Map<String, Object> source,
-                                List<CompileDiagnostic> d) {
+                                @Nullable String modelName, List<CompileDiagnostic> d) {
         try {
             ApproverSourceType.of(type);
         } catch (IllegalArgumentException e) {
@@ -242,13 +262,27 @@ public class ApprovalConfigValidator implements FlowValidator {
                 }
             }
             case "DeptLeader", "DeptHrbp" ->
-                    validateDeptScope(nodeId, who, index, type, source, ApproverDeptScope.SUBJECT_DEPT, d);
+                    validateDeptScope(nodeId, who, index, type, source, ApproverDeptScope.SUBJECT_DEPT, modelName, d);
+            case "RecordField" -> {
+                String field = groupField(index, ApproverSourceType.FIELD);
+                Object named = source.get(ApproverSourceType.FIELD);
+                if (!StringUtils.hasText(asText(named))) {
+                    d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, field, MISSING_RECORD_FIELD,
+                            who + " RecordField requires the field of the record that names the approver"));
+                } else {
+                    String problem = recordFieldProblem(modelName, named, ApproverResolutionService.PERSON_MODELS, PERSON);
+                    if (problem != null) {
+                        d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, field, INVALID_RECORD_FIELD,
+                                who + " RecordField " + problem));
+                    }
+                }
+            }
             case "RoleQuery" -> {
                 if (isEmptyCollection(source.get("roleCodes")) && isEmptyCollection(source.get("roleIds"))) {
                     d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, groupField(index, "roleCodes"),
                             MISSING_ROLE_IDS, who + " RoleQuery requires non-empty roleCodes or roleIds"));
                 }
-                validateDeptScope(nodeId, who, index, type, source, ApproverDeptScope.ALL, d);
+                validateDeptScope(nodeId, who, index, type, source, ApproverDeptScope.ALL, modelName, d);
             }
             case "Position" -> {
                 if (isEmptyCollection(source.get("positionIds"))) {
@@ -256,7 +290,8 @@ public class ApprovalConfigValidator implements FlowValidator {
                             MISSING_POSITION_IDS, who + " Position requires non-empty positionIds"));
                 }
             }
-            case "Department" -> validateDeptScope(nodeId, who, index, type, source, ApproverDeptScope.SPECIFIC_DEPT, d);
+            case "Department" ->
+                    validateDeptScope(nodeId, who, index, type, source, ApproverDeptScope.SPECIFIC_DEPT, modelName, d);
             default -> { }
         }
     }
@@ -265,10 +300,11 @@ public class ApprovalConfigValidator implements FlowValidator {
      * A department-based source's {@code deptScope} — {@code fallback} when it names none — and what that
      * scope needs: {@code ALL} only for a role query (whose fallback it is), the department(s) for
      * {@code SPECIFIC_DEPT} ({@code deptIds} for department members, {@code deptId} otherwise), the
-     * variable for {@code VARIABLE_DEPT}.
+     * field of the record naming it for {@code VARIABLE_DEPT}.
      */
     private static void validateDeptScope(String nodeId, String who, int index, String type, Map<String, Object> source,
-                                          ApproverDeptScope fallback, List<CompileDiagnostic> d) {
+                                          ApproverDeptScope fallback, @Nullable String modelName,
+                                          List<CompileDiagnostic> d) {
         ApproverDeptScope scope;
         try {
             scope = ApproverDeptScope.of(source.get("deptScope"), fallback);
@@ -287,10 +323,44 @@ public class ApprovalConfigValidator implements FlowValidator {
             d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, groupField(index, field),
                     MISSING_DEPT_IDS, who + " " + type + " requires " + field + " for deptScope SPECIFIC_DEPT"));
         }
-        if (scope == ApproverDeptScope.VARIABLE_DEPT && !StringUtils.hasText(asText(source.get("deptVariable")))) {
-            d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, groupField(index, "deptVariable"),
-                    MISSING_DEPT_VARIABLE, who + " " + type + " requires deptVariable for deptScope VARIABLE_DEPT"));
+        if (scope == ApproverDeptScope.VARIABLE_DEPT) {
+            Object named = source.get("deptVariable");
+            if (!StringUtils.hasText(asText(named))) {
+                d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, groupField(index, "deptVariable"),
+                        MISSING_DEPT_VARIABLE, who + " " + type + " requires deptVariable for deptScope VARIABLE_DEPT"));
+            } else {
+                String problem = recordFieldProblem(modelName, named, ApproverResolutionService.DEPARTMENT_MODELS,
+                        DEPARTMENT);
+                if (problem != null) {
+                    d.add(CompileDiagnostic.fieldLevel(nodeId, APPROVAL_TYPE, groupField(index, "deptVariable"),
+                            INVALID_DEPT_VARIABLE, who + " " + type + " " + problem));
+                }
+            }
         }
+    }
+
+    /**
+     * What is wrong with {@code field} as the field of {@code modelName} a source reads one of {@code models} from
+     * ({@link ApproverResolutionService#recordField}) — a clause to follow the source, {@code what} naming what it
+     * must point at — or null when nothing is. A field the record's approvals do not carry, computed or sensitive,
+     * is never read: it holds nothing when the step is reached.
+     */
+    static @Nullable String recordFieldProblem(@Nullable String modelName, Object field, Collection<String> models,
+                                               String what) {
+        String name = field.toString().trim();
+        if (!StringUtils.hasText(modelName) || !ModelManager.existModel(modelName)) {
+            return "reads field '" + name + "' of the record, but the flow approves no model's records";
+        }
+        if (ApproverResolutionService.recordField(modelName, name, models) != null) {
+            return null;
+        }
+        MetaField declared = ModelManager.existField(modelName, name) ? ModelManager.getModelField(modelName, name) : null;
+        if (declared != null && FieldType.TO_ONE_TYPES.contains(declared.getFieldType())
+                && models.contains(declared.getRelatedModel())) {
+            return "reads field '" + name + "' of " + modelName + ", which its approvals do not carry: "
+                    + "a computed (dynamic) or sensitive field";
+        }
+        return "reads field '" + name + "', which is not a field of " + modelName + " pointing at " + what;
     }
 
     private static String asText(Object value) {

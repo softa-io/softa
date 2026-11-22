@@ -18,10 +18,11 @@ import java.time.LocalDateTime;
  * @param platform   {@code ios} / {@code android} for the APP, null for Web and H5
  * @param appVersion APP version from {@code X-App-Version}, null for Web and H5
  * @param deviceModel device model from {@code X-Device-Model}, null when the client does not send it
+ * @param osVersion  operating system version from {@code X-OS-Version}, null when the client does not send it
  * @param issuedAt   when the session was issued
  */
 public record SessionRecord(Long accountId, Long profileId, Long tenantId,
-                            String platform, String appVersion, String deviceModel,
+                            String platform, String appVersion, String deviceModel, String osVersion,
                             LocalDateTime issuedAt) implements Serializable {
 
     @Serial

@@ -30,12 +30,14 @@ import io.softa.starter.user.constant.AccountErrorCodes;
 import io.softa.starter.user.dto.*;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserIdentity;
+import io.softa.starter.user.entity.UserProfile;
 import io.softa.starter.user.enums.*;
 import io.softa.starter.user.exception.MultipleMembershipsException;
 import io.softa.starter.user.service.*;
-import io.softa.starter.user.spi.PushDeviceRegistry;
+import io.softa.starter.message.push.service.AppPushDeviceService;
 import io.softa.starter.user.util.ClientInfo;
 import io.softa.starter.user.util.LoginIdentifiers;
+import io.softa.starter.user.template.VerificationCodeVariables;
 
 /**
  * UserAccount Model Service Implementation
@@ -143,9 +145,9 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     @Autowired
     private JoinMobileFormat mobileFormat;
 
-    /** Optional: present only where APP push is deployed. */
+    /** message-starter's push-device registrations; optional so a unit test may leave them out. */
     @Autowired(required = false)
-    private PushDeviceRegistry pushDeviceRegistry;
+    private AppPushDeviceService pushDeviceService;
 
     /**
      * Tenant lifecycle gate at login: only ACTIVE tenants may log in. Enforced at the single
@@ -299,14 +301,69 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
 
     @Override
     public void sendEmailCode(String email) {
-        withoutSayingWhy(() -> this.codeRecipient(email)
-                .ifPresent(identity -> this.deliverEmailCode(email, this.companyOf(identity))));
+        String address = LoginIdentifiers.normalize(email);
+        String code = this.issueCode(address);
+        withoutSayingWhy(() -> this.findLinked(email).ifPresent(identity ->
+                this.mailCode(address, code, this.companyOf(identity), this.personNameOf(identity))));
     }
 
     @Override
     public void sendMobileCode(String mobile) {
-        withoutSayingWhy(() -> this.codeRecipient(mobile)
-                .ifPresent(identity -> this.deliverMobileCode(mobile, this.companyOf(identity))));
+        String number = LoginIdentifiers.normalize(mobile);
+        String code = this.issueCode(number);
+        withoutSayingWhy(() -> this.findLinked(mobile).ifPresent(identity ->
+                this.textCode(number, code, this.companyOf(identity))));
+    }
+
+    /**
+     * Spend the send budget and issue the code, before anyone is looked up — the same step, with the
+     * same answer, whether or not the identifier is anybody's.
+     *
+     * <p>Every unauthenticated entry point answers the same whether or not the identifier is
+     * anybody's: a distinct "no such account" is an oracle, and asked once per number it returns a
+     * verified roster of an organisation's staff. Three things have to stay identical for that to
+     * hold, and each is easy to lose:
+     *
+     * <ul>
+     *   <li><b>The send budget.</b> This runs on both paths. Skipping it for an unknown identifier
+     *       would make the limiter itself the oracle: the eleventh ask of one number is refused when
+     *       it exists and accepted when it does not.</li>
+     *   <li><b>The elapsed time.</b> Both paths do the same lookup, {@code beforeSend} and
+     *       {@code store}. Delivery is the only extra step on the linked path, and it writes a send
+     *       record for the delivery loop rather than waiting on a gateway.</li>
+     *   <li><b>The answer.</b> The guard's refusals — "Too many requests. Try again later.", the
+     *       ban — come from here, before the lookup, and from counters kept per identifier for every
+     *       identifier alike, so they are the same refusal on both paths and are returned: the person
+     *       over the limit is told so instead of waiting for a code that never comes. Everything
+     *       after the lookup is the linked path's alone and stays silent — see
+     *       {@link #withoutSayingWhy}.</li>
+     * </ul>
+     *
+     * <p>No budget may count misses only. A per-address allowance of misses, refused once spent,
+     * is the same oracle one step later: past it, an unknown number is refused while a real one
+     * still goes through.
+     */
+    private String issueCode(String identifier) {
+        return this.generateNumericCode(identifier);
+    }
+
+    /**
+     * The name a sign-in code greets the person by: their own full name, empty when none is known —
+     * or when it cannot be read: the code still goes out, a greeting is not worth losing it over.
+     */
+    private String personNameOf(UserIdentity identity) {
+        if (identity.getProfileId() == null || profileService == null) {
+            return "";
+        }
+        try {
+            return profileService.getById(identity.getProfileId())
+                    .map(UserProfile::getFullName)
+                    .map(StringUtils::trimToEmpty)
+                    .orElse("");
+        } catch (RuntimeException e) {
+            log.warn("Could not read the name of person {} for a sign-in code", identity.getProfileId(), e);
+            return "";
+        }
     }
 
     /**
@@ -332,49 +389,12 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     }
 
     /**
-     * The person a code should go out to for this identifier, if anyone — asked without ever saying
-     * so.
-     *
-     * <p>Every unauthenticated entry point answers the same whether or not the identifier is
-     * anybody's: a distinct "no such account" is an oracle, and asked once per number it returns a
-     * verified roster of an organisation's staff. The screen says the same thing either way, and
-     * whoever mistyped is served by its wording ("if this number is linked, a code is on its way").
-     *
-     * <p>Three things have to stay identical for that to hold, and each is easy to lose:
-     *
-     * <ul>
-     *   <li><b>The send budget.</b> {@link #generateNumericCode} runs on both paths. Skipping it
-     *       for an unknown identifier would make the limiter itself the oracle: the eleventh ask of
-     *       one number is refused when it exists and accepted when it does not.</li>
-     *   <li><b>The elapsed time.</b> Both paths do the same lookup, {@code beforeSend} and
-     *       {@code store}. Delivery is the only extra step on the linked path, and it writes a send
-     *       record for the delivery loop rather than waiting on a gateway.</li>
-     *   <li><b>The status.</b> Neither path throws — see {@link #withoutSayingWhy}.</li>
-     * </ul>
-     *
-     * <p>No budget may count misses only. A per-address allowance of misses, refused once spent,
-     * is the same oracle one step later: past it, an unknown number is refused while a real one
-     * still goes through.
-     */
-    private Optional<UserIdentity> codeRecipient(String identifier) {
-        Optional<UserIdentity> linked = this.findLinked(identifier);
-        if (linked.isEmpty()) {
-            // The same Redis work the linked path is about to do, so the two cost the same.
-            this.generateNumericCode(LoginIdentifiers.normalize(identifier));
-        }
-        return linked;
-    }
-
-    /**
      * Swallow whatever went wrong, so that WHY it went wrong is not an answer either.
      *
-     * <p>Wrapped at the public entry points rather than inside the delivery: {@code /join} calls the
-     * delivery directly and must stay loud — the invitation, not the caller, named the address.
-     *
-     * <p>The guard's own "too many requests" is the case that matters: it can only be reported on
-     * one of the two paths if it is reported at all, and reporting it there is the oracle one
-     * layer down. A person hammering the button no longer learns they are over the limit; the
-     * cooldown the screen already shows is what tells them to wait.
+     * <p>Wrapped at the public entry points around what follows the lookup, rather than inside the
+     * delivery: {@code /join} calls the delivery directly and must stay loud — the invitation, not the
+     * caller, named the address. The send budget is spent before the lookup and outside this, for
+     * the reason {@link #issueCode} gives.
      *
      * <p>Logged, never returned: an outage stays diagnosable without becoming readable from outside.
      */
@@ -411,25 +431,33 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      * @param tenantId the company the code is for — filed under it and counted against its quota —
      *                 or null when no one company can be named
      */
-    private void deliverEmailCode(String email, Long tenantId) {
+    private void deliverEmailCode(String email, Long tenantId, String name) {
         // Normalised once, here, and the normalised value is what the code is keyed by AND sent to:
         // the verify step normalises its identifier the same way, so the two meet on one key
         // however the person spelt the address on either screen.
         email = LoginIdentifiers.normalize(email);
-        String code = this.generateNumericCode(email);
-        // PLATFORM tier: a login / join code is requested BEFORE any session, so there is no tenant
-        // context to render a tenant-specific template from — the platform row is the code's copy.
-        SendMailDTO mail = SendMailDTO.ofTemplate(List.of(email), TEMPLATE_CODE,
-                Map.of("code", code, "expiryMinutes", CODE_EXPIRY_MINUTES), MessageScope.PLATFORM);
-        sendCode(tenantId, () -> messageService.sendMail(mail));
+        this.mailCode(email, this.generateNumericCode(email), tenantId, name);
     }
 
     /** The mobile twin of {@link #deliverEmailCode}; see there for why it is separate — and platform-tier. */
     private void deliverMobileCode(String mobile, Long tenantId) {
         mobile = LoginIdentifiers.normalize(mobile);
-        String code = this.generateNumericCode(mobile);
+        this.textCode(mobile, this.generateNumericCode(mobile), tenantId);
+    }
+
+    /** Mail an issued code to a normalised address, greeting the person by {@code name}. */
+    private void mailCode(String email, String code, Long tenantId, String name) {
+        // PLATFORM tier: a login / join code is requested BEFORE any session, so there is no tenant
+        // context to render a tenant-specific template from — the platform row is the code's copy.
+        SendMailDTO mail = SendMailDTO.ofTemplate(List.of(email), TEMPLATE_CODE,
+                new VerificationCodeVariables(code, CODE_EXPIRY_MINUTES, name), MessageScope.PLATFORM);
+        sendCode(tenantId, () -> messageService.sendMail(mail));
+    }
+
+    /** Text an issued code to a normalised number. */
+    private void textCode(String mobile, String code, Long tenantId) {
         SendSmsDTO sms = SendSmsDTO.ofTemplate(mobile, TEMPLATE_CODE,
-                Map.of("code", code, "expiryMinutes", CODE_EXPIRY_MINUTES), MessageScope.PLATFORM);
+                new VerificationCodeVariables(code, CODE_EXPIRY_MINUTES), MessageScope.PLATFORM);
         sendCode(tenantId, () -> messageService.sendSms(sms));
     }
 
@@ -485,7 +513,13 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         if (addressLimiter != null) {
             addressLimiter.count();
         }
-        Optional<UserIdentity> resolved = this.findLinked(identifier);
+        // Anyone holding this identifier, joined somewhere or not. Someone whose every account was
+        // closed or handed back (an Unbind & Re-invite moves the account to the right person) still
+        // has their password, and proving it earns them the reason they cannot go in — the
+        // no-company refusal below — not an "incorrect password" that sends them to reset it. An
+        // identifier nobody holds is still refused exactly like a wrong password.
+        Optional<UserIdentity> resolved =
+                identityService.findByLoginIdentifier(LoginIdentifiers.typedForm(identifier));
         if (resolved.isEmpty()) {
             this.refuseUnknownLikeAWrongPassword(identifier, channel, password);
         }
@@ -762,13 +796,14 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         String address = invitationService.resolveJoinChannel(rawToken, channel);
         // The company that sent the invitation: the code is filed under it and counted against its
         // quota. Empty only if the link stopped being usable a moment ago — then it is the platform's.
-        Long tenantId = invitationService.resolveJoinAccount(rawToken).map(UserAccount::getTenantId).orElse(null);
+        Optional<UserAccount> invited = invitationService.resolveJoinAccount(rawToken);
+        Long tenantId = invited.map(UserAccount::getTenantId).orElse(null);
         // deliver*, not send*: the invitee has no identity yet — that is what joining is — so the
         // linked check the public entry points carry would silently skip every first-time joiner.
         if ("mobile".equalsIgnoreCase(channel)) {
             this.deliverMobileCode(address, tenantId);
         } else {
-            this.deliverEmailCode(address, tenantId);
+            this.deliverEmailCode(address, tenantId, invited.map(accountService::noticeNameOf).orElse(""));
         }
     }
 
@@ -804,7 +839,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
             // A record from before the personal mobile was required: the email is all there is.
             if (account.getProfileId() == null) {
                 return this.verified(rawToken, Objects.requireNonNullElseGet(proofGuard.joinPersonOf(rawToken),
-                        () -> this.createJoinPerson(rawToken, address)), "email");
+                        () -> this.createJoinPerson(rawToken, address)), "email", true);
             }
             // The email proves who holds the mailbox, which the company chose; it says nothing about
             // the person the row names. That is enough for the placeholder minted with the account —
@@ -815,16 +850,21 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
                 throw AccountErrorCodes.refusal(AccountErrorCodes.JOIN_NEEDS_MOBILE,
                         "This invitation needs a mobile number to confirm who you are. Please contact your HR.");
             }
-            return this.verified(rawToken, account.getProfileId(), "email");
+            return this.verified(rawToken, account.getProfileId(), "email", true);
         }
         Long createdForThisLink = proofGuard.joinPersonOf(rawToken);
         UserIdentity holder = this.holderOf(mobile, account, createdForThisLink);
         if (holder == null) {
-            return this.verified(rawToken, this.createJoinPerson(rawToken, mobile), byMobile ? "mobile" : "email");
+            return this.verified(rawToken, this.createJoinPerson(rawToken, mobile), byMobile ? "mobile" : "email",
+                    true);
         }
-        if (byMobile || this.isPlaceholderFor(holder, account)
-                || Objects.equals(holder.getProfileId(), createdForThisLink)) {
-            return this.verified(rawToken, holder.getProfileId(), byMobile ? "mobile" : "email");
+        boolean placeholder = this.isPlaceholderFor(holder, account);
+        boolean madeForThisLink = Objects.equals(holder.getProfileId(), createdForThisLink);
+        if (byMobile || placeholder || madeForThisLink) {
+            // No personal account held the number before this link: the account's own placeholder,
+            // or a person an earlier verification of this link made. Anyone else had one already.
+            return this.verified(rawToken, holder.getProfileId(), byMobile ? "mobile" : "email",
+                    placeholder || madeForThisLink);
         }
         return JoinVerification.verifyMobile(mobileFormat.format(mobile).masked());
     }
@@ -865,15 +905,25 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      * The verification result, carrying a freshly minted proof. Minted here and nowhere else: every
      * branch above has just seen the code pass, and the proof must mean exactly that.
      */
-    private JoinVerification verified(String rawToken, Long profileId, String channel) {
+    private JoinVerification verified(String rawToken, Long profileId, String channel, boolean newPerson) {
+        // Recorded on every pass, so a second visit is known whichever branch the first one took. The one
+        // record both answers below read: whether this pass signs the person up, or resumes a setup an
+        // earlier pass of the link left unfinished.
+        boolean firstVisit = proofGuard.firstVerification(rawToken, profileId);
         // An Unbind & Re-invite link always sets the password: the membership is the person's again
         // the moment it is set, and someone who already had one resets it here.
         if (invitationService.isRebindLink(rawToken)) {
-            return JoinVerification.rebindVerified(profileId, proofGuard.mint(rawToken, profileId, channel));
+            return JoinVerification.rebindVerified(profileId, proofGuard.mint(rawToken, profileId, channel),
+                    !firstVisit);
         }
         boolean mustSetPassword = identityService.findByProfile(profileId)
                 .map(identity -> StringUtils.isBlank(identity.getPassword())).orElse(true);
-        return JoinVerification.verified(profileId, mustSetPassword, proofGuard.mint(rawToken, profileId, channel));
+        // Signed up: nobody held the number before this link, this is the link's first pass for them,
+        // and a password is still to be set. Resumed: a second pass of the same link with the password
+        // still owed — someone back to an account they left half set up, who is told the setup is
+        // unfinished instead of that they signed up again.
+        return JoinVerification.verified(profileId, mustSetPassword, proofGuard.mint(rawToken, profileId, channel),
+                newPerson && firstVisit && mustSetPassword, !firstVisit && mustSetPassword);
     }
 
     @Override
@@ -914,8 +964,8 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
             // A replaced password ends every session that knew the old one, and every device's
             // notifications, as a reset does.
             sessionService.revokePerson(profileId, null, SessionRevokeReason.PASSWORD_RESET);
-            if (pushDeviceRegistry != null) {
-                pushDeviceRegistry.unregisterPerson(profileId);
+            if (pushDeviceService != null) {
+                pushDeviceService.unregisterPerson(profileId);
             }
             securityLog.record(securityLog.entry(SecurityAction.PASSWORD_RESET, SecurityLogSource.WEB,
                     account, profileId));
@@ -943,6 +993,13 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     }
 
     @Override
+    public void checkResetCode(String identifier, String code) {
+        // Same order and same answers as resetPasswordByCode, minus the spending.
+        codeGuard.check(LoginIdentifiers.normalize(identifier), code);
+        this.findLinked(identifier).orElseThrow(LoginServiceImpl::incorrectCode);
+    }
+
+    @Override
     @Transactional
     public void resetPasswordByCode(String identifier, String code, String newPassword) {
         // The strength rules first: verifying spends the code, and a weak password refused after it
@@ -967,8 +1024,8 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         // ends, and no device keeps receiving this person's notifications. There is no "current"
         // session to keep — the person is not signed in.
         sessionService.revokePerson(identity.getProfileId(), null, SessionRevokeReason.PASSWORD_RESET);
-        if (pushDeviceRegistry != null) {
-            pushDeviceRegistry.unregisterPerson(identity.getProfileId());
+        if (pushDeviceService != null) {
+            pushDeviceService.unregisterPerson(identity.getProfileId());
         }
         securityLog.record(securityLog.entry(SecurityAction.PASSWORD_RESET,
                 ClientInfo.current().isApp() ? SecurityLogSource.APP : SecurityLogSource.WEB,
@@ -1344,7 +1401,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
             throw webOnly;
         }
         String sessionId = sessionStore.create(account.getId(), account.getProfileId(), account.getTenantId(),
-                client.platform(), client.appVersion(), client.deviceModel());
+                client.platform(), client.appVersion(), client.deviceModel(), client.osVersion());
         this.rememberLastAccount(account);
         return sessionId;
     }

@@ -104,6 +104,22 @@ GET /SysOptionSet/getOptionItems/OrderStatus
 
 Response is a list of `MetaOptionItem` objects.
 
+### Template variables
+
+The sets of template variables an application declares with `@TemplateVariableSet`
+(softa-base; registry in softa-orm) are served for a template editor to offer:
+
+```
+GET /TemplateVariableSet/list
+GET /TemplateVariableSet/get?name=flow.approval-notice
+```
+
+Each set is its name, label and fields — field name, label, field type, description,
+sample value, and the fields of a nested set (`DTO`) or of a list's items
+(`OneToMany`) — shaped like a model's fields so one picker serves both. They are
+descriptions only, no record data; like the option dictionary, an application
+whitelists `/TemplateVariableSet/*` for every signed-in user.
+
 ### Programmatic Usage
 Use `OptionManager` in service code:
 
@@ -477,7 +493,7 @@ Rules:
 
 A key is `<fileId>.<exp>.<signature>`: the signature is HMAC-SHA256 over the file, the expiry and — for a user key — the account, cut to 128 bits and base64url-encoded. The account is signed in, not written out: opening recomputes the signature with the userId of the session presenting the key. Nothing is stored, nothing is encrypted, no Redis.
 
-Opening (`FileController` `GET /file/open/{key}`, `PublicFileController` `GET /openapi/file/{key}`) checks the key and answers `302` to a storage link signed at that moment, valid `oss.url-expire-seconds` (default 300). `?download=1` asks for `Content-Disposition: attachment` with the file name; otherwise the file displays inline. Generated files (`uploadFromStream`: exports, import results, documents) carry `?download=1` already. Every answer is `Cache-Control: no-store` — a shared cache holding one account's `302` would hand the file to anyone. Refusals are one line of plain text, since these addresses are opened by img, iframe and new tabs: `404` malformed key or missing file, `403` a key issued to another account (or of the other kind), `410` expired. A `/file/open/` address reached with no usable session gets `401` from `ContextScopeFilter`, in plain text too — not the HTTP 200 JSON envelope every other call gets, which a download would save as the file.
+Opening (`FileController` `GET /file/open/{key}`, `PublicFileController` `GET /openapi/file/{key}`) checks the key and answers `302` to a storage link signed at that moment, valid `oss.url-expire-seconds` (default 300). `?download=1` asks for `Content-Disposition: attachment` with the file name; otherwise the file displays inline — except SVG and XML (`FileType.SCRIPTABLE_TYPE`), which always download: a browser opening either as a page runs the script it can carry, while an `img` still shows an SVG. Generated files (`uploadFromStream`: exports, import results, documents) carry `?download=1` already. Every answer is `Cache-Control: no-store` — a shared cache holding one account's `302` would hand the file to anyone. Refusals are one line of plain text, since these addresses are opened by img, iframe and new tabs: `404` malformed key or missing file, `403` a key issued to another account (or of the other kind), `410` expired. A `/file/open/` address reached with no usable session gets `401` from `ContextScopeFilter`, in plain text too — not the HTTP 200 JSON envelope every other call gets, which a download would save as the file.
 
 Opening does not re-check access to the record the file hangs on: a key only comes out of a read that was authorized already, under the record's scope. A revoked permission or a removed attachment therefore stops keys already handed out when they expire — at most 31 days — not at once. Rebinding an account to another person (Unbind & Re-invite) revokes the previous person's sessions, which their keys need.
 

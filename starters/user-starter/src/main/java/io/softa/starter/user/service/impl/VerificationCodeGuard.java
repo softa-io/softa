@@ -115,6 +115,23 @@ public class VerificationCodeGuard {
      *         "wrong" from "this code is now dead, request a new one", because the remedies differ)
      */
     public void verify(String identifier, String submitted) {
+        this.match(identifier, submitted, true);
+    }
+
+    /**
+     * Check a submitted code without spending it — for a flow that asks for the code on one screen
+     * and acts on it on the next (forgot password: the code, then the new password), so a wrong code
+     * is caught where it was typed. The action itself then calls {@link #verify}, which spends it.
+     *
+     * <p>Not a cheaper oracle than {@link #verify}: a check draws on the same attempt budget and the
+     * same ban, a wrong check counts exactly as a wrong verify does, and a right check resets nothing —
+     * the budget is only renewed when the code is spent or a new one is sent.
+     */
+    public void check(String identifier, String submitted) {
+        this.match(identifier, submitted, false);
+    }
+
+    private void match(String identifier, String submitted, boolean spend) {
         // No code guesses nothing, so it is refused before any counter: a client sending none — one still
         // sending it under its old name, say — cannot spend the attempt budget or bring on the ban.
         if (StringUtils.isBlank(submitted)) {
@@ -129,8 +146,13 @@ public class VerificationCodeGuard {
                     "This code has expired. Please request a new one.");
         }
         if (expected.equals(submitted)) {
-            // Success clears both counters: the consecutive one exists to catch a run of
-            // failures, and this run ended.
+            // A check leaves everything as it was. Clearing the counters while the code stays alive
+            // would hand a fresh budget against that same code to whoever keeps guessing at it.
+            if (!spend) {
+                return;
+            }
+            // Spent: the code goes, and both counters with it — the consecutive one exists to catch
+            // a run of failures, and this run ended.
             cacheService.clear(key("code", identifier));
             cacheService.clear(key("attempts", identifier));
             cacheService.clear(key("consecutive", identifier));

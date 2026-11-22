@@ -7,6 +7,7 @@ import io.pebbletemplates.pebble.PebbleEngine;
 import io.pebbletemplates.pebble.extension.AbstractExtension;
 import io.pebbletemplates.pebble.extension.AbstractNodeVisitor;
 import io.pebbletemplates.pebble.extension.Filter;
+import io.pebbletemplates.pebble.extension.Function;
 import io.pebbletemplates.pebble.extension.NodeVisitor;
 import io.pebbletemplates.pebble.extension.NodeVisitorFactory;
 import io.pebbletemplates.pebble.node.PrintNode;
@@ -76,8 +77,35 @@ public class TemplateEngine {
         }
 
         @Override
+        public Map<String, Function> getFunctions() {
+            return Map.of(TemplateCondition.FUNCTION, new ConditionFunction());
+        }
+
+        @Override
         public List<NodeVisitorFactory> getNodeVisitors() {
             return List.of(template -> new TemporalOutputVisitor((PebbleTemplateImpl) template));
+        }
+    }
+
+    /**
+     * {@code tplCondition(value, op, expected, type)}: the comparison a condition block is
+     * translated into ({@link TemplateBlocks}), decided by {@link TemplateCondition#holds}.
+     */
+    private static final class ConditionFunction implements Function {
+        private static final List<String> ARGUMENTS = List.of("value", "op", "expected", "type");
+
+        @Override
+        public List<String> getArgumentNames() {
+            return ARGUMENTS;
+        }
+
+        @Override
+        public Object execute(Map<String, Object> args, PebbleTemplate self, EvaluationContext context,
+                              int lineNumber) {
+            Object expected = args.get("expected");
+            Object type = args.get("type");
+            return TemplateCondition.holds(args.get("value"), String.valueOf(args.get("op")),
+                    expected == null ? null : expected.toString(), type == null ? null : type.toString());
         }
     }
 
@@ -198,6 +226,27 @@ public class TemplateEngine {
             return renderTemplate(HTML_ENGINE.getLiteralTemplate(templateContent), context);
         } catch (Exception e) {
             throw new IllegalArgumentException("Failed to render HTML template: {0}", e.getMessage());
+        }
+    }
+
+    /**
+     * Why a raw template cannot be compiled, or null when it can. For checking a template when it
+     * is saved, so a mistake in it is reported to whoever wrote it instead of failing a later send.
+     *
+     * @param templateContent raw Pebble template content
+     * @return the engine's own message, naming the line; null when the template compiles
+     */
+    public static String syntaxProblem(String templateContent) {
+        if (templateContent == null || templateContent.isEmpty()) {
+            return null;
+        }
+        try {
+            // Compiled, never evaluated: compiling is where the syntax is read.
+            HTML_ENGINE.getLiteralTemplate(templateContent);
+            return null;
+        } catch (Exception e) {
+            String message = e.getMessage();
+            return message == null || message.isBlank() ? e.getClass().getSimpleName() : message;
         }
     }
 

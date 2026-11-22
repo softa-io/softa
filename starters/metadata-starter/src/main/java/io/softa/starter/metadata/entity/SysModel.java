@@ -29,6 +29,10 @@ import io.softa.framework.orm.enums.StorageType;
         label = "System Model",
         businessKey = {"modelName"},
         description = "Metadata catalog of models",
+        // A model is shown and found by what a person knows it by. With no `name` field the framework
+        // default is the id, so a model picker searching this catalog matched nothing typed into it.
+        displayName = {"label"},
+        searchName = {"modelName", "label"},
         defaultOrder = {"modelName"}
 )
 public class SysModel extends AuditableModel {

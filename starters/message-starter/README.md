@@ -38,6 +38,19 @@ items, join the caller's transaction, and return record IDs in input order. A
 mail DTO may address multiple `to` recipients in one MIME message; an SMS DTO
 always contains exactly one phone number.
 
+A templated send is built with `SendMailDTO.ofTemplate` / `SendSmsDTO.ofTemplate` —
+from a map, or from an object of a declared set of template variables; see *Where a
+template's variables come from*.
+
+Delivery is asynchronous, so a send that cannot go out as configured is only
+known on its record. A caller that must tell its user at once — "Failed to
+send" rather than a success that never arrives — asks first with
+`requireMailRoute(MessageScope)` / `requireSmsRoute(phoneNumber)`: each throws
+a `BusinessException` naming what is missing (no send server for the tier, a
+number that does not parse, no enabled provider for its country and no default)
+and writes nothing. What only delivery can learn — a provider rejecting the
+number, a bounce, a used-up quota — is not checked.
+
 ## Requirements and Configuration
 
 The tables are declared by the starter's `@Model` classes: an application whose
@@ -340,8 +353,9 @@ of a notice catches it and logs it at ERROR, as user-starter's notices do.
 
 ### Broker topics
 
-Delivery uses no topic. message-starter consumes two, both optional: `cron-task`
-drives the scheduled mail fetch (see *Scheduled Fetch*), and
+Delivery uses no topic. message-starter consumes three, all optional: `cron-task`
+drives the scheduled mail fetch (see *Scheduled Fetch*) and the nightly push-device
+cleanup, `push-send` carries APP pushes (see *Push notifications*), and
 `softa.message.dlq.topic` collects other consumers' poison messages into the
 dead-letter store. Send dead-lettering is a terminal record state (`DEAD_LETTER`)
 plus a row archived into the unified `dead_letter_message` store (see *Dead
@@ -377,6 +391,155 @@ deploying application moves the data; in zingkey-hcm it is
 - Password resets and the three security notices are `PLATFORM` sends now, and the
   platform's pages are new models (`PlatformMail*`, the platform's `MailSendRecord`)
   while a tenant's send log is `TenantMailSendRecord`: menus and role grants follow.
+
+### Upgrading to SMS routing without a default provider
+
+`SmsProviderConfig.isDefault` and `SmsProviderConfig.priority` are removed. A country
+is served only by its `sms_provider_region` rows; a number from a country without one
+now fails with `CONFIG_NOT_RESOLVABLE` instead of going out through a default
+provider. Route rows of equal priority are ordered by config id.
+
+- **Before the new jar**: give each country a default provider was serving a route
+  row of its own. The configs that were defaults:
+  `SELECT id, name, provider_type FROM sms_provider_config WHERE is_default AND active;`
+  — none, and nothing changes.
+- The columns `is_default` and `priority` and the index `idx_sms_provider_cfg_default`
+  are dropped by the scanner where `scanner-scope` covers message-starter; elsewhere
+  they stay, nullable and unread, and can be dropped with the release. No data moves.
+
+### Upgrading to template variable sources
+
+Three nullable columns, no data to move:
+
+| Table | Column |
+|---|---|
+| `mail_template` | `variable_set_name VARCHAR(100)` |
+| `platform_mail_template` | `variable_set_name VARCHAR(100)` |
+| `sms_template` | `variable_set_name VARCHAR(100)` |
+
+A runtime with a non-empty `scanner-scope` adds them at boot; elsewhere the deploying
+application ships the `ALTER TABLE`s, **before the new jar** — the new entities read
+the columns on every template query.
+
+Nothing changes until a template names a set: an empty `variable_set_name` is a template
+that is not checked. An application then backfills
+`variable_set_name` on its existing system templates by code — the platform's rows once,
+each tenant's copies per tenant — at any time after the jar. A tenant may have edited
+its copy to use a variable the set does not have; such a row keeps sending as before
+(a send is checked against the set's name, not the content) but is refused the next
+time it is saved, so list those rows before backfilling.
+
+### Push notifications
+
+An inbox message whose sender sets `SendInboxDTO.push` is also pushed to the recipient's APP devices: APNs (HTTP/2,
+token authentication) for iOS, FCM (HTTP v1) for Android. Nothing else is pushed, and nothing is recorded beyond the
+log: a push is an instant reminder, and the inbox message holds what it said. flow-starter's approval messages set it,
+all but an approval's failure (its text is the system's error, and administrators get it too).
+
+```
+sendInbox(push = true) ─► InboxNotificationsCreated ─► AppPushDispatcher ─► push-send ─► AppPushSendConsumer
+  (the writer's tx)          (in that tx)                (after commit)        (Pulsar)      └─► AppPushProcessor
+                                                                                                └─► PushSender
+```
+
+- **Dispatch** (`AppPushDispatcher`): once the inbox commits — rolled back, nothing is pushed — each message asked for
+  goes to the `push-send` topic carrying its recipient, title, content and what it refers to, so sending never reads
+  the notification back. Off while no platform has credentials or `mq.topics.push-send.topic` is unset, which the
+  startup log says once.
+- **Consume** (`AppPushSendConsumer`): a Shared subscription, so a large batch spreads over the consumers of every
+  instance. Where `softa.message.dlq.topic` is set, a message that cannot even be read goes to the dead letters.
+- **Send** (`AppPushProcessor`): the recipient's live devices (`AppPushDeviceService.liveDevices`), each sent to once.
+  A token the service disowns loses its registration; **every other failure is logged as an ERROR with its cause and
+  never tried again** — a blocked network or a wrong key fails the same way on every try, and one timeout lost costs
+  one reminder. Each line carries the notification id, the tenant, the platform and the token's last six characters,
+  never the title, the body or a whole token. Alerting groups by the cause: a network down logs one ERROR per device.
+- **What it says**: the message's title (cut to 200 bytes), and its content made one line and cut to 100 characters —
+  about what a lock screen shows; the content is left out when empty or the title again. Its data is
+  `notificationId`, `tenantId`, `sourceModel` and `sourceId`, all strings: the APP decides from the model which page
+  opens. `apns-collapse-id` and FCM's `android.notification.tag` are the notification id, so a message delivered twice
+  shows once; `thread-id` is the source model. A device offline keeps it for 24 hours.
+
+```yml
+mq:
+  topics:
+    push-send:
+      topic: hcm-push-send-topic
+      sub: hcm-push-send-sub
+      concurrency: 16        # consumers per instance
+```
+
+#### Credentials
+
+Each platform is on when its credentials are configured, and off otherwise; with neither, nothing is queued. An
+unusable key logs an ERROR and leaves that platform off: it never stops startup.
+
+| `softa.message.push.` | Meaning |
+| --- | --- |
+| `log-only` | Log each notification instead of sending it, on both platforms |
+| `concurrency` | Most requests in flight per platform, per instance (default 100) |
+| `apns.private-key`, `apns.key-id`, `apns.team-id`, `apns.topic` | The `.p8` key (PEM, or PEM base64-encoded), its ids, the bundle id |
+| `apns.environment` | `production` (default; TestFlight and store builds) or `sandbox` (builds installed from Xcode) |
+| `apns.sandbox-fallback` | Try `sandbox` when `production` calls a token bad, for an environment with both kinds of build |
+| `fcm.service-account-json` | The service account key (JSON, or JSON base64-encoded) |
+| `fcm.android-channel-id` | The Android notification channel; blank leaves it to the app's default |
+| `apns.proxy-host`, `apns.proxy-port`, `fcm.proxy-host`, `fcm.proxy-port` | An HTTP CONNECT proxy for that platform, for a server that cannot reach the service directly |
+| `apns.base-url`, `apns.sandbox-base-url`, `fcm.base-url`, `fcm.token-url` | Override the service addresses, for testing |
+
+#### Outcomes
+
+`PushSender.send` returns a result and never throws: `SENT`; `TOKEN_INVALID` — only APNs 410 `Unregistered` and FCM
+`UNREGISTERED`, the two answers that say so for certain (APNs `BadDeviceToken` is also what a token of the other APNs
+environment gets, so it is `REJECTED`); `FAILED` — the network, a 5xx, or a 429, which is one device's rate limit;
+`CONFIG_ERROR` — credentials or target are wrong, the token says nothing; `REJECTED` — FCM `SENDER_ID_MISMATCH` among
+them, the token belonging to another Firebase project. The reason reads `HTTP 503 UNAVAILABLE`,
+`HTTP 429 TooManyRequests`, `ConnectException: Connection refused`. `Retry-After` is not read: nothing is tried again.
+
+After 10 failures in a row — network or 5xx — a platform pauses for a minute and its sends fail at once, saying what
+paused it, so a blocked network costs about ten timeouts a minute instead of one per device; the other platform is
+never affected. When FCM's token endpoint refuses the key or cannot be reached, Android sends fail for a minute without
+asking it again — those queued behind the failed exchange included. A token not shaped like one
+(`[A-Za-z0-9:_-]`, at most 512) is `REJECTED` without a request. APNs' signed token is renewed every 40 minutes; an
+`ExpiredProviderToken` for a token signed less than 20 minutes ago is a `CONFIG_ERROR` pointing at the server's clock,
+since re-signing sooner would only earn `TooManyProviderTokenUpdates`. `log-only` logs the platform, the token's last
+six characters and the ids at INFO, and what the notification says only at DEBUG.
+
+#### Push devices
+
+`AppDeviceController` (`/app/devices`) — the APP registers after signing in, after switching company, when its push
+token changes and when the person allows notifications: `POST /app/devices` with `platform` (`ios` / `android`),
+`deviceToken`, `appVersion`, `deviceModel`, `locale`. It drops the registration when the person turns notifications
+off: `DELETE /app/devices/{deviceToken}`, only the caller's own.
+
+- **An application using permission-starter lists `/app/devices/**` in `permission.authenticated-bypass-patterns`**:
+  the endpoints need a signed-in account and nothing more, and without the entry an ordinary employee cannot register.
+- An application with an APP version floor lists `DELETE /app/devices/*` in `app.upgrade-exempt-paths` (softa-web
+  README) so an APP stuck on the upgrade screen can still stop notifications.
+- The table is `app_push_device` (`AppPushDevice`). An application whose `scanner-scope` covers
+  `io.softa.starter.message` gets it from the scanner; any other creates it itself.
+
+The token must look like its platform's: hex, 64 to 200 characters, for `ios`; `[A-Za-z0-9:_-]`, at most 512, for
+`android`. A registration belongs to the account and the session it was made under, never to the request: one token
+is one row, moved to whoever registers it next (a token moving to another tenant gets a new row, since a row's tenant
+is fixed once written; the delete and the insert share one transaction). It goes when its session does — signed out,
+revoked (`SessionRevokedEvent`) — and when user-starter's account flows say so: the account frozen or closed
+(`unregisterAccount`), the person reset or their password reset (`unregisterPerson`), a logout naming its token
+(`unregisterDevice`). A session that simply runs out announces nothing, so `lastSeenAt` moves on with each renewal
+(`SessionRenewedEvent`; only `lastSeenAt`, and only on rows still under that session) and a row not seen for
+`SessionStore.TTL_SECONDS` is dead: `liveDevices` skips it and the `DropStalePushDevices` cron (CrossTenant, nightly,
+`data-system/SysCron.MessageMaintenance.json`, subscription `mq.topics.cron-task.push-device-sub`) removes it.
+
+A registration follows the company the person is signed in to: someone in two companies gets only the current one's
+pushes. When a push service says a token no longer exists, `dropInvalid(token, accountId)` removes the row only while
+it is still that account's — the token may just have moved to whoever signed in on the device.
+
+#### Upgrading
+
+No earlier release had any of this: the device registrations (`AppPushDevice`, `AppPushDeviceService`), their
+endpoints (`AppDeviceController`), the nightly `DropStalePushDevices` cleanup and the push pipeline are new, all in
+`io.softa.starter.message.push`, and the `app_push_device` table is created by the scanner. An application with a
+seed manifest lists `data-system/SysCron.MessageMaintenance.json` for the cleanup. An application that pushed by
+listening for `InboxNotificationsCreated` itself, with device registrations of its own, drops both, sets `push` on
+the messages it sends instead and has its APP register through the endpoints above.
 
 ### Message-starter properties
 
@@ -471,6 +634,98 @@ local time, no zone. The record keeps the variables as JSON, so the template
 receives that text; another format names it:
 `{{ time | date("dd/MM/yyyy", existingFormat="yyyy-MM-dd HH:mm:ss") }}`.
 
+#### Where a template's variables come from
+
+A template may name the set of variables it is written against in `variableSetName`
+(`MailTemplate`, `PlatformMailTemplate`, `SmsTemplate`): a record carrying
+`@TemplateVariableSet`, which code fills and sends as an object with
+`SendMailDTO.ofTemplate(to, code, variables, scope)`. The editor offers the set's
+fields (`GET /TemplateVariableSet/get?name=`). A template that names no set takes
+whatever map it is sent with, as before. Once saved, a template's set cannot be
+changed: code fills it with that set's values. The templates read no records — every
+value comes from the sender.
+
+**Declaring a set.** A record, one component per variable; label, description and
+sample value come from the component's `@Schema` (`title` / `description` /
+`example`). A component is text, a number, a boolean, a date or time, an enum, a
+nested record (`sender.fullName`) or a list of records (a loop).
+
+```java
+@TemplateVariableSet(name = "flow.approval-notice", label = "Approval notice")
+public record ApprovalNoticeVariables(
+        @Schema(title = "Record code", example = "LR-0012") String recordCode,
+        @Schema(title = "Link", description = "Opens the request") String link) {}
+```
+
+**Naming a set.** A set's name is stored beside the template's `code` and is written
+the same way: `<module>.<words>`, lowercase, words joined by hyphens, the module being
+the one that declares the set (`user`, `flow`, `subscription` in softa). A set filled
+for one template takes that template's code (`user.verification-code`,
+`user.login-mobile-changed`). A set several templates share is named after what they
+have in common: `flow.approval-notice` for the eight approval notices,
+`user.account-link` for the invitation and the password reset, `subscription.reminder`
+for the four contract reminders. The record is named after the set and ends in
+`Variables` (`ApprovalNoticeVariables`). Templates store the name, so renaming a set
+ships SQL that rewrites their `variable_set_name`, like any stored code.
+
+Sets are collected at startup into `TemplateVariableSetRegistry` (softa-orm) and held
+in memory — nothing is stored. Two classes declaring one name, a class that is not a
+record, or a component of another type stop the application, naming the class.
+`SoftaCatalogBootCheckTest` registers every softa set; an application repeats that
+check over its own packages so a duplicate name fails in CI, not at deployment.
+
+**On save** (`MailTemplateWriteValidator`, `SmsTemplateWriteValidator` — every
+write path, seed loading included), a template that names a set may only use what
+the set has (`VariableSetRules`): an unknown variable, a loop over something that
+is not a list, a condition that does not fit its field's type are refused, listing
+what is wrong, and so is moving a saved template to another set. Whatever the set, a
+mail body the template engine cannot compile is refused. Only what can be recognised as a
+name is checked: `{{ a + b }}` is not, `{{ name | upper }}` is.
+
+**On send**, an object sent through a template that names another set is refused at
+acceptance with a `BusinessException`; nothing is stored. A plain map is never
+checked. `SendMailDTO.variableSetName` is set by code only and never read from a
+request body. In a mail a component left null is sent empty — a list as an empty list,
+a nested set as a set with no values.
+
+In an SMS a component left null is not sent at all, instead of sent empty: a provider
+that fills its own registered template is handed the variables, some by position. A
+value an SMS template prints must therefore not be null — the sender passes `""` —
+or the text goes out with the literal `{{ name }}`.
+
+#### Blocks: loop tables and conditions
+
+A mail body may carry two blocks, written by the template editor as plain HTML with
+attributes and translated into the engine's `for` / `if` just before rendering
+(`TemplateBlocks`, softa-base):
+
+```html
+<table data-tpl-loop="lines">
+  <thead><tr><th data-tpl-field="name">Name</th></tr></thead>
+  <tbody><tr><td>{{name}}</td></tr></tbody>
+</table>
+<div data-tpl-if="amount" data-tpl-op="gt" data-tpl-value="1000" data-tpl-value-type="number">…</div>
+```
+
+They are attributes rather than `{% %}` because a rich-text editor — any HTML parser —
+moves a `{% for %}` out from between `<tbody>` and `<tr>`, and writes a `>` in a
+condition back as `&gt;`, which the engine refuses. Comparisons: `isTrue`, `isFalse`,
+`isEmpty`, `isNotEmpty`, `eq`, `ne`, `gt`, `ge`, `lt`, `le`; the condition is built
+from the three attributes, so an author cannot put an expression of their own into a
+template through it. The comparison is decided in code (`TemplateCondition.holds`), not by
+the engine's operators: a number or boolean that arrives as text — from a preview form, a
+mapped flow variable — is compared as what it spells, and a value that is no number is
+simply not greater, rather than an error that fails the send. A condition reads its
+field under `_raw`, which for a mail sent with template variables is the variables
+themselves.
+
+Hand-written `{% %}` and `{{ }}` may sit beside the blocks — in text, in a table,
+inside a start tag, in a comment: the HTML is parsed only to find where the blocks are,
+and the output is the body's own text with the generated tags inserted there. A body
+without blocks is not parsed at all. A field inserted by the editor is a `<span data-tpl-field … data-tpl-label …>`
+around `{{ name }}`; the two attributes are for the editor only, and a mail goes out
+with them.
+
 #### Body modes
 
 `bodyMode` declares the MIME shape a template (and every record sent from it)
@@ -559,7 +814,32 @@ A failed SMTP send is coded with the server's reply when it has one:
 `SMTP_451`…; without one the code is `SMTP_` + the exception type
 (`SMTP_MailAuthenticationException` for a failed login). `ErrorClassifier` reads
 an SMTP reply by its class: 4xx TRANSIENT, 5xx PERMANENT, except 552
-(message too large) INVALID_INPUT and 530 / 534 / 535 / 538 AUTH. Error codes
+(message too large) INVALID_INPUT and 530 / 534 / 535 / 538 AUTH.
+
+A failed SMS send is coded by its adapter. An HTTP error response is coded
+`HTTP_<status>` unless the adapter reads a provider code from the body (the
+Infobip adapter keeps `HTTP_<status>` and puts Infobip's `errorCode`,
+`description` and first violation in the message). `ErrorClassifier` reads
+`HTTP_<status>` by the status — 401 / 403 AUTH, 429 QUOTA, 400 / 404 / 413 / 422
+INVALID_INPUT, 408 and 5xx TRANSIENT — and Infobip's refusal statuses by name:
+the account's (`REJECTED_SOURCE`, `REJECTED_NOT_ENOUGH_CREDITS`,
+`REJECTED_ROUTE_NOT_AVAILABLE`, …) CONFIG, the number's or content's
+(`REJECTED_PREFIX_MISSING`, `REJECTED_DESTINATION`, `MISSING_TO`, …)
+INVALID_INPUT, a blocked recipient or sender (`REJECTED_DND`,
+`REJECTED_DESTINATION_BLOCKLISTED`, `REJECTED_FLOODING_FILTER`, …) PERMANENT,
+and only Infobip's platform failures (`REJECTED_SYSTEM_ERROR`,
+`UNDELIVERABLE_REJECTED_PLATFORM`) TRANSIENT. Other providers' codes go through
+the word heuristics (LIMIT, AUTH, INVALID…), and an unmatched code is UNKNOWN,
+which is retried.
+
+Logging is once per outcome, not per attempt. An adapter logs a failed attempt
+at WARN (ERROR, with the stack, only for an exception it did not expect);
+`SendFailureHandler` logs a retry at WARN and every terminal outcome — FAILED or
+DEAD_LETTER, whatever the category — at ERROR. With sentry-starter, those ERROR
+lines are the Sentry events, one per record that will not go out, and while
+they are logged the channel, provider, category and code are `tag.*` MDC
+entries, so the events carry the tags `message_channel`, `message_provider`,
+`error_category` and `error_code` to filter and alert on. Error codes
 and messages are cut to their columns (100 / 1000 characters, ending in "…")
 before a transition writes them, so an over-long provider message cannot fail
 the write that records the failure; `dead_letter_message.last_error_msg` is
@@ -826,9 +1106,8 @@ Unread -> Read -> Archived
 
 SMS is a platform service: providers, country routing, templates and template
 bindings exist once, for every tenant, in tables that are not multi-tenant.
-Provider selection is by the recipient's country (see *SMS Provider Routing*),
-then the enabled `isDefault` providers ordered by `priority`, else a
-`BusinessException`. Provider configs are cached in Redis (5 min TTL) and evicted
+Provider selection is by the recipient's country (see *SMS Provider Routing*); a
+country without a route fails with a `BusinessException`. Provider configs are cached in Redis (5 min TTL) and evicted
 after every committed write, from any endpoint (`ConfigCacheEvictor`).
 
 A provider that sends a template registered with it (a binding's external
@@ -868,16 +1147,16 @@ private MessageService messageService;
 
 // Plain text to a single recipient
 SendSmsDTO dto = new SendSmsDTO();
-dto.setPhoneNumber("+1234567890");
+dto.setPhoneNumber("+6591234567");
 dto.setContent("Order #1234 has been shipped.");
 Long id = messageService.sendSms(dto);
 
 // Independent batch: one DTO and one send record per phone number.
 SendSmsDTO first = new SendSmsDTO();
-first.setPhoneNumber("+1111111111");
+first.setPhoneNumber("+6591234567");
 first.setContent("System maintenance tonight at 10pm.");
 SendSmsDTO second = new SendSmsDTO();
-second.setPhoneNumber("+2222222222");
+second.setPhoneNumber("+6581234567");
 second.setContent("System maintenance tonight at 10pm.");
 List<Long> ids = messageService.sendSmsBatch(List.of(first, second));
 // ids point at PENDING records; the delivery loop moves them on to SENT/FAILED.
@@ -887,6 +1166,25 @@ List<Long> ids = messageService.sendSmsBatch(List.of(first, second));
 > sendSmsBatch` persist an `SmsSendRecord (PENDING)` in the caller's
 > transaction and return immediately; the delivery loop renders, routes and
 > performs the provider call.
+
+#### Phone numbers
+
+`phoneNumber` carries its country code: `+6591234567`, or typed with spaces, dashes or brackets
+(`+65 9123-4567`), which acceptance drops — the record, the routing and the provider all see E.164.
+Acceptance refuses, before anything is written, a number without its country code (`91234567`,
+`006591234567`), one with letters or an extension, one with the wrong number of digits for its
+country, and one whose shared calling code (+1, +7, +44, +61) the bundled number ranges cannot place.
+
+The checks are `PhoneUtils` (softa-base). The digits are counted for the country
+(`isPossibleNumber`); the country's assigned ranges are not checked (`isValidNumber`), so a range a
+country opens after the bundled libphonenumber version is still accepted, and a number in an
+unassigned range is the provider's to refuse. Keeping the library current matters most for the
+shared calling codes, whose new ranges cannot be placed in a country until it knows them.
+
+A country without an SMS route is not refused at acceptance: that is configuration, and the record
+fails at its first attempt (`CONFIG_NOT_RESOLVABLE`), where adding the route and retrying recovers
+it. A screen about to text a code to a number the person just typed asks
+`MessageService.canSendSms(phoneNumber)` first, so it can say so before sending.
 
 ### Send Modes
 
@@ -900,12 +1198,12 @@ List<Long> ids = messageService.sendSmsBatch(List.of(first, second));
 
 ```java
 SendSmsDTO first = new SendSmsDTO();
-first.setPhoneNumber("+111");
+first.setPhoneNumber("+6591234567");
 first.setTemplateCode("ORDER_STATUS");
 first.setTemplateVariables(Map.of("orderId", "A001", "status", "Shipped"));
 
 SendSmsDTO second = new SendSmsDTO();
-second.setPhoneNumber("+222");
+second.setPhoneNumber("+6581234567");
 second.setTemplateCode("ORDER_STATUS");
 second.setTemplateVariables(Map.of("orderId", "B002", "status", "Delivered"));
 
@@ -918,7 +1216,7 @@ messageService.sendSmsBatch(List.of(first, second));
 Map<String, Object> vars = Map.of("code", "123456", "minutes", 5);
 
 SendSmsDTO sms = new SendSmsDTO();
-sms.setPhoneNumber("+1234567890");
+sms.setPhoneNumber("+6591234567");
 sms.setTemplateCode("VERIFY_CODE");
 sms.setTemplateVariables(vars);
 messageService.sendSms(sms);
@@ -940,40 +1238,53 @@ POST /SmsTemplate/createOne
 
 `SmsProviderDispatcher` picks the provider(s) for an outbound SMS based on
 the recipient's country, parsed from the E.164 phone number via
-[libphonenumber](https://github.com/google/libphonenumber). Resolution is
-**two-tier, strict, no implicit cross-tier fallback**:
+[libphonenumber](https://github.com/google/libphonenumber). The country's route
+rows are the whole answer — **a country without one is not supported**, and there
+is no default provider to fall back to:
 
 ```text
 parseRegion(+8613800138000) -> "CN"
 
-  Tier 1: PRECISE      Tier 2: CATCHALL              FAIL
-  ┌──────────────┐     ┌──────────────────────┐     ┌────────────────────┐
-  │ Enabled rows │     │ SmsProviderConfig    │     │ BusinessException  │
-  │ in           │ ──▶ │ where isDefault=true │ ──▶ │ "No provider for X"│
-  │ sms_provider │     │ (ordered by priority)│     │                    │
-  │ _region      │     │                      │     │                    │
-  │ matching CN  │     │                      │     │                    │
-  └──────────────┘     └──────────────────────┘     └────────────────────┘
-        │                       │                            │
-        ▼                       ▼                            ▼
-  Use this ordered       Use this ordered               Send fails;
-  candidate list         candidate list                 fix config to recover
+  ┌──────────────────────────────┐            ┌──────────────────────────┐
+  │ Enabled sms_provider_region  │  none  ──▶ │ BusinessException        │
+  │ rows for CN whose config is  │            │ "No SMS provider serves  │
+  │ enabled, by priority, then   │            │  region CN"              │
+  │ config id                    │            └──────────────────────────┘
+  └──────────────────────────────┘                        │
+                │                                         ▼
+                ▼                                   Send fails;
+        Ordered candidate list              add a route row to recover
 ```
+
+The country comes from libphonenumber's number ranges, not from
+`country_region.dial_code`: dial codes are shared (`+1` US/CA/UM, `+7` RU/KZ,
+`+44` GB/GG/IM/JE, `+61` AU/CC/CX, `+64` NZ/PN), so a dial code cannot name the
+country of a number.
 
 #### Configuration model
 
 | Table | Purpose | Per-row data |
 |---|---|---|
-| `sms_provider_config` | Provider accounts and credentials | API key, sender number, `isDefault`, `priority` |
+| `sms_provider_config` | Provider accounts and credentials | API key, sender number / sender ID, rate limits |
 | `sms_provider_region` | Per-country routing rules | `region_code` (ISO 3166-1 alpha-2 string), `dial_code` (denormalized), `priority` |
 
 Two tables intentionally — one provider account commonly serves N countries
 (Twilio US/CA/MX/UK/AU/…). 1-to-N relationship is normalised into a routing
 table; per-region priority is a column on the routing row, not on the config.
+The relation is declared both ways: `SmsProviderRegion.providerConfigId` is a
+many-to-one onto `SmsProviderConfig` with `onDelete = CASCADE` (deleting a
+provider deletes its routes), and `SmsProviderConfig.regions` is the
+one-to-many, so a provider's page edits its routes as its own rows while the
+routing list queries them by country. `uk_sms_provider_region`
+(provider, country) refuses a second route for the same pair with a message of
+its own; it counts disabled routes too — re-enable one instead. The provider
+references on `SmsTemplateProviderBinding` and `SmsSendRecord` are many-to-one
+as well (no delete strategy), so lists show the provider's name.
 
 `region_code` is the ISO 3166-1 alpha-2 country code (`CN`, `TW`, `US`, …),
-validated at write time against `country_region.code` in
-`reference-data-starter`. The reference table holds all 249 ISO 3166-1
+validated on every write path — the routing page, a provider's page, import,
+seed, a direct call — against `country_region.code` in
+`reference-data-starter` by `SmsProviderRegionWriteValidator`. The reference table holds all 249 ISO 3166-1
 territories with English name, alpha-3 code, E.164 dial code, default
 currency, continent, EEA flag, and subdivisions flag. **`reference-data-starter`
 must be on the classpath** for SMS provider routing to function — `message-starter`
@@ -985,58 +1296,54 @@ the alpha-2 code itself). It lets admin list views render "CN (+86) → Aliyun"
 without joining `country_region`. Operators must not edit `dial_code`
 directly — the framework derives it from `region_code`.
 
-#### Catchall semantics
-
-There is **no magic** `region_code='*'` row. Catchall is expressed by
-`SmsProviderConfig.isDefault=true` — keeps `region_code` strictly an ISO
-3166 alpha-2 value with no special carve-outs in the schema.
-
 #### Resolution rules
 
-1. **Precise match wins fully** — if any `sms_provider_region` row matches
-   the recipient's country, only that tier's providers are used. The
-   dispatcher does **NOT** merge in the catchall tier.
-2. **Catchall** is consulted only when **no precise row** matches, never as
-   an in-line fallback for a partial precise match.
-3. **Explicit over implicit** — to make a catchall provider eligible for a
-   configured country too, add it explicitly as another
-   `sms_provider_region` row for that country.
+1. **Only route rows send** — a provider serves a country only through an
+   enabled `sms_provider_region` row for that country, pointing to an enabled
+   config. There is no magic `region_code='*'` row and no default provider:
+   `region_code` is always an ISO 3166 alpha-2 value.
+2. **Order** — the candidates are ordered by the row's `priority` (lower first),
+   then by config id. A template with provider bindings narrows them to the bound
+   providers, ordered by binding priority first (see *Template-level provider
+   bindings*).
+3. **Backup is manual** — a record keeps the provider chosen at its first
+   delivery. A lower-priority row is used only once the rows above it, or their
+   configs, are disabled.
 
-This rule keeps misrouting deterministic: a country you've explicitly
-configured cannot accidentally fall through to a wrong provider (e.g. TW
+This keeps misrouting impossible by omission: a country nobody configured is
+refused rather than sent through a provider chosen for somewhere else (e.g. TW
 traffic should never route through a mainland-CN-only line).
 
 #### Failure mode
 
-If neither precise nor catchall yields a provider, the dispatcher throws
-`BusinessException` with the unresolved region in the message. The send
-**fails fast** — there is no "any-enabled-provider" implicit fallback.
-Operators recover by either adding the missing `sms_provider_region` row or
-marking at least one provider `isDefault=true`.
+If no enabled route row points to an enabled config, the dispatcher throws
+`BusinessException` with the unresolved region in the message, and the record
+fails with `CONFIG_NOT_RESOLVABLE`. The same holds when the country has rows but
+every config they point to is disabled. Operators recover by adding a route row
+(or enabling a config) and retrying the record.
 
 #### Example configuration
 
-| `sms_provider_config` | id | name | provider_type | is_default | priority |
-|---|---|---|---|---|---|
-|  | 1 | Aliyun-China  | ALIYUN  | false | 10 |
-|  | 2 | Tencent-China | TENCENT | false | 20 |
-|  | 3 | Twilio-Global | TWILIO  | true  | 1  |
-|  | 4 | Vonage-Backup | VONAGE  | true  | 2  |
+| `sms_provider_config` | id | name | provider_type |
+|---|---|---|---|
+|  | 1 | Aliyun-China  | ALIYUN  |
+|  | 2 | Tencent-China | TENCENT |
+|  | 3 | Twilio-Global | TWILIO  |
 
 | `sms_provider_region` | provider_config_id | region_code | priority |
 |---|---|---|---|
 |  | 1 | CN | 10 |
 |  | 2 | CN | 20 |
 |  | 3 | TW | 10 |
+|  | 3 | US | 10 |
 
 Dispatch behaviour:
 
 | Recipient | Resolved provider list | Notes |
 |---|---|---|
-| `+8613800138000` (CN) | `[Aliyun, Tencent]` | Precise match; selection uses ordered CN candidates |
-| `+886912345678` (TW)  | `[Twilio]`           | Precise match; **Vonage is NOT added** as fallback |
-| `+33123456789` (FR)   | `[Twilio, Vonage]`   | No precise FR; falls to isDefault catchall |
-| `+44...` if no GB row and no defaults | throws `BusinessException` | Operator must configure |
+| `+8613800138000` (CN) | `[Aliyun, Tencent]` | Tencent is used only while Aliyun is disabled |
+| `+886912345678` (TW)  | `[Twilio]`           | |
+| `+33123456789` (FR)   | throws `BusinessException` | No FR row: France is not supported until one is added |
 
 #### Tenant scoping
 

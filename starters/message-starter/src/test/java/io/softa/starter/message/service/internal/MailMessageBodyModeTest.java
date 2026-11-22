@@ -120,7 +120,8 @@ class MailMessageBodyModeTest {
         if (dto.getTo() == null) {
             dto.setTo(List.of("recipient@example.com"));
         }
-        MailMessageHandler handler = new MailMessageHandler(mock(MailSendRecordService.class));
+        MailMessageHandler handler = new MailMessageHandler(mock(MailSendRecordService.class),
+                mock(io.softa.starter.message.mail.support.MailTemplateLocator.class));
         return handler.accept(dto);
     }
 

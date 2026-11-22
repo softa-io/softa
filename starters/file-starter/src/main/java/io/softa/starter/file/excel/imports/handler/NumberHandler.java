@@ -46,8 +46,14 @@ public class NumberHandler extends BaseImportHandler {
                 default -> value;
             };
         } catch (NumberFormatException e) {
-            throw new ValidationException("The {0} field `{1}` is incorrect `{2}`",
-                    fieldType.getType(), label, trimmed);
+            // Worded for whoever fills the sheet: the column, and the shape it takes. The Java type name
+            // said nothing to them, and the usual cause — a thousands separator copied from a report —
+            // went unexplained.
+            boolean whole = fieldType == FieldType.INTEGER || fieldType == FieldType.LONG;
+            throw new ValidationException(whole
+                    ? "{0}: `{1}` is not a whole number. Enter digits only, without thousands separators (e.g. 4500)."
+                    : "{0}: `{1}` is not a number. Enter digits only, without thousands separators (e.g. 4500.50).",
+                    label, trimmed);
         }
     }
 }
