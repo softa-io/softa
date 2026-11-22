@@ -272,8 +272,15 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     @Override
     public FlowApprovalPreview previewRecord(String modelName, String rowId, String requesterId) {
         requireRecordKey(modelName, rowId, "preview");
-        // The caller's own permissions decide, before anything is read past them.
-        accessGuard.requireRecordReader(modelName, rowId, requesterId);
+        // The caller's own permissions, or taking part in the approval in progress, decide before the record is read.
+        FlowExecutionState takenPartIn = accessGuard.requirePreviewer(modelName, rowId,
+                () -> approvalInProgress(modelName, rowId), requesterId);
+        if (takenPartIn != null) {
+            // Let in on that approval rather than on the record: told it is in progress, as a reader is, and pointed
+            // at it. Asking afresh would read the record past their permissions, and were the approval to end in
+            // between, could show them the route of its next submission.
+            return inProgress(takenPartIn.getInstanceId());
+        }
         FlowApprovalPreview preview = previewSubmission(modelName, rowId, requesterId);
         userNames.name(actorsOf(preview));
         return preview;
@@ -287,10 +294,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     private FlowApprovalPreview previewSubmission(String modelName, String rowId, String submitterId) {
         FlowInstance latest = latestApproval(modelName, rowId);
         if (inProgress(latest)) {
-            return FlowApprovalPreview.builder()
-                    .status(FlowApprovalPreview.Status.IN_PROGRESS)
-                    .instanceId(latest.getInstanceId())
-                    .build();
+            return inProgress(latest.getInstanceId());
         }
         Submission<?> submission;
         try {
@@ -441,6 +445,21 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     /** Whether {@code approval} — a record's latest — is still in progress. */
     private static boolean inProgress(FlowInstance approval) {
         return approval != null && approval.getStatus() != null && !approval.getStatus().isTerminal();
+    }
+
+    /** The preview of a record whose approval is in progress: nothing to preview, the instance named. */
+    private static FlowApprovalPreview inProgress(String instanceId) {
+        return FlowApprovalPreview.builder()
+                .status(FlowApprovalPreview.Status.IN_PROGRESS)
+                .instanceId(instanceId)
+                .build();
+    }
+
+    /** The state of the record's approval in progress, or null when it has none. */
+    private FlowExecutionState approvalInProgress(String modelName, String rowId) {
+        FlowInstance latest = latestApproval(modelName, rowId);
+        return inProgress(latest) ? ContextUtils.withoutPermissionChecks(
+                () -> flowRuntimeEngine.getInstance(latest.getInstanceId())).orElse(null) : null;
     }
 
     /**

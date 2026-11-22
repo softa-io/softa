@@ -180,7 +180,8 @@ public class FlowInstanceController {
                     + "an approval already in progress (InProgress, with its instance id), whose steps the record's "
                     + "approval shows (by-record). A route that depends on data only known once the approval runs "
                     + "is reported as undecided, never guessed. Nothing is started or written. Allowed to whoever "
-                    + "can read the record with their own permissions.")
+                    + "can read the record with their own permissions and, while its approval is in progress, to "
+                    + "those who take part in it — told it is in progress, with its instance id, the record unread.")
     public ApiResponse<FlowApprovalPreview> previewRecordApproval(@RequestParam String modelName,
                                                                  @RequestParam String rowId) {
         return ApiResponse.success(launchService.previewRecord(modelName, rowId, currentUserId()));
