@@ -43,12 +43,14 @@ class OneToManyLiveChildrenDiffTest {
     private MockedStatic<ModelManager> models;
     private final List<List<?>> deleted = new ArrayList<>();
     private final List<List<?>> updated = new ArrayList<>();
+    private final List<Map<?, ?>> created = new ArrayList<>();
 
     @BeforeEach
     void setUp() {
         reflect = Mockito.mockStatic(ReflectTool.class);
         reflect.when(() -> ReflectTool.createList(anyString(), anyList())).thenAnswer(inv -> {
             List<?> rows = inv.getArgument(1);
+            rows.forEach(row -> created.add((Map<?, ?>) row));
             List<Serializable> ids = new ArrayList<>();
             for (int i = 0; i < rows.size(); i++) ids.add(100L + i);
             return ids;
@@ -146,8 +148,19 @@ class OneToManyLiveChildrenDiffTest {
                 2L, new ArrayList<>(List.of(line(20L))))))
                 .hasMessageContaining("has been deleted").hasMessageContaining("11");
         // Under claim 2 it is no child of that claim's, deleted or not: not refused as deleted, it is a new line.
+        assertThat(created).isEmpty();
+        assertThat(updated).isEmpty();
+
         writeAll(Map.of(1L, new ArrayList<>(List.of(line(10L))), 2L, new ArrayList<>(List.of(line(20L), line(11L)))));
+
         assertThat(deleted).isEmpty();
+        assertThat(created).singleElement().satisfies(row -> {
+            assertThat(row.get("id")).isEqualTo(11L);
+            assertThat(row.get("claimId")).isEqualTo(2L);
+        });
+        List<Object> updatedIds = new ArrayList<>();
+        updated.forEach(rows -> rows.forEach(row -> updatedIds.add(((Map<?, ?>) row).get("id"))));
+        assertThat(updatedIds).containsExactlyInAnyOrder(10L, 20L);
     }
 
     @Test
@@ -155,6 +168,8 @@ class OneToManyLiveChildrenDiffTest {
         assertThatThrownBy(() -> write(new HashMap<>(Map.of("Create", new ArrayList<>(List.of(line(11L)))))))
                 .hasMessageContaining("has been deleted");
         reflect.verify(() -> ReflectTool.createList(anyString(), anyList()), Mockito.never());
+        assertThat(updated).isEmpty();
+        assertThat(deleted).isEmpty();
     }
 
     @Test
