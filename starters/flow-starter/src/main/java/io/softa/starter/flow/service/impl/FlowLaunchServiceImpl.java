@@ -455,11 +455,19 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
                 .build();
     }
 
-    /** The state of the record's approval in progress, or null when it has none. */
+    /**
+     * The state of the record's approval in progress, or null when it has none. The state is read after the
+     * instance, so it is checked again: an approval that ended in between — withdrawn, decided — is no longer in
+     * progress, and taking part in it lets no one in.
+     */
     private FlowExecutionState approvalInProgress(String modelName, String rowId) {
         FlowInstance latest = latestApproval(modelName, rowId);
-        return inProgress(latest) ? ContextUtils.withoutPermissionChecks(
-                () -> flowRuntimeEngine.getInstance(latest.getInstanceId())).orElse(null) : null;
+        if (!inProgress(latest)) {
+            return null;
+        }
+        return ContextUtils.withoutPermissionChecks(() -> flowRuntimeEngine.getInstance(latest.getInstanceId()))
+                .filter(state -> state.getStatus() != null && !state.getStatus().isTerminal())
+                .orElse(null);
     }
 
     /**

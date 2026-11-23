@@ -38,6 +38,7 @@ import io.softa.starter.flow.dto.FlowApprovalPreview.StepOutcome;
 import io.softa.starter.flow.dto.FlowApprovalPreview.Stop;
 import io.softa.starter.flow.dto.FlowDesignPreview;
 import io.softa.starter.flow.dto.FlowRecordApprovalsView.Actor;
+import io.softa.starter.flow.entity.FlowApprovalTask;
 import io.softa.starter.flow.entity.FlowDelegation;
 import io.softa.starter.flow.entity.FlowDesign;
 import io.softa.starter.flow.entity.FlowInstance;
@@ -234,10 +235,29 @@ class FlowApprovalPreviewTest {
     void aCcRecipientWhoCannotReadTheRecordIsToldTheApprovalIsInProgress() {
         startApprovalWaitingOn(MANAGER);
         when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.empty());
-        // DEPUTY holds a CC task of the approval.
-        when(modelService.count(eq("FlowApprovalTask"), any())).thenReturn(1L);
+        // DEPUTY holds a CC task of the approval; nobody else holds one.
+        when(modelService.count(eq("FlowApprovalTask"), argThat(filters -> new Filters()
+                .in(FlowApprovalTask::getInstanceId, List.of("run-1"))
+                .eq(FlowApprovalTask::getActorId, DEPUTY).equals(filters))))
+                .thenReturn(1L);
 
         assertEquals(Status.IN_PROGRESS, launchService.previewRecord(MODEL, ROW, DEPUTY).getStatus());
+        assertThrows(FlowAuthorizationException.class, () -> launchService.previewRecord(MODEL, ROW, "outsider"));
+    }
+
+    @Test
+    void anApprovalWithdrawnRightAfterItWasFoundInProgressLetsNoParticipantIn() {
+        startApprovalWaitingOn(MANAGER);
+        when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.empty());
+        // The instance row still said in progress; by the time its state is read the submitter has withdrawn it.
+        FlowExecutionState withdrawn = engine.getInstance("run-1").orElseThrow();
+        withdrawn.setStatus(FlowExecutionStatus.WITHDRAWN);
+        when(engine.getInstance("run-1")).thenReturn(Optional.of(withdrawn));
+
+        assertThrows(FlowAuthorizationException.class, () -> launchService.previewRecord(MODEL, ROW, MANAGER));
+
+        verify(handler, never()).validate(any());
+        verify(modelService, never()).getById(eq(MODEL), any());
     }
 
     @Test
