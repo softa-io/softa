@@ -34,7 +34,9 @@ public enum SmsProvider {
     @OptionItem(label = "ClickSend", description = "ClickSend SMS API")
     CLICKSEND("ClickSend"),
     @OptionItem(label = "BytePlus", description = "BytePlus Messaging SMS API")
-    BYTEPLUS("BytePlus");
+    BYTEPLUS("BytePlus"),
+    @OptionItem(label = "OneWaySMS", description = "OneWaySMS HTTP API (api.aspx)")
+    ONEWAYSMS("OneWaySMS");
 
     @JsonValue
     private final String code;

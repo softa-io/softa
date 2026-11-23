@@ -100,6 +100,19 @@ class ErrorClassifierTest {
     }
 
     @Test
+    void oneWaySmsResults_followTheTable() {
+        assertEquals(ErrorCategory.AUTH, classifier.classify("ONEWAYSMS_-100", null));
+        assertEquals(ErrorCategory.CONFIG, classifier.classify("ONEWAYSMS_-200", null));
+        assertEquals(ErrorCategory.INVALID_INPUT, classifier.classify("ONEWAYSMS_-300", null));
+        assertEquals(ErrorCategory.INVALID_INPUT, classifier.classify("ONEWAYSMS_-400", null));
+        assertEquals(ErrorCategory.INVALID_INPUT, classifier.classify("ONEWAYSMS_-500", null));
+        // Out of credit: waits for a top-up, then a manual retry.
+        assertEquals(ErrorCategory.CONFIG, classifier.classify("ONEWAYSMS_-600", null));
+        // A result the API does not document is retried as unknown.
+        assertEquals(ErrorCategory.UNKNOWN, classifier.classify("ONEWAYSMS_-700", null));
+    }
+
+    @Test
     void unmatchedCodeAndMessage_fallBackToUnknown() {
         assertEquals(ErrorCategory.UNKNOWN, classifier.classify("X999", "something odd"));
         assertEquals(ErrorCategory.UNKNOWN, classifier.classify(null, null));
