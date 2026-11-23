@@ -7,6 +7,7 @@ import lombok.Data;
 
 import io.softa.framework.base.message.MessageScope;
 import io.softa.framework.orm.meta.TemplateVariableSetRegistry;
+import io.softa.starter.message.shared.MessageCategory;
 
 /**
  * Request payload for one SMS recipient. Independent messages use
@@ -36,6 +37,11 @@ public class SendSmsDTO {
 
     @Schema(description = "External template ID override (from template if not set)")
     private String externalTemplateId;
+
+    @Schema(description = "What the message is for: OTP, Transactional or Marketing. Overrides the template's "
+            + "category; the only way to give one to a message sent as direct content. Passed to providers "
+            + "that route or price by it (Aliyun Global's Type).")
+    private MessageCategory category;
 
     @Schema(description = "Null/TENANT or PLATFORM, kept for symmetry with mail and recorded on the send. "
             + "SMS templates and providers are platform-owned either way, and the send is filed under — and "

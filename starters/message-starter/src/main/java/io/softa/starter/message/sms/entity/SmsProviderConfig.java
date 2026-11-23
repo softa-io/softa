@@ -47,33 +47,34 @@ public class SmsProviderConfig extends AuditableModel {
     private String description;
 
     @Field(required = true,
-            description = "Provider type: Twilio / Infobip / Aliyun / Tencent / Custom")
+            description = "Provider type: Twilio / Infobip / Aliyun Mainland / Aliyun Global / Tencent / …")
     private SmsProvider providerType;
 
     @Field(label = "API Key", length = 512, encrypted = true, copyable = false, unsearchable = true,
             maskingType = MaskingType.ALL,
-            description = "Primary credential (Twilio=accountSid, Infobip=apiKey, Aliyun=accessKeyId) — "
+            description = "Primary credential (Twilio=accountSid, Infobip=apiKey, Aliyun Mainland / Global=AccessKey ID) — "
                     + "AES-encrypted at rest, masked in API reads. Omit the field on update to keep the "
                     + "stored value; a payload containing the mask symbol is rejected.")
     private String apiKey;
 
     @Field(label = "API Secret", length = 512, encrypted = true, copyable = false, unsearchable = true,
             maskingType = MaskingType.ALL,
-            description = "Secondary credential (Twilio=authToken, Aliyun=accessKeySecret; unused by Infobip) — "
+            description = "Secondary credential (Twilio=authToken, Aliyun Mainland / Global=AccessKey Secret; unused by Infobip) — "
                     + "AES-encrypted at rest, masked in API reads. Omit the field on update to keep the "
                     + "stored value; a payload containing the mask symbol is rejected.")
     private String apiSecret;
 
     @Field(label = "API Endpoint", length = 500,
             description = "Provider API base URL (null = adapter default; required for Infobip, "
-                    + "the account's own base URL, e.g. https://xxxxx.api.infobip.com)")
+                    + "the account's own base URL, e.g. https://xxxxx.api.infobip.com; Aliyun Global: the "
+                    + "account's region, default https://dysmsapi.ap-southeast-1.aliyuncs.com)")
     private String apiEndpoint;
 
     @Field(label = "Account ID", length = 255,
             description = "Extra provider identifier (e.g. Twilio Account SID when using API keys)")
     private String accountId;
 
-    @Field(description = "Provider-specific JSON config (e.g. regionId, appId)")
+    @Field(description = "Provider-specific JSON config (e.g. Tencent sdkAppId, region)")
     private String extConfig;
 
     @Field(length = 50,

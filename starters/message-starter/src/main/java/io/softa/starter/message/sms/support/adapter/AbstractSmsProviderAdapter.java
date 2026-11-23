@@ -30,8 +30,8 @@ import io.softa.starter.message.sms.entity.SmsProviderConfig;
  *   <li>{@link #parseJson} — null-safe body → {@link JsonNode}</li>
  *   <li>{@link #parseErrorBody} — parse a provider error body, else a generic HTTP failure</li>
  * </ul>
- * Providers whose request is not JSON (Twilio and Aliyun use form-encoding) build
- * their own {@code POST} but still share {@link #parseJson} / {@link #parseErrorBody}.
+ * Providers whose request is not JSON (Twilio uses form-encoding, the Aliyun adapters a signed
+ * query) build their own {@code POST} but still share {@link #parseJson} / {@link #parseErrorBody}.
  */
 @Slf4j
 public abstract class AbstractSmsProviderAdapter implements SmsProviderAdapter {

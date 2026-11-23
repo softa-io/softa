@@ -23,8 +23,12 @@ public enum SmsProvider {
     CM("CM"),
     @OptionItem(description = "Sinch SMS API")
     SINCH("Sinch"),
-    @OptionItem(description = "Alibaba Cloud SMS")
+    @OptionItem(label = "Aliyun Mainland",
+            description = "Alibaba Cloud SMS (SendSms): templates approved with Aliyun, for Chinese mainland numbers")
     ALIYUN("Aliyun"),
+    @OptionItem(label = "Aliyun Global",
+            description = "Alibaba Cloud Global SMS (SendMessageToGlobe): plain text, outside the Chinese mainland")
+    ALIYUN_GLOBAL("AliyunGlobal"),
     @OptionItem(description = "Tencent Cloud SMS")
     TENCENT("Tencent"),
     @OptionItem(label = "ClickSend", description = "ClickSend SMS API")

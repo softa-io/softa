@@ -3,6 +3,8 @@ package io.softa.starter.message.sms.dto;
 import java.util.Map;
 import lombok.Data;
 
+import io.softa.starter.message.shared.MessageCategory;
+
 /**
  * Provider-level request object passed to
  * {@link io.softa.starter.message.sms.support.adapter.SmsProviderAdapter#send}.
@@ -18,6 +20,7 @@ public class SmsAdapterRequest {
     private String externalTemplateId;
     private String signName;
     private Map<String, Object> templateVariables;
+    private MessageCategory category;
 
     public static SmsAdapterRequest from(SendSmsDTO dto, String phoneNumber) {
         SmsAdapterRequest req = new SmsAdapterRequest();
@@ -26,6 +29,7 @@ public class SmsAdapterRequest {
         req.externalTemplateId = dto.getExternalTemplateId();
         req.signName = dto.getSignName();
         req.templateVariables = dto.getTemplateVariables();
+        req.category = dto.getCategory();
         return req;
     }
 }

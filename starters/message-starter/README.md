@@ -429,6 +429,26 @@ its copy to use a variable the set does not have; such a row keeps sending as be
 (a send is checked against the set's name, not the content) but is refused the next
 time it is saved, so list those rows before backfilling.
 
+### Upgrading to the SMS message category and Aliyun Global
+
+Two nullable columns, no data to move:
+
+| Table | Column |
+|---|---|
+| `sms_template` | `category VARCHAR(64)` |
+| `sms_send_record` | `category VARCHAR(64)` |
+
+A runtime with a non-empty `scanner-scope` adds them at boot; elsewhere the deploying
+application ships the `ALTER TABLE`s **before the new jar** — the new entities read the
+columns. An empty category sends none, as before; set it on the templates whose provider
+routes or prices by it (Aliyun Global).
+
+The provider type `AliyunGlobal` is new (Aliyun Global SMS, `SendMessageToGlobe`), and the
+existing `Aliyun` keeps its stored code, shown as "Aliyun Mainland". Both Aliyun adapters
+now sign with Alibaba Cloud's V3 algorithm (`ACS3-HMAC-SHA256`) and send every parameter in
+the query; the mainland adapter no longer reads `regionId` from `extConfig` — the endpoint
+is the region, and a `regionId` left there is ignored.
+
 ### Push notifications
 
 An inbox message whose sender sets `SendInboxDTO.push` is also pushed to the recipient's APP devices: APNs (HTTP/2,
@@ -1111,8 +1131,9 @@ country without a route fails with a `BusinessException`. Provider configs are c
 after every committed write, from any endpoint (`ConfigCacheEvictor`).
 
 A provider that sends a template registered with it (a binding's external
-template id — Aliyun, Tencent Cloud) is sent the record's template variables,
-not the rendered text: Aliyun fills them by name, Tencent by position. Positions
+template id — Aliyun Mainland, Tencent Cloud) is sent the record's template variables,
+not the rendered text: Aliyun fills them by name, Tencent by position. Every other
+provider, Aliyun Global included, is sent the rendered text and needs no binding. Positions
 follow the order the softa template's content names the variables (`{{ code }}`
 before `{{ expiryMinutes }}` makes `code` `{1}`); preparation fixes that order on
 the record, so every retry sends the same.
@@ -1136,6 +1157,16 @@ DEAD_LETTER`). Provider routing happens when the record is prepared (its first
 delivery attempt), and retry replays the same provider/template parameters
 stored on the record. No provider for the recipient's country fails the record
 with `CONFIG_NOT_RESOLVABLE`.
+
+#### Message category
+
+`MessageCategory` — `OTP`, `Transactional`, `Marketing` — says what a message is for, in
+the terms carriers and regulators sort traffic by. A template carries a default
+(`SmsTemplate.category`), a sender may override it (`SendSmsDTO.category`, the only way to
+give one to direct content), and preparation fixes the result on the record
+(`SmsSendRecord.category`) so a retry sends the same. Each adapter says it in its
+provider's words: Aliyun Global sends it as `Type` (`OTP` / `NOTIFY` / `MKT`; none sent is
+`NOTIFY`); the other adapters ignore it. Empty is allowed everywhere and sends none.
 
 ### Sending SMS
 
@@ -1230,6 +1261,7 @@ POST /SmsTemplate/createOne
   "code": "VERIFY_CODE",
   "name": "Verification Code",
   "content": "Your verification code is {{ code }}. Valid for {{ minutes }} minutes.",
+  "category": "OTP",
   "active": true
 }
 ```
