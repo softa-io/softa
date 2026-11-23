@@ -633,7 +633,7 @@ JSON
 **File template placeholder syntax:**
 - `{{ fieldName }}` — replaced with the field value of each row
 - `{{ deptId.name }}` — cascaded field reference (resolved by the ORM layer)
-- The `{{ }}` syntax is normalized to underlying Fesod `{}` syntax before rendering
+- Each `{{ field }}` is rewritten to Fesod's list placeholder `{.field}` before rendering, as the rows are filled as a list; text around a placeholder in the same cell is kept (`ID-{{ code }}`)
 
 ### 3. Dynamic Export
 Export without a template by providing fields and filters directly.

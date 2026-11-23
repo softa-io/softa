@@ -127,8 +127,8 @@ public class ExportByFileTemplate implements ExportStrategy {
     }
 
     /**
-     * Get all the variable parameters in the Workbook (format: {variable})
-     * The uploaded template uses `{{ variable }}` and is normalized to the underlying Fesod `{variable}` syntax.
+     * Get all the variable parameters in the Workbook.
+     * The uploaded template uses `{{ variable }}`; see {@link #normalizeCellValue} for what Fesod is handed.
      * Cases of variable extraction:
      *      - `{{ name }}` -> `name`
      *      - `{{  name }}` -> `name`
@@ -163,7 +163,7 @@ public class ExportByFileTemplate implements ExportStrategy {
         return variables;
     }
 
-    private static InputStream normalizeTemplateInputStream(InputStream inputStream) throws IOException {
+    static InputStream normalizeTemplateInputStream(InputStream inputStream) throws IOException {
         try (Workbook workbook = new XSSFWorkbook(inputStream);
              ByteArrayOutputStream normalizedOutput = new ByteArrayOutputStream()) {
             normalizeWorkbookPlaceholders(workbook);
@@ -187,11 +187,18 @@ public class ExportByFileTemplate implements ExportStrategy {
         }
     }
 
-    private static String normalizeCellValue(String cellValue) {
+    /**
+     * Rewrites each {@code {{ variable }}} into Fesod's collection placeholder {@code {.variable}}. The rows are
+     * filled as a list, and Fesod fills a list only into placeholders that start with a dot: a bare
+     * {@code {variable}} is a single value, which a list fill blanks out, and {@code {a.b}} names a separate
+     * list {@code a}, so a cascaded {@code deptId.name} would be left empty as well. The rest of the cell text is
+     * kept, e.g. {@code ID-{{ code }}} becomes {@code ID-{.code}}.
+     */
+    static String normalizeCellValue(String cellValue) {
         Matcher matcher = VARIABLE_PATTERN.matcher(cellValue);
         StringBuilder normalized = new StringBuilder();
         while (matcher.find()) {
-            matcher.appendReplacement(normalized, Matcher.quoteReplacement("{" + matcher.group(1).trim() + "}"));
+            matcher.appendReplacement(normalized, Matcher.quoteReplacement("{." + matcher.group(1).trim() + "}"));
         }
         matcher.appendTail(normalized);
         return normalized.toString();
