@@ -3,6 +3,7 @@ package io.softa.starter.user.service.impl;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 import lombok.extern.slf4j.Slf4j;
@@ -18,6 +19,7 @@ import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.web.session.SessionRecord;
 import io.softa.framework.web.session.SessionRevokeReason;
 import io.softa.framework.web.session.SessionRevokedEvent;
+import io.softa.starter.user.constant.AccountErrorCodes;
 import io.softa.starter.user.entity.UserAccount;
 import io.softa.starter.user.entity.UserLoginHistory;
 import io.softa.starter.user.enums.AccountStatus;
@@ -69,7 +71,7 @@ public class LoginHistoryRecorder {
     public void record(LoginEvent event, Long profileId, Long accountId, Long tenantId,
                        LoginChannel channel, LoginMethod method, String failureReason) {
         ClientInfo client = ClientInfo.current();
-        for (UserAccount company : this.companiesOf(event, profileId, accountId, tenantId)) {
+        for (UserAccount company : this.companiesOf(event, profileId, accountId, tenantId, failureReason)) {
             UserLoginHistory row = baseRow(event, profileId, company.getId(), company.getTenantId(),
                     client.platform(), client.appVersion(), client.deviceModel(), client.osVersion());
             row.setChannel(channel);
@@ -84,9 +86,17 @@ public class LoginHistoryRecorder {
      * Where a row goes: the company named, or — none named, the person known, and the event about
      * their password — each company they have joined and not left; otherwise a single row without a
      * company. A sign-in that stopped at the company picker is not fanned out: it entered none of them.
+     *
+     * <p>Nor is an attempt refused because the password is locked. It changes nothing — the lock was
+     * already written to each company — and anyone who knows the identifier can repeat it without end;
+     * fanned out, every such attempt would be multiplied into every company's history. It is kept once,
+     * with the platform.
      */
-    private List<UserAccount> companiesOf(LoginEvent event, Long profileId, Long accountId, Long tenantId) {
-        if (tenantId == null && profileId != null && CREDENTIAL_EVENTS.contains(event)) {
+    private List<UserAccount> companiesOf(LoginEvent event, Long profileId, Long accountId, Long tenantId,
+                                          String failureReason) {
+        boolean whileLocked = event == LoginEvent.LOGIN_FAILED
+                && AccountErrorCodes.PASSWORD_LOCKED.equals(failureReason);
+        if (tenantId == null && profileId != null && CREDENTIAL_EVENTS.contains(event) && !whileLocked) {
             List<UserAccount> joined = new ArrayList<>();
             try {
                 for (UserAccount membership : accountService.listMembershipsOf(profileId)) {
@@ -176,7 +186,19 @@ public class LoginHistoryRecorder {
 
     private void write(UserLoginHistory row) {
         try {
-            if (ContextHolder.existContext()) {
+            Long tenantId = row.getTenantId();
+            boolean inThatTenant = ContextHolder.existContext()
+                    && Objects.equals(ContextHolder.getContext().getTenantId(), tenantId);
+            if (tenantId != null && !inThatTenant) {
+                // A row for a company the caller is not in: a failure fanned out before any company was
+                // chosen, or a session ended from outside it. The write refuses a row of another tenant
+                // than the context's, so it is made as that company, past the caller's permissions.
+                Context context = ContextHolder.cloneContext();
+                context.setTenantId(tenantId);
+                context.setCrossTenant(false);
+                context.setSkipPermissionCheck(true);
+                ContextHolder.runWith(context, () -> historyService.record(row));
+            } else if (ContextHolder.existContext()) {
                 historyService.record(row);
             } else {
                 // Reached from the request filter before any context is bound (a session ended by
