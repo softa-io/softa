@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
  * Implementation is intentionally defensive: when in doubt, return
  * {@link ErrorCategory#UNKNOWN} so retry keeps running. Specific provider
  * code tables are folded in here without changing callers: SMTP reply codes,
- * HTTP statuses ({@code HTTP_<status>}) and Infobip's status names so far.
+ * HTTP statuses ({@code HTTP_<status>}), Infobip's status names and Aliyun's error codes so far.
  */
 @Component
 public class ErrorClassifier {
@@ -63,6 +63,83 @@ public class ErrorClassifier {
             Map.entry("REJECTED_SYSTEM_ERROR", ErrorCategory.TRANSIENT),
             Map.entry("UNDELIVERABLE_REJECTED_PLATFORM", ErrorCategory.TRANSIENT));
 
+    /**
+     * Alibaba Cloud error codes the two Aliyun SMS adapters can be refused with when sending
+     * (<a href="https://api.alibabacloud.com/document/Dysmsapi/2018-05-01/errorCode">SMS error codes</a>,
+     * plus the gateway's own {@code InvalidAccessKeyId.*} and {@code Throttling.User}). Read before the
+     * keyword heuristics, which misfile several of them: a blocked keyword
+     * ({@code isv.BLACK_KEY_CONTROL_LIMIT}) or an over-long variable ({@code isv.PARAM_LENGTH_LIMIT}) is not a
+     * rate limit, and an unknown AccessKey is not bad input. The codes of the signature, template,
+     * qualification and short-URL management operations are left out.
+     */
+    private static final Map<String, ErrorCategory> ALIYUN_CODES = Map.ofEntries(
+            // The credentials or the RAM user's rights.
+            Map.entry("SignatureDoesNotMatch", ErrorCategory.AUTH),
+            Map.entry("InvalidAccessKeyId.NotFound", ErrorCategory.AUTH),
+            Map.entry("InvalidAccessKeyId.Inactive", ErrorCategory.AUTH),
+            Map.entry("isp.RAM_PERMISSION_DENY", ErrorCategory.AUTH),
+            Map.entry("Forbidden.Operation", ErrorCategory.AUTH),
+            Map.entry("ForbiddenAction", ErrorCategory.AUTH),
+            Map.entry("ISV.Forbidden", ErrorCategory.AUTH),
+            // The account: state, balance, service not activated, where it may send from and to.
+            Map.entry("Account.Abnormal", ErrorCategory.CONFIG),
+            Map.entry("isv.ACCOUNT_ABNORMAL", ErrorCategory.CONFIG),
+            Map.entry("isv.ACCOUNT_NOT_EXISTS", ErrorCategory.CONFIG),
+            Map.entry("isv.SECURITY_FROZEN_ACCOUNT", ErrorCategory.CONFIG),
+            Map.entry("CustNotExistError", ErrorCategory.CONFIG),
+            Map.entry("GrayCustAccessError", ErrorCategory.CONFIG),
+            Map.entry("isv.DENY_IP_RANGE", ErrorCategory.CONFIG),
+            Map.entry("Amount.NotEnough", ErrorCategory.CONFIG),
+            Map.entry("isv.AMOUNT_NOT_ENOUGH", ErrorCategory.CONFIG),
+            Map.entry("isv.OUT_OF_SERVICE", ErrorCategory.CONFIG),
+            Map.entry("isv.PRODUCT_UN_SUBSCRIPT", ErrorCategory.CONFIG),
+            Map.entry("ISV.PRODUCT_UN_SUBSCRIPT", ErrorCategory.CONFIG),
+            Map.entry("isv.PRODUCT_UNSUBSCRIBE", ErrorCategory.CONFIG),
+            Map.entry("ServiceNotOpened", ErrorCategory.CONFIG),
+            Map.entry("isv.NOT_SUPPORTED_COUNTRY", ErrorCategory.CONFIG),
+            Map.entry("isv.DOMESTIC_NUMBER_NOT_SUPPORTED", ErrorCategory.CONFIG),
+            Map.entry("InvalidParameter.From", ErrorCategory.CONFIG),
+            Map.entry("InvalidParameter.SenderId", ErrorCategory.CONFIG),
+            // Aliyun Mainland: the binding's signature or template, or a test signature's limits.
+            Map.entry("isv.SMS_SIGNATURE_ILLEGAL", ErrorCategory.CONFIG),
+            Map.entry("isv.SMS_SIGN_ILLEGAL", ErrorCategory.CONFIG),
+            Map.entry("isv.SIGN_NAME_ILLEGAL", ErrorCategory.CONFIG),
+            Map.entry("isv.SMS_TEMPLATE_ILLEGAL", ErrorCategory.CONFIG),
+            Map.entry("isv.SMS_SIGNATURE_SCENE_ILLEGAL", ErrorCategory.CONFIG),
+            Map.entry("isv.TEMPLATE_PARAMS_ILLEGAL", ErrorCategory.CONFIG),
+            Map.entry("isv.TEMPLATE_MISSING_PARAMETERS", ErrorCategory.CONFIG),
+            Map.entry("isv.SMS_TEST_NUMBER_LIMIT", ErrorCategory.CONFIG),
+            Map.entry("isv.SMS_TEST_SIGN_TEMPLATE_LIMIT", ErrorCategory.CONFIG),
+            Map.entry("isv.SMS_TEST_TEMPLATE_PARAMS_ILLEGAL", ErrorCategory.CONFIG),
+            // Rate limits: per number (BUSINESS_LIMIT_CONTROL), per day, per second.
+            Map.entry("isv.BUSINESS_LIMIT_CONTROL", ErrorCategory.QUOTA),
+            Map.entry("isv.DAY_LIMIT_CONTROL", ErrorCategory.QUOTA),
+            Map.entry("DayLimitControl", ErrorCategory.QUOTA),
+            Map.entry("Throttling.User", ErrorCategory.QUOTA),
+            // The number or the content.
+            Map.entry("InvalidParameter.To", ErrorCategory.INVALID_INPUT),
+            Map.entry("InvalidParam.PhoneNumber", ErrorCategory.INVALID_INPUT),
+            Map.entry("InvalidParameter.phoneNumber", ErrorCategory.INVALID_INPUT),
+            Map.entry("isv.MOBILE_NUMBER_ILLEGAL", ErrorCategory.INVALID_INPUT),
+            Map.entry("MissingParameter.To", ErrorCategory.INVALID_INPUT),
+            Map.entry("MissingParameter.Message", ErrorCategory.INVALID_INPUT),
+            Map.entry("isv.SMS_CONTENT_ILLEGAL", ErrorCategory.INVALID_INPUT),
+            Map.entry("FILTER", ErrorCategory.INVALID_INPUT),
+            Map.entry("isv.BLACK_KEY_CONTROL_LIMIT", ErrorCategory.INVALID_INPUT),
+            Map.entry("isv.PARAM_LENGTH_LIMIT", ErrorCategory.INVALID_INPUT),
+            Map.entry("isv.PARAM_NOT_SUPPORT_URL", ErrorCategory.INVALID_INPUT),
+            Map.entry("InvalidParameter.Type", ErrorCategory.INVALID_INPUT),
+            Map.entry("isv.INVALID_PARAMETERS", ErrorCategory.INVALID_INPUT),
+            Map.entry("INVALID_PARAMETERS", ErrorCategory.INVALID_INPUT),
+            Map.entry("isv.INVALID_JSON_PARAM", ErrorCategory.INVALID_INPUT),
+            // The recipient unsubscribed from promotional messages.
+            Map.entry("isv.CUSTOMER_REFUSED", ErrorCategory.PERMANENT),
+            // Aliyun's own failure, or a stale timestamp / reused nonce a new attempt signs afresh.
+            Map.entry("isp.SYSTEM_ERROR", ErrorCategory.TRANSIENT),
+            Map.entry("isp.GATEWAY_ERROR", ErrorCategory.TRANSIENT),
+            Map.entry("InvalidTimeStamp.Expired", ErrorCategory.TRANSIENT),
+            Map.entry("SignatureNonceUsed", ErrorCategory.TRANSIENT));
+
     public ErrorCategory classify(String errorCode, String errorMessage) {
         if (errorCode != null) {
             ErrorCategory c = classifyByCode(errorCode.trim());
@@ -95,6 +172,10 @@ public class ErrorClassifier {
         ErrorCategory infobip = INFOBIP_STATUSES.get(code);
         if (infobip != null) {
             return infobip;
+        }
+        ErrorCategory aliyun = ALIYUN_CODES.get(code);
+        if (aliyun != null) {
+            return aliyun;
         }
         // SMTP reply codes from SmtpMailTransport: "SMTP_<ExceptionType>".
         if (code.startsWith("SMTP_")) {
