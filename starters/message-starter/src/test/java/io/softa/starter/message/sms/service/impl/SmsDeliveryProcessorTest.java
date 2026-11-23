@@ -9,6 +9,7 @@ import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.VersionException;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.starter.message.shared.ErrorClassifier;
+import io.softa.starter.message.shared.MessageCategory;
 import io.softa.starter.message.shared.RateLimiter;
 import io.softa.starter.message.shared.SendQuotaGuard;
 import io.softa.starter.message.shared.SendRejection;
@@ -280,6 +281,60 @@ class SmsDeliveryProcessorTest {
         org.mockito.ArgumentCaptor<SmsAdapterRequest> sent = org.mockito.ArgumentCaptor.forClass(SmsAdapterRequest.class);
         verify(adapter).send(any(), sent.capture());
         assertThat(sent.getValue().getTemplateVariables()).containsEntry("code", "123456");
+    }
+
+    // ---- the category: the sender's, else the template's, fixed at the first attempt ----------------
+
+    private SmsAdapterRequest firstAttemptWith(MessageCategory sendersCategory, MessageCategory templatesCategory) {
+        SmsTemplate template = new SmsTemplate();
+        template.setCode("user.verification-code");
+        template.setCategory(templatesCategory);
+        when(templateService.resolve("user.verification-code")).thenReturn(template);
+        when(templateService.renderContent(eq(template), any())).thenReturn("Your code is 123456");
+        when(routingPlanner.plan(any(SmsRoutingPlanner.RoutingRequest.class)))
+                .thenReturn(new SmsRoutingPlanner.Plan(config(), null, null, "SG", null));
+        when(adapter.send(any(), any(SmsAdapterRequest.class))).thenReturn(SmsSendResult.success("SID-1"));
+        SmsSendRecord record = fresh();
+        record.setCategory(sendersCategory);
+
+        processor.deliver(record, 3L);
+
+        verify(recordService).markPrepared(record, 3L);
+        org.mockito.ArgumentCaptor<SmsAdapterRequest> sent = org.mockito.ArgumentCaptor.forClass(SmsAdapterRequest.class);
+        verify(adapter).send(any(), sent.capture());
+        assertThat(record.getCategory()).isEqualTo(sent.getValue().getCategory());
+        return sent.getValue();
+    }
+
+    @Test
+    void theTemplatesCategoryIsFixedOnTheRecordAndSent() {
+        assertThat(firstAttemptWith(null, MessageCategory.OTP).getCategory()).isEqualTo(MessageCategory.OTP);
+    }
+
+    @Test
+    void theSendersCategoryOverridesTheTemplates() {
+        assertThat(firstAttemptWith(MessageCategory.MARKETING, MessageCategory.OTP).getCategory())
+                .isEqualTo(MessageCategory.MARKETING);
+    }
+
+    @Test
+    void noCategoryAnywhereSendsNone() {
+        assertThat(firstAttemptWith(null, null).getCategory()).isNull();
+    }
+
+    @Test
+    void aRetrySendsTheCategoryFixedAtTheFirstAttempt() {
+        SmsSendRecord record = prepared();
+        record.setCategory(MessageCategory.TRANSACTIONAL);
+        when(dispatcher.resolveProviderById(20L)).thenReturn(config());
+        when(adapter.send(any(), any(SmsAdapterRequest.class))).thenReturn(SmsSendResult.success("SID-1"));
+
+        processor.deliver(record, 3L);
+
+        org.mockito.ArgumentCaptor<SmsAdapterRequest> sent = org.mockito.ArgumentCaptor.forClass(SmsAdapterRequest.class);
+        verify(adapter).send(any(), sent.capture());
+        assertThat(sent.getValue().getCategory()).isEqualTo(MessageCategory.TRANSACTIONAL);
+        verifyNoInteractions(templateService);
     }
 
     @Test

@@ -106,6 +106,7 @@ final class SmsMessageHandler {
         record.setProviderConfigId(dto.getProviderConfigId());
         record.setSignName(dto.getSignName());
         record.setExternalTemplateId(dto.getExternalTemplateId());
+        record.setCategory(dto.getCategory());
         record.setStatus(SmsSendStatus.PENDING);
         record.setRetryCount(0);
         record.setVersion(0L);

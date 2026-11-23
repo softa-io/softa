@@ -10,6 +10,7 @@ import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.message.shared.MessageCategory;
 
 /**
  * SMS template.
@@ -57,6 +58,11 @@ public class SmsTemplate extends AuditableModel {
     @Field(fieldType = FieldType.TEXT,
             description = "SMS body template with {{ variable }} placeholders")
     private String content;
+
+    @Field(description = "What messages from this template are for: OTP, Transactional or Marketing. "
+            + "Passed to providers that route or price by it (Aliyun Global's Type); empty sends none, "
+            + "and the provider applies its own default. A sender's category overrides it.")
+    private MessageCategory category;
 
     /**
      * Framework active control: reads are auto-filtered to {@code active = true},

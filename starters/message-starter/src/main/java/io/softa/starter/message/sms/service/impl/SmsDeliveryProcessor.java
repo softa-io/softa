@@ -159,6 +159,9 @@ public class SmsDeliveryProcessor {
         record.setProviderType(config.getProviderType());
         record.setSignName(plan.signName());
         record.setExternalTemplateId(plan.externalTemplateId());
+        if (record.getCategory() == null && template != null) {
+            record.setCategory(template.getCategory());
+        }
         return config;
     }
 
@@ -250,6 +253,7 @@ public class SmsDeliveryProcessor {
         // the record was prepared, not whatever the binding currently says.
         dto.setSignName(record.getSignName());
         dto.setExternalTemplateId(record.getExternalTemplateId());
+        dto.setCategory(record.getCategory());
         return dto;
     }
 

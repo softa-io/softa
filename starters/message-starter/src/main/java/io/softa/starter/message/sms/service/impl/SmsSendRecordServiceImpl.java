@@ -76,6 +76,7 @@ public class SmsSendRecordServiceImpl extends AbstractCasSendRecordServiceImpl<S
         patch.put("providerType", record.getProviderType());
         patch.put("signName", record.getSignName());
         patch.put("externalTemplateId", record.getExternalTemplateId());
+        patch.put("category", record.getCategory());
         // Reordered for the provider's registered template at preparation; retries replay the order.
         patch.put("templateVariables", record.getTemplateVariables());
         return updateVersioned(patch);

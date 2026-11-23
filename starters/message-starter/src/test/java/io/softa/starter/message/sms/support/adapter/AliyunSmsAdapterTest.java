@@ -2,7 +2,6 @@ package io.softa.starter.message.sms.support.adapter;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.TreeMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,12 +16,17 @@ import io.softa.starter.message.sms.dto.SmsSendResult;
 import io.softa.starter.message.sms.entity.SmsProviderConfig;
 import io.softa.starter.message.sms.enums.SmsProvider;
 
+import static org.hamcrest.Matchers.startsWith;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.queryParam;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class AliyunSmsAdapterTest {
+
+    private static final String DEFAULT_URL = "https://dysmsapi.aliyuncs.com/";
 
     private AliyunSmsAdapter adapter;
     private MockRestServiceServer mockServer;
@@ -41,7 +45,6 @@ class AliyunSmsAdapterTest {
         config.setProviderType(SmsProvider.ALIYUN);
         config.setApiKey("AKID-test-123");
         config.setApiSecret("AccessSecret-test-456");
-        config.setExtConfig("{\"regionId\": \"cn-hangzhou\"}");
         return config;
     }
 
@@ -65,10 +68,16 @@ class AliyunSmsAdapterTest {
     @Test
     void sendSuccessReturnsProviderMessageId() {
         SmsProviderConfig config = createConfig();
-        String expectedUrl = "https://dysmsapi.aliyuncs.com";
 
-        mockServer.expect(requestTo(expectedUrl))
+        mockServer.expect(requestTo(startsWith(DEFAULT_URL)))
                 .andExpect(method(HttpMethod.POST))
+                .andExpect(queryParam("PhoneNumbers", "8613800138000"))
+                .andExpect(queryParam("SignName", "MySign"))
+                .andExpect(queryParam("TemplateCode", "SMS_12345678"))
+                .andExpect(queryParam("TemplateParam", "%7B%22code%22%3A%22123456%22%7D"))
+                .andExpect(header("x-acs-action", "SendSms"))
+                .andExpect(header("x-acs-version", "2017-05-25"))
+                .andExpect(header("Authorization", startsWith("ACS3-HMAC-SHA256 Credential=AKID-test-123,")))
                 .andRespond(withSuccess(
                         """
                         {
@@ -106,9 +115,8 @@ class AliyunSmsAdapterTest {
     @Test
     void sendHandlesAliyunApiError() {
         SmsProviderConfig config = createConfig();
-        String expectedUrl = "https://dysmsapi.aliyuncs.com";
 
-        mockServer.expect(requestTo(expectedUrl))
+        mockServer.expect(requestTo(startsWith(DEFAULT_URL)))
                 .andExpect(method(HttpMethod.POST))
                 .andRespond(withSuccess(
                         """
@@ -133,9 +141,8 @@ class AliyunSmsAdapterTest {
     void sendUsesCustomApiEndpoint() {
         SmsProviderConfig config = createConfig();
         config.setApiEndpoint("https://custom.dysmsapi.aliyuncs.com");
-        String expectedUrl = "https://custom.dysmsapi.aliyuncs.com";
 
-        mockServer.expect(requestTo(expectedUrl))
+        mockServer.expect(requestTo(startsWith("https://custom.dysmsapi.aliyuncs.com/?")))
                 .andExpect(method(HttpMethod.POST))
                 .andRespond(withSuccess(
                         """
@@ -151,11 +158,30 @@ class AliyunSmsAdapterTest {
     }
 
     @Test
-    void sendHandlesHttpError() {
+    void anHttpErrorIsReadForAliyunsCode() {
         SmsProviderConfig config = createConfig();
-        String expectedUrl = "https://dysmsapi.aliyuncs.com";
 
-        mockServer.expect(requestTo(expectedUrl))
+        mockServer.expect(requestTo(startsWith(DEFAULT_URL)))
+                .andRespond(withStatus(HttpStatus.FORBIDDEN)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"Code": "isp.RAM_PERMISSION_DENY", "Message": "The RAM user is not authorized.",
+                                 "RequestId": "req-003"}
+                                """));
+
+        SmsSendResult result = adapter.send(config, request("+8613800138000", null,
+                "SMS_12345678", "MySign", null));
+
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals("isp.RAM_PERMISSION_DENY", result.getErrorCode());
+        Assertions.assertEquals("The RAM user is not authorized.", result.getErrorMessage());
+    }
+
+    @Test
+    void sendHandlesHttpErrorWithoutAliyunsBody() {
+        SmsProviderConfig config = createConfig();
+
+        mockServer.expect(requestTo(startsWith(DEFAULT_URL)))
                 .andExpect(method(HttpMethod.POST))
                 .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -165,41 +191,39 @@ class AliyunSmsAdapterTest {
                 "SMS_12345678", "MySign", null));
 
         Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals("HTTP_500", result.getErrorCode());
         Assertions.assertTrue(result.getErrorMessage().contains("HTTP 500"));
     }
 
     @Test
-    void sendWithTemplateVariables() {
+    void sendWithoutTemplateVariablesSendsNoTemplateParam() {
         SmsProviderConfig config = createConfig();
-        String expectedUrl = "https://dysmsapi.aliyuncs.com";
 
-        mockServer.expect(requestTo(expectedUrl))
-                .andExpect(method(HttpMethod.POST))
+        mockServer.expect(requestTo(startsWith(DEFAULT_URL)))
+                .andExpect(request -> Assertions.assertFalse(
+                        request.getURI().getRawQuery().contains("TemplateParam=")))
                 .andRespond(withSuccess(
                         """
                         {"Code": "OK", "Message": "OK", "BizId": "aliyun-biz-003"}
                         """,
                         MediaType.APPLICATION_JSON));
 
-        Map<String, Object> vars = new LinkedHashMap<>();
-        vars.put("code", "654321");
-        vars.put("product", "MyApp");
-
         SmsSendResult result = adapter.send(config, request("13800138000", null,
-                "SMS_12345678", "MySign", vars));
+                "SMS_12345678", "MySign", null));
 
         mockServer.verify();
         Assertions.assertTrue(result.isSuccess());
     }
 
     @Test
-    void sendDefaultsToHangzhouRegionWhenNoExtConfig() {
+    void aRegionIdInExtConfigIsIgnored() {
+        // V3 needs no RegionId: the endpoint is the region. A config written for the old adapter still sends.
         SmsProviderConfig config = createConfig();
-        config.setExtConfig(null);
-        String expectedUrl = "https://dysmsapi.aliyuncs.com";
+        config.setExtConfig("{\"regionId\": \"cn-hangzhou\"}");
 
-        mockServer.expect(requestTo(expectedUrl))
-                .andExpect(method(HttpMethod.POST))
+        mockServer.expect(requestTo(startsWith(DEFAULT_URL)))
+                .andExpect(request -> Assertions.assertFalse(
+                        request.getURI().getRawQuery().contains("RegionId=")))
                 .andRespond(withSuccess(
                         """
                         {"Code": "OK", "Message": "OK", "BizId": "aliyun-biz-004"}
@@ -211,65 +235,5 @@ class AliyunSmsAdapterTest {
 
         mockServer.verify();
         Assertions.assertTrue(result.isSuccess());
-    }
-
-    // --- POP HMAC-SHA1 Signature Algorithm Tests ---
-
-    @Test
-    void generateSignatureProducesConsistentResult() {
-        TreeMap<String, String> params = new TreeMap<>();
-        params.put("AccessKeyId", "testAKID");
-        params.put("Action", "SendSms");
-        params.put("Format", "JSON");
-        params.put("PhoneNumbers", "13800138000");
-        params.put("SignName", "TestSign");
-        params.put("SignatureMethod", "HMAC-SHA1");
-        params.put("SignatureNonce", "fixed-nonce");
-        params.put("SignatureVersion", "1.0");
-        params.put("TemplateCode", "SMS_123");
-        params.put("Timestamp", "2021-01-01T00:00:00Z");
-        params.put("Version", "2017-05-25");
-
-        String sig1 = adapter.generateSignature("testSecret", params);
-        String sig2 = adapter.generateSignature("testSecret", params);
-
-        Assertions.assertNotNull(sig1);
-        Assertions.assertFalse(sig1.isEmpty());
-        Assertions.assertEquals(sig1, sig2);
-    }
-
-    @Test
-    void generateSignatureChangesWithDifferentSecret() {
-        TreeMap<String, String> params = new TreeMap<>();
-        params.put("AccessKeyId", "testAKID");
-        params.put("Action", "SendSms");
-        params.put("Timestamp", "2021-01-01T00:00:00Z");
-
-        String sig1 = adapter.generateSignature("secretA", params);
-        String sig2 = adapter.generateSignature("secretB", params);
-
-        Assertions.assertNotEquals(sig1, sig2);
-    }
-
-    @Test
-    void percentEncodeHandlesSpecialCharacters() {
-        Assertions.assertEquals("", adapter.percentEncode(null));
-        Assertions.assertEquals("hello", adapter.percentEncode("hello"));
-        Assertions.assertEquals("hello%20world", adapter.percentEncode("hello world"));
-        Assertions.assertEquals("a%2Ab", adapter.percentEncode("a*b"));
-        Assertions.assertEquals("a~b", adapter.percentEncode("a~b"));
-        Assertions.assertEquals("%2F", adapter.percentEncode("/"));
-    }
-
-    @Test
-    void generateSignatureIsBase64Encoded() {
-        TreeMap<String, String> params = new TreeMap<>();
-        params.put("Action", "SendSms");
-        params.put("Timestamp", "2021-01-01T00:00:00Z");
-
-        String sig = adapter.generateSignature("testSecret", params);
-
-        Assertions.assertTrue(sig.matches("[A-Za-z0-9+/=]+"),
-                "Signature should be valid Base64: " + sig);
     }
 }

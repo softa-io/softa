@@ -12,6 +12,7 @@ import io.softa.framework.orm.annotation.Model;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.enums.IdStrategy;
 import io.softa.framework.orm.entity.AuditableModel;
+import io.softa.starter.message.shared.MessageCategory;
 import io.softa.starter.message.sms.enums.SmsDeliveryStatus;
 import io.softa.starter.message.sms.enums.SmsProvider;
 import io.softa.starter.message.sms.enums.SmsSendStatus;
@@ -108,6 +109,10 @@ public class SmsSendRecord extends AuditableModel {
             + "time (e.g. Aliyun SMS_12345678, Tencent 1234567). Persisted for retry "
             + "fidelity — see signName for the same reasoning.")
     private String externalTemplateId;
+
+    @Field(description = "What the message is for: the sender's category, else the template's, fixed when "
+            + "the first delivery attempt prepares the record so a retry sends the same one. Empty = none sent.")
+    private MessageCategory category;
 
     @Field(required = true, description = "Send status")
     private SmsSendStatus status;

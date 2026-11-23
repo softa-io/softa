@@ -9,6 +9,31 @@ class ErrorClassifierTest {
     private final ErrorClassifier classifier = new ErrorClassifier();
 
     @Test
+    void aliyunCodes_followTheTable() {
+        assertEquals(ErrorCategory.AUTH, classifier.classify("SignatureDoesNotMatch", null));
+        assertEquals(ErrorCategory.AUTH, classifier.classify("isp.RAM_PERMISSION_DENY", null));
+        assertEquals(ErrorCategory.CONFIG, classifier.classify("Amount.NotEnough", null));
+        assertEquals(ErrorCategory.CONFIG, classifier.classify("isv.DOMESTIC_NUMBER_NOT_SUPPORTED", null));
+        assertEquals(ErrorCategory.CONFIG, classifier.classify("isv.SMS_TEMPLATE_ILLEGAL", null));
+        assertEquals(ErrorCategory.QUOTA, classifier.classify("isv.BUSINESS_LIMIT_CONTROL", null));
+        assertEquals(ErrorCategory.INVALID_INPUT, classifier.classify("isv.MOBILE_NUMBER_ILLEGAL", null));
+        assertEquals(ErrorCategory.PERMANENT, classifier.classify("isv.CUSTOMER_REFUSED", null));
+        assertEquals(ErrorCategory.TRANSIENT, classifier.classify("isp.SYSTEM_ERROR", null));
+        assertEquals(ErrorCategory.TRANSIENT, classifier.classify("SignatureNonceUsed", null));
+    }
+
+    @Test
+    void aliyunCodes_theKeywordsMisfiled() {
+        // "LIMIT" read as a rate limit: a blocked keyword and an over-long variable are the content's fault.
+        assertEquals(ErrorCategory.INVALID_INPUT, classifier.classify("isv.BLACK_KEY_CONTROL_LIMIT", null));
+        assertEquals(ErrorCategory.INVALID_INPUT, classifier.classify("isv.PARAM_LENGTH_LIMIT", null));
+        // "Invalid" read as bad input: an unknown AccessKey is the credentials.
+        assertEquals(ErrorCategory.AUTH, classifier.classify("InvalidAccessKeyId.NotFound", null));
+        // An account out of balance is not retried: it waits for a top-up, then a manual retry.
+        assertEquals(false, classifier.classify("isv.AMOUNT_NOT_ENOUGH", null).isRetryable());
+    }
+
+    @Test
     void preparationMarkerCodes_mapToConfig() {
         assertEquals(ErrorCategory.CONFIG, classifier.classify(ErrorClassifier.CONFIG_NOT_RESOLVABLE, null));
         assertEquals(ErrorCategory.CONFIG, classifier.classify(ErrorClassifier.TEMPLATE_NOT_RESOLVABLE, null));
