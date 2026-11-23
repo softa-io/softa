@@ -15,6 +15,11 @@ import io.softa.framework.orm.domain.SubQueries;
 import io.softa.framework.orm.domain.SubQuery;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.ConvertType;
+import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.jdbc.database.DBUtil;
+import io.softa.framework.orm.jdbc.database.SqlWrapper;
+import io.softa.framework.orm.jdbc.database.builder.WhereBuilder;
+import io.softa.framework.orm.jdbc.database.dialect.PostgreSQLDialect;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
@@ -22,6 +27,7 @@ import io.softa.framework.orm.utils.ReflectTool;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -96,6 +102,55 @@ class OneToManyDeletedRowsTest {
 
         assertThat(sent.getFilterControl().isSkipSoftDelete()).isFalse();
         assertThat(sent.getFilterControl().isSkipActiveControl()).isTrue();
+    }
+
+    /**
+     * The expansion's query as the database is asked it, on a related model that is both soft-deleted and under
+     * active control: the deleted rows are filtered out, the inactive ones are not.
+     */
+    @Test
+    void theSqlFiltersOutTheDeletedButKeepsTheInactive() {
+        FlexQuery sent = expansionQueryFor(new SubQuery(List.of("amount")));
+
+        String where = whereOf(sent);
+
+        assertThat(where).contains("t.claim_id").contains("t.deleted").doesNotContain("t.active");
+    }
+
+    private static String whereOf(FlexQuery query) {
+        Object previousDialect = ReflectionTestUtils.getField(DBUtil.class, "singleDbDialect");
+        ReflectionTestUtils.setField(DBUtil.class, "singleDbDialect", new PostgreSQLDialect());
+        try (MockedStatic<ModelManager> models = mockStatic(ModelManager.class)) {
+            MetaModel related = new MetaModel();
+            ReflectionTestUtils.setField(related, "modelName", RELATED);
+            ReflectionTestUtils.setField(related, "tableName", "claim_line");
+            models.when(() -> ModelManager.getModel(RELATED)).thenReturn(related);
+            models.when(() -> ModelManager.isSoftDeleted(RELATED)).thenReturn(true);
+            models.when(() -> ModelManager.isActiveControl(RELATED)).thenReturn(true);
+            models.when(() -> ModelManager.isMultiTenantControl(anyString())).thenReturn(false);
+            models.when(() -> ModelManager.isTimelineModel(anyString())).thenReturn(false);
+            stubColumn(models, "id", "id", FieldType.LONG);
+            stubColumn(models, "claimId", "claim_id", FieldType.LONG);
+            stubColumn(models, "deleted", "deleted", FieldType.BOOLEAN);
+            stubColumn(models, "active", "active", FieldType.BOOLEAN);
+            SqlWrapper sqlWrapper = new SqlWrapper(RELATED);
+            new WhereBuilder(sqlWrapper, query).build();
+            Object where = ReflectionTestUtils.getField(sqlWrapper, "whereClause");
+            return where == null ? "" : where.toString();
+        } finally {
+            ReflectionTestUtils.setField(DBUtil.class, "singleDbDialect", previousDialect);
+        }
+    }
+
+    private static void stubColumn(MockedStatic<ModelManager> models, String fieldName, String columnName,
+                                   FieldType fieldType) {
+        MetaField field = new MetaField();
+        ReflectionTestUtils.setField(field, "modelName", RELATED);
+        ReflectionTestUtils.setField(field, "fieldName", fieldName);
+        ReflectionTestUtils.setField(field, "columnName", columnName);
+        ReflectionTestUtils.setField(field, "fieldType", fieldType);
+        models.when(() -> ModelManager.existField(RELATED, fieldName)).thenReturn(true);
+        models.when(() -> ModelManager.getModelField(RELATED, fieldName)).thenReturn(field);
     }
 
     /** A read that does not expand the field: it shows the children by their display names. */

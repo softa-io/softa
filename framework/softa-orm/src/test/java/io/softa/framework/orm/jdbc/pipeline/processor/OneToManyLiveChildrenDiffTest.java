@@ -9,12 +9,14 @@ import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
@@ -127,6 +129,49 @@ class OneToManyLiveChildrenDiffTest {
         write(new ArrayList<>());
 
         assertThat(deleted).containsExactly(List.of(10L));
+    }
+
+    @Test
+    void aNullValueDeletesOnlyTheLiveChildren() {
+        write(null);
+
+        assertThat(deleted).containsExactly(List.of(10L));
+    }
+
+    @Test
+    void theDiffReadsWhetherEachChildIsDeleted_pastSoftDeleteAndActiveControl() {
+        write(new ArrayList<>(List.of(line(10L))));
+
+        ArgumentCaptor<FlexQuery> sent = ArgumentCaptor.forClass(FlexQuery.class);
+        reflect.verify(() -> ReflectTool.searchListIgnoringRowScope(eq(RELATED), sent.capture()));
+        assertThat(sent.getValue().getFields()).contains("id", "claimId", "deleted");
+        assertThat(sent.getValue().getFilterControl().isSkipSoftDelete()).isTrue();
+        assertThat(sent.getValue().getFilterControl().isSkipActiveControl()).isTrue();
+    }
+
+    /**
+     * Children that are not soft-deleted have no deleted flag to read: every child found is live, whatever a column
+     * of that name holds, and a list sent back without one deletes it.
+     */
+    @Test
+    void childrenWithoutSoftDeleteAreAllLive() {
+        models.when(() -> ModelManager.isSoftDeleted(RELATED)).thenReturn(false);
+
+        write(new ArrayList<>(List.of(line(10L))));
+
+        assertThat(deleted).containsExactly(List.of(11L));
+        ArgumentCaptor<FlexQuery> sent = ArgumentCaptor.forClass(FlexQuery.class);
+        reflect.verify(() -> ReflectTool.searchListIgnoringRowScope(eq(RELATED), sent.capture()));
+        assertThat(sent.getValue().getFields()).doesNotContain("deleted");
+    }
+
+    @Test
+    void childrenWithoutSoftDeleteMayBeSentBackAndPatched() {
+        models.when(() -> ModelManager.isSoftDeleted(RELATED)).thenReturn(false);
+
+        write(new HashMap<>(Map.of("Update", new ArrayList<>(List.of(line(11L))))));
+
+        assertThat(updated).hasSize(1);
     }
 
     @Test
