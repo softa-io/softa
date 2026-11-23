@@ -150,4 +150,59 @@ class DynamicRuleFieldValidatorTest {
         assertThat(renamed.hasErrors()).isFalse();
         assertThat(cleared.hasErrors()).isFalse();
     }
+
+    @Test
+    void anUnchangedRuleReadBackAsTheDatabaseDriverReturnsItPasses() {
+        // PostgreSQL hands a json / jsonb column back as a PGobject whose text is the JSON.
+        Map<String, Object> patch = new HashMap<>(Map.of("id", 7L, "dynamicFilter",
+                JsonUtils.stringToObject(SENSITIVE_RULE, JsonNode.class)));
+        WriteContext ctx = WriteContext.of("Role", AccessType.UPDATE, role(SENSITIVE_RULE), patch,
+                role(new PGobject(SENSITIVE_RULE)));
+
+        validator.validateUpdate(ctx);
+
+        assertThat(ctx.hasErrors()).isFalse();
+        verify(job, never()).ruleFieldsNotSeenByCaller(any());
+    }
+
+    @Test
+    void anUnchangedRuleWhoseNumbersWereReadIntoAnotherNodeTypePasses() {
+        // The same 5000, read once as an int node and once as a long node.
+        tools.jackson.databind.node.ArrayNode asInt = tools.jackson.databind.node.JsonNodeFactory.instance.arrayNode()
+                .add("basePay").add(">").add(5000);
+        tools.jackson.databind.node.ArrayNode asLong = tools.jackson.databind.node.JsonNodeFactory.instance.arrayNode()
+                .add("basePay").add(">").add(5000L);
+        Map<String, Object> patch = new HashMap<>(Map.of("id", 7L, "dynamicFilter", asInt));
+        WriteContext ctx = WriteContext.of("Role", AccessType.UPDATE, role(asInt), patch, role(asLong));
+
+        validator.validateUpdate(ctx);
+
+        assertThat(ctx.hasErrors()).isFalse();
+        verify(job, never()).ruleFieldsNotSeenByCaller(any());
+    }
+
+    @Test
+    void aChangedRuleReadBackAsADatabaseObjectIsStillJudged() {
+        Map<String, Object> patch = new HashMap<>(Map.of("id", 7L, "dynamicFilter", SENSITIVE_RULE));
+        WriteContext ctx = WriteContext.of("Role", AccessType.UPDATE, role(SENSITIVE_RULE), patch,
+                role(new PGobject(PLAIN_RULE)));
+
+        validator.validateUpdate(ctx);
+
+        assertThat(ctx.hasErrors()).isTrue();
+    }
+
+    /** Stands in for the PostgreSQL driver's JSON value: its text is the stored JSON. */
+    private static final class PGobject {
+        private final String value;
+
+        PGobject(String value) {
+            this.value = value;
+        }
+
+        @Override
+        public String toString() {
+            return value;
+        }
+    }
 }

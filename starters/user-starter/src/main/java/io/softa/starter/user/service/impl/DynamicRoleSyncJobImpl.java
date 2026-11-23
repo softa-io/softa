@@ -25,7 +25,6 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.enums.Operator;
-import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.constant.ModelConstant;
@@ -75,6 +74,8 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
 
     private static final String EMPLOYEE = "Employee";
     private static final String USER_ACCOUNT = "UserAccount";
+    /** Accounts per statement when reading their status; well under what one statement may bind. */
+    static final int ACCOUNT_BATCH_SIZE = 1000;
 
     private final RoleService roleService;
     private final UserRoleRelService userRoleRelService;
@@ -341,9 +342,12 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
     /**
      * {@inheritDoc}
      *
-     * <p>The members are worked out by {@link #members}, as a sync works them out — tenant-wide — so
-     * the count is who saving the rule would grant. Which of them are listed is the caller's: the rows
-     * are read with the caller's permissions, and members outside their data scope are only counted.
+     * <p>Worked out as a sync works them out — {@link #members} — but within the caller's own data
+     * scope: the employees are read with the caller's permissions, so the count and the list cover only
+     * who the caller may see. A count over the whole tenant would answer questions about people outside
+     * that scope: a rule naming one of them and a figure the caller may read on their own rows tells,
+     * one 0 or 1 at a time, that person's figure. A caller who may not read employees at all is refused
+     * — no count either.
      */
     @Override
     public DynamicMembersPreview previewMembers(JsonNode dynamicFilter, List<String> fields,
@@ -352,13 +356,11 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
         assertRuleSeenByCaller(dynamicFilter);
         Page<Map<String, Object>> page = Page.of(pageNumber, pageSize);
         Filters filters = ruleFilters(dynamicFilter);
-        List<Long> memberIds = filters == null ? List.of() : new ArrayList<>(members(filters).keySet());
+        List<Long> memberIds = filters == null ? List.of() : new ArrayList<>(members(filters, false).keySet());
 
-        // The members the caller may see, in member order.
-        List<Long> visible = memberIds.isEmpty() ? List.of() : readableEmployees(memberIds);
-        page.setTotalCount(visible.size());
-        int from = Math.min((page.getPageNumber() - 1) * page.getPageSize(), visible.size());
-        List<Long> pageIds = visible.subList(from, Math.min(from + page.getPageSize(), visible.size()));
+        page.setTotalCount(memberIds.size());
+        int from = Math.min((page.getPageNumber() - 1) * page.getPageSize(), memberIds.size());
+        List<Long> pageIds = memberIds.subList(from, Math.min(from + page.getPageSize(), memberIds.size()));
         List<Map<String, Object>> rows = List.of();
         if (!pageIds.isEmpty()) {
             Set<String> read = new LinkedHashSet<>(fields == null ? List.of() : fields);
@@ -372,7 +374,7 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
             rows = pageIds.stream().map(byId::get).filter(Objects::nonNull).toList();
         }
         page.setRows(rows);
-        return new DynamicMembersPreview(memberIds.size(), memberIds.size() - visible.size(), page);
+        return new DynamicMembersPreview(memberIds.size(), page);
     }
 
     /**
@@ -408,26 +410,6 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
         return permissions.conditionFieldsNotSeenEverywhere(EMPLOYEE, filters);
     }
 
-    /**
-     * Of {@code employeeIds}, those the caller may read, in the order given. None when the caller may
-     * not read employees at all: they still see how many the rule grants, only not who.
-     */
-    private List<Long> readableEmployees(List<Long> employeeIds) {
-        List<Map<String, Object>> rows;
-        try {
-            rows = modelService.searchList(EMPLOYEE,
-                    new FlexQuery(List.of(ModelConstant.ID), new Filters().in(ModelConstant.ID, employeeIds)));
-        } catch (PermissionException e) {
-            return List.of();
-        }
-        Set<Long> readable = new HashSet<>();
-        for (Map<String, Object> row : rows) {
-            Long id = ModelRefIds.extractLongId(row.get(ModelConstant.ID));
-            if (id != null) readable.add(id);
-        }
-        return employeeIds.stream().filter(readable::contains).toList();
-    }
-
     /** The rule as filters, or null when the role has none (no rule, or not the Filters array form). */
     private static Filters ruleFilters(JsonNode rule) {
         if (rule == null || rule.isNull() || !rule.isArray()) return null;
@@ -451,9 +433,20 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
      * role is saved; the tenant still applies.
      */
     private Map<Long, Long> members(Filters rule) {
+        return members(rule, true);
+    }
+
+    /**
+     * {@link #members(Filters)}, tenant-wide or — {@code tenantWide = false}, for the preview — within the
+     * caller's own data scope, the employees read with the caller's permissions. A caller who may not
+     * read employees is refused there.
+     */
+    private Map<Long, Long> members(Filters rule, boolean tenantWide) {
         Filters filters = Filters.and(rule, Filters.of("userId", Operator.IS_SET, null));
-        List<Map<String, Object>> employees = ContextUtils.withoutPermissionChecks(() -> modelService.searchList(
-                EMPLOYEE, new FlexQuery(List.of(ModelConstant.ID, "userId"), filters, Orders.ofAsc(ModelConstant.ID))));
+        FlexQuery query = new FlexQuery(List.of(ModelConstant.ID, "userId"), filters, Orders.ofAsc(ModelConstant.ID));
+        List<Map<String, Object>> employees = tenantWide
+                ? ContextUtils.withoutPermissionChecks(() -> modelService.searchList(EMPLOYEE, query))
+                : modelService.searchList(EMPLOYEE, query);
         Map<Long, Long> accountByEmployee = new LinkedHashMap<>();
         for (Map<String, Object> employee : employees) {
             Long employeeId = ModelRefIds.extractLongId(employee.get(ModelConstant.ID));
@@ -475,13 +468,19 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
      */
     private Set<Long> activeAccounts(Collection<Long> accountIds) {
         if (accountIds.isEmpty()) return Set.of();
-        Filters active = new Filters().in(ModelConstant.ID, accountIds).eq("status", "Active");
-        List<Map<String, Object>> rows = ContextUtils.withoutPermissionChecks(() -> modelService.searchList(
-                USER_ACCOUNT, new FlexQuery(List.of(ModelConstant.ID), active)));
+        // In batches: a broad rule over a large tenant names tens of thousands of accounts, past what one
+        // statement may bind.
+        List<Long> all = new ArrayList<>(new LinkedHashSet<>(accountIds));
         Set<Long> ids = new LinkedHashSet<>();
-        for (Map<String, Object> row : rows) {
-            Long id = ModelRefIds.extractLongId(row.get(ModelConstant.ID));
-            if (id != null) ids.add(id);
+        for (int from = 0; from < all.size(); from += ACCOUNT_BATCH_SIZE) {
+            List<Long> batch = all.subList(from, Math.min(from + ACCOUNT_BATCH_SIZE, all.size()));
+            Filters active = new Filters().in(ModelConstant.ID, batch).eq("status", "Active");
+            List<Map<String, Object>> rows = ContextUtils.withoutPermissionChecks(() -> modelService.searchList(
+                    USER_ACCOUNT, new FlexQuery(List.of(ModelConstant.ID), active)));
+            for (Map<String, Object> row : rows) {
+                Long id = ModelRefIds.extractLongId(row.get(ModelConstant.ID));
+                if (id != null) ids.add(id);
+            }
         }
         return ids;
     }

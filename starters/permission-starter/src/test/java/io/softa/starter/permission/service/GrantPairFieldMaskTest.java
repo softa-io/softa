@@ -700,6 +700,21 @@ class GrantPairFieldMaskTest {
     }
 
     @Test
+    @DisplayName("a refused condition names the field as the caller wrote it, not the path it stands for")
+    void aRefusedAliasIsNamedAsWritten() {
+        relationsLeadToEmployee();
+        io.softa.framework.orm.meta.MetaField alias = new io.softa.framework.orm.meta.MetaField();
+        org.springframework.test.util.ReflectionTestUtils.setField(alias, "fieldName", "employeePay");
+        org.springframework.test.util.ReflectionTestUtils.setField(alias, "cascadedField", "employeeId.basePay");
+        models.when(() -> ModelManager.existField("EmpLeave", "employeePay")).thenReturn(true);
+        models.when(() -> ModelManager.getModelField("EmpLeave", "employeePay")).thenReturn(alias);
+        pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
+
+        assertThat(as(() -> service.conditionFieldsNotSeenEverywhere("EmpLeave",
+                Filters.of("employeePay", Operator.GREATER_THAN, 5000)))).containsExactly("employeePay");
+    }
+
+    @Test
     @DisplayName("a path reaching no granted employee matches nothing")
     void aPathReachingNoVisibleRowMatchesNothing() {
         relationsLeadToEmployee();

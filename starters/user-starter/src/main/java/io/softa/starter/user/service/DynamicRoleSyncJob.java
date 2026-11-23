@@ -77,17 +77,18 @@ public interface DynamicRoleSyncJob {
 
     /**
      * Who a dynamic rule would grant, without writing anything: the members a sync of a role with this
-     * rule would write — employees the rule matches whose account is Active, tenant-wide — counted in
-     * full, and a page of those the caller may see listed in employee id order, each read with
+     * rule would write — employees the rule matches whose account is Active — within the caller's own
+     * data scope, counted, and a page of them listed in employee id order, each read with
      * {@code fields}.
      *
      * <p>Lets an editor show the result of a rule before it is saved, worked out by the same code that
-     * writes the grants, so the two cannot disagree. Runs under the caller's {@code Context.tenantId};
-     * the caller's data scope decides only which members are listed. A caller who may not read
-     * employees at all sees the counts and an empty list.
+     * writes the grants, so the two cannot disagree on the people the caller can see. Runs under the
+     * caller's {@code Context.tenantId}. Members outside the caller's data scope are neither listed nor
+     * counted: a count over people the caller cannot see answers, one question at a time, what the rule
+     * tests about them. A caller who may not read employees at all is refused.
      *
      * <p>A rule testing a field the caller cannot see on every employee is refused, as by
-     * {@link #assertRuleSeenByCaller}: its counts are the whole tenant's.
+     * {@link #assertRuleSeenByCaller}.
      *
      * @param dynamicFilter the rule, in the form {@code Role.dynamicFilter} stores it; null or not an
      *                      array matches nobody

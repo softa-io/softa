@@ -60,7 +60,11 @@ public class DynamicRuleFieldValidator implements ModelWriteValidator {
         if (!ctx.patch().containsKey(FIELD)) return;
         JsonNode rule = ruleOf(ctx.patch().get(FIELD));
         JsonNode stored = ctx.originalRow() == null ? null : ruleOf(ctx.originalRow().get(FIELD));
-        if (Objects.equals(rule, stored)) return;
+        // Compared as canonical text: the stored rule comes back as the driver reads it — text, a
+        // database JSON object, numbers in a narrower or wider node type than the patch carries — and a
+        // rule that did not change must not be judged again, or a narrow manager renaming a role would be
+        // stopped by a rule somebody else wrote.
+        if (Objects.equals(canonical(rule), canonical(stored))) return;
         check(ctx, rule);
     }
 
@@ -75,14 +79,32 @@ public class DynamicRuleFieldValidator implements ModelWriteValidator {
         ctx.reject(FIELD, "The membership rule tests " + labels + ", which you cannot see on every employee.");
     }
 
-    /** The rule as the caller sent it or as it is stored — a JSON tree, its text, or plain lists and maps. */
+    /**
+     * The rule as the caller sent it or as it is stored — a JSON tree, its text, plain lists and maps, or
+     * a database JSON object whose text is its value.
+     */
     static JsonNode ruleOf(Object value) {
         if (value == null) return null;
         JsonNode node = switch (value) {
             case JsonNode json -> json;
-            case String text -> text.isBlank() ? null : JsonUtils.stringToObject(text, JsonNode.class);
-            default -> JsonUtils.objectToJsonNode(value);
+            case String text -> parse(text);
+            // A driver's JSON object (PostgreSQL's PGobject): its text is the stored JSON.
+            default -> "PGobject".equals(value.getClass().getSimpleName())
+                    ? parse(value.toString())
+                    : JsonUtils.objectToJsonNode(value);
         };
         return node == null || node.isNull() || node.isMissingNode() ? null : node;
+    }
+
+    private static JsonNode parse(String text) {
+        return text == null || text.isBlank() ? null : JsonUtils.stringToObject(text, JsonNode.class);
+    }
+
+    /**
+     * The rule as one text whatever node types it was read into: numbers written by value, so an int
+     * and a long holding the same number agree.
+     */
+    static String canonical(JsonNode rule) {
+        return rule == null ? null : JsonUtils.objectToString(JsonUtils.jsonNodeToObject(rule));
     }
 }

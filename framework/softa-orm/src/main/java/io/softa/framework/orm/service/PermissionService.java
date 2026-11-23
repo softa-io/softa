@@ -156,7 +156,8 @@ public interface PermissionService {
      *
      * @param model   the model the conditions are on
      * @param filters the conditions
-     * @return the fields, in the order they are met; empty when every one is seen on every row
+     * @return the fields as the conditions name them — an alias or {@code searchName} as written, not the
+     *         fields it stands for — in the order they are met; empty when every one is seen on every row
      */
     default Set<String> conditionFieldsNotSeenEverywhere(String model, Filters filters) {
         return Set.of();

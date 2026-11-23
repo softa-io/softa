@@ -248,20 +248,28 @@ public class PermissionServiceImpl implements PermissionService {
         PermissionInfo pi = currentPi();
         if (PermissionInfo.hasFullDataAccess(pi)) return Set.of();
         Set<String> found = new LinkedHashSet<>();
-        collectMasked(pi, model, readAccess(model, AccessType.READ), expandConditionFields(model, filters),
-                new java.util.HashMap<>(), found);
+        collectMasked(pi, model, readAccess(model, AccessType.READ), filters, new java.util.HashMap<>(), found);
         return found;
     }
 
+    /**
+     * Each leaf is judged as the guard would read it — a cascaded alias or {@code searchName} expanded to
+     * the fields it stands for — and reported by the name the caller wrote, so a refusal names the field
+     * the caller sees in their own condition.
+     */
     private void collectMasked(PermissionInfo pi, String model, AccessType read, Filters node,
                                Map<String, FieldPlan> plans, Set<String> found) {
         if (node == null) return;
         if (node.getType() == FilterType.LEAF) {
             FilterUnit unit = node.getFilterUnit();
             if (unit == null) return;
-            for (String field : unit.getEffectiveFields()) {
-                if (maskedTarget(pi, model, field, read, plans) != null) found.add(field);
+            if (unit.isTuple() || unit.getField() == null) {
+                for (String field : unit.getEffectiveFields()) {
+                    if (maskedTarget(pi, model, field, read, plans) != null) found.add(field);
+                }
+                return;
             }
+            if (anyMasked(pi, model, read, expandConditionFields(model, node), plans)) found.add(unit.getField());
             return;
         }
         if (node.getType() == FilterType.TREE && node.getChildren() != null) {
@@ -269,6 +277,26 @@ public class PermissionServiceImpl implements PermissionService {
                 collectMasked(pi, model, read, child, plans, found);
             }
         }
+    }
+
+    /** Whether any field the (already expanded) condition names is one the caller does not see on every row. */
+    private boolean anyMasked(PermissionInfo pi, String model, AccessType read, Filters node,
+                              Map<String, FieldPlan> plans) {
+        if (node == null) return false;
+        if (node.getType() == FilterType.LEAF) {
+            FilterUnit unit = node.getFilterUnit();
+            if (unit == null) return false;
+            for (String field : unit.getEffectiveFields()) {
+                if (maskedTarget(pi, model, field, read, plans) != null) return true;
+            }
+            return false;
+        }
+        if (node.getType() == FilterType.TREE && node.getChildren() != null) {
+            for (Filters child : node.getChildren()) {
+                if (anyMasked(pi, model, read, child, plans)) return true;
+            }
+        }
+        return false;
     }
 
     /** Rebuilt rather than mutated: the caller's filters may be shared. */

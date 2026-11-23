@@ -129,9 +129,9 @@ public class RoleController extends SystemRoleGuardedController<RoleService, Rol
 
     /**
      * Who a membership rule would grant, before it is saved: the members a sync of the rule would write
-     * — employees it matches whose account is Active, tenant-wide — counted in full, with a page of
-     * those the caller may see. Worked out by the sync's own code, so the wizard's preview is the grant
-     * it is about to make.
+     * — employees it matches whose account is Active — within the caller's data scope, counted, with a
+     * page of them. Worked out by the sync's own code, so the wizard's preview is the grant it is about
+     * to make, for the people the caller can see.
      */
     @PostMapping("/previewDynamicMembers")
     @Operation(summary = "Preview a dynamic membership rule — the employees a sync would grant (matching the rule, "
