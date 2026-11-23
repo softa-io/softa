@@ -399,24 +399,25 @@ class DynamicRoleSyncJobImplTest {
     }
 
     @Test
-    void previewMembers_narrowScopeGrantedTheField_cannotProbeSomeoneOutsideItsScope() {
-        // One role, its scope one department, the tested field granted on it — so the rule passes the
-        // field check. The rule names a person in another department: "id = 906 AND basePay > 5000".
-        // Tenant-wide that is 1 or 0 and tells their pay; within the caller's scope it is always 0.
-        when(permissionService.conditionFieldsNotSeenEverywhere(org.mockito.ArgumentMatchers.eq("Employee"), any()))
-                .thenReturn(java.util.Set.of());
+    void previewMembers_hasThePermissionLayerScopeTheRuleAsWritten() {
+        // The preview's half of "outsiders are neither counted nor listed": the rule goes to the
+        // employee read as it is, with the caller's permissions on, so the permission layer applies the
+        // caller's row scope to it. That the scope keeps an outsider out of such a read is shown in
+        // permission-starter (GrantPairFieldMaskTest.aRuleReadInTheCallersScopeLeavesOutsidersOut).
+        java.util.List<Boolean> skipped = new java.util.ArrayList<>();
+        java.util.List<io.softa.framework.orm.domain.FlexQuery> sent = new java.util.ArrayList<>();
         when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
                 any(io.softa.framework.orm.domain.FlexQuery.class)))
-                .thenAnswer(inv -> ContextHolder.getContext().isSkipPermissionCheck()
-                        ? List.of(java.util.Map.of("id", 906L, "userId", 96L))
-                        : List.of());
-        activeAccounts(96L);
+                .thenAnswer(inv -> {
+                    skipped.add(ContextHolder.getContext().isSkipPermissionCheck());
+                    sent.add(inv.getArgument(1));
+                    return List.of();
+                });
 
-        io.softa.starter.user.dto.DynamicMembersPreview preview = ContextHolder.callWith(ctx(10L),
-                () -> job.previewMembers(probeRule(), List.of("code"), 1, 20));
+        ContextHolder.callWith(ctx(10L), () -> job.previewMembers(probeRule(), List.of("code"), 1, 20));
 
-        assertThat(preview.memberCount()).isZero();
-        assertThat(preview.visible().getRows()).isEmpty();
+        assertThat(skipped).containsExactly(false);
+        assertThat(sent.getFirst().getFilters().toString()).contains("906", "basePay", "5000", "userId");
     }
 
     @Test
@@ -479,14 +480,27 @@ class DynamicRoleSyncJobImplTest {
     }
 
     @Test
-    void syncRole_readsAccountStatusInBatches() {
-        // A broad rule over a large tenant: 2,500 accounts, read 1,000 per statement.
+    void syncRole_readsAccountStatusInBatchesOfAThousand() {
+        assertThat(accountStatusStatements(1000, 1000)).isEqualTo(1);
+        assertThat(accountStatusStatements(1001, 1001)).isEqualTo(2);
+        assertThat(accountStatusStatements(2500, 2500)).isEqualTo(3);
+    }
+
+    @Test
+    void syncRole_asksEachAccountOnce() {
+        // 2,400 employees on 900 accounts: one statement, not three.
+        assertThat(accountStatusStatements(2400, 900)).isEqualTo(1);
+    }
+
+    /** Statements reading account status when a rule matches {@code employees} people on {@code accounts} accounts. */
+    private int accountStatusStatements(int employees, int accounts) {
+        org.mockito.Mockito.reset(modelService, roleService);
         Role role = roleWithDynamic(500L, "OnCall");
         when(roleService.getById(500L)).thenReturn(Optional.of(role));
-        List<java.util.Map<String, Object>> employees = new java.util.ArrayList<>();
-        for (long i = 1; i <= 2500; i++) employees.add(java.util.Map.of("id", 10_000L + i, "userId", i));
+        List<java.util.Map<String, Object>> rows = new java.util.ArrayList<>();
+        for (long i = 0; i < employees; i++) rows.add(java.util.Map.of("id", 10_000L + i, "userId", 1 + i % accounts));
         when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
-                any(io.softa.framework.orm.domain.FlexQuery.class))).thenReturn(employees);
+                any(io.softa.framework.orm.domain.FlexQuery.class))).thenReturn(rows);
         int[] statements = {0};
         when(modelService.searchList(org.mockito.ArgumentMatchers.eq("UserAccount"),
                 any(io.softa.framework.orm.domain.FlexQuery.class)))
@@ -496,9 +510,7 @@ class DynamicRoleSyncJobImplTest {
                 });
 
         ContextHolder.callWith(ctx(10L), () -> job.syncRole(500L));
-
-        assertThat(DynamicRoleSyncJobImpl.ACCOUNT_BATCH_SIZE).isEqualTo(1000);
-        assertThat(statements[0]).isEqualTo(3);
+        return statements[0];
     }
 
     // ─── helpers ───

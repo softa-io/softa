@@ -364,6 +364,41 @@ class GrantPairFieldMaskTest {
     }
 
     @Test
+    @DisplayName("a membership rule read in the caller's scope cannot reach someone outside it, even on a field the role grants")
+    void aRuleReadInTheCallersScopeLeavesOutsidersOut() {
+        // One role: its own department (10), pay granted. The dynamic-role preview sends the rule as it
+        // is, read with the caller's permissions; nothing but the row scope stands between it and the
+        // people outside department 10.
+        pi.setRoleGrants(List.of(role(2, Set.of(VIEW), ScopeType.MANAGED_DEPARTMENTS, null, true)));
+        Map<String, Object> outsider = Map.of("id", 906L, "departmentId", 20L, "basePay", 9000, "userId", 96L);
+        Map<String, Object> insider = Map.of("id", 101L, "departmentId", 10L, "basePay", 9000, "userId", 1L);
+
+        // The field check lets the probe through: pay is granted on every row this role reads.
+        assertThat(as(() -> service.conditionFieldsNotSeenEverywhere("Employee", probe(906L)))).isEmpty();
+
+        Filters aboutTheOutsider = as(() -> service.appendScopeAccessFilters("Employee", probe(906L)));
+        Filters aboutTheInsider = as(() -> service.appendScopeAccessFilters("Employee", probe(101L)));
+
+        assertThat(holds(aboutTheOutsider, outsider)).isFalse();
+        // Narrowed, not blanked: the same question about someone in scope is still answered.
+        assertThat(holds(aboutTheInsider, insider)).isTrue();
+    }
+
+    /** The preview's query for a probing rule: {@code id = <who> AND basePay > 5000}, with an account. */
+    private static Filters probe(long who) {
+        return Filters.and(
+                Filters.of("id", Operator.EQUAL, who),
+                Filters.of("basePay", Operator.GREATER_THAN, 5000),
+                Filters.of("userId", Operator.IS_SET, null));
+    }
+
+    private static boolean holds(Filters filters, Map<String, Object> row) {
+        return io.softa.framework.orm.domain.FilterEvaluator.matches(filters, row,
+                io.softa.framework.orm.domain.FilterEvaluator.EvalContext.of(
+                        io.softa.framework.orm.enums.AccessType.READ), field -> null);
+    }
+
+    @Test
     @DisplayName("rows read elsewhere — a change log's values — are masked the same way")
     void rowsFromElsewhereAreMaskedByTheirId() {
         holdTheExampleRoles();
