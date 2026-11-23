@@ -2088,6 +2088,11 @@ public class PermissionServiceImpl implements PermissionService {
      * collection carries its parent's id from the moment it is created, so its own check can place it,
      * and must: nothing obliges an owner to point at it one-to-one afterwards, so handing the check over
      * would leave a new row naming an out-of-range parent checked by no one.
+     *
+     * <p>The cost of that: such a row created nested in its parent's one-to-one field is refused. It
+     * is written before the parent, with its back-reference still empty, so its own check finds no
+     * in-range parent for it. Create it through the collection, or after the parent exists and with
+     * its back-reference set; either way its own check sees the parent it names.
      */
     private boolean judgedOnOwner(Grant g, String model, AccessType accessType) {
         if (!AccessType.CREATE.equals(accessType) || hasExplicitRules(g, model)) {
@@ -2411,6 +2416,10 @@ public class PermissionServiceImpl implements PermissionService {
      * still bounded by the parents' own range. A caller deciding by the kind of edge has to look at
      * all of them, not the first: {@link #judgedOnOwner} hands a create to the owner only when every
      * edge is one-to-one.
+     *
+     * <p>The edges are merged by kind, not by owner: they need not come from the same parent model. A
+     * row owned one-to-one by A and collected one-to-many by B is reached through B's in-range rows by
+     * a role granted B alone, exactly as a row B only collects already was.
      */
     private List<Referencer> findReferencers(String childModel, Grant g) {
         List<Referencer> owners = new ArrayList<>();
