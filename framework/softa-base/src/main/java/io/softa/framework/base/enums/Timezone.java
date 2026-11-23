@@ -16,7 +16,7 @@ import io.softa.framework.base.annotation.OptionSet;
 
 /**
  * UTC-12:00, UTC-12:00 (Baker Island)
- * UTC-11:00, UTC-11:00 (Samoa)
+ * UTC-11:00, UTC-11:00 (American Samoa)
  */
 @Getter
 @AllArgsConstructor
@@ -24,8 +24,8 @@ import io.softa.framework.base.annotation.OptionSet;
 public enum Timezone {
     @OptionItem(label = "UTC-12:00 (Baker Island)")
     UTC_M_12_00("UTC-12:00", "UTC-12:00 (Baker Island)"),
-    @OptionItem(label = "UTC-11:00 (Samoa)")
-    UTC_M_11_00("UTC-11:00", "UTC-11:00 (Samoa)"),
+    @OptionItem(label = "UTC-11:00 (American Samoa)")
+    UTC_M_11_00("UTC-11:00", "UTC-11:00 (American Samoa)"),
     @OptionItem(label = "UTC-10:00 (Hawaii)")
     UTC_M_10_00("UTC-10:00", "UTC-10:00 (Hawaii)"),
     @OptionItem(label = "UTC-09:00 (Alaska)")
