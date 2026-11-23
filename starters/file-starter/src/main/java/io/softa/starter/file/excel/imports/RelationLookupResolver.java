@@ -797,7 +797,7 @@ public class RelationLookupResolver {
      */
     private Set<List<Object>> companiesOutsideGrant(LookupGroup group, List<Map<String, Object>> rows,
                                                     Bucketed lookedUp) {
-        if (!ModelConstant.COMPANY_MODEL.equals(group.relatedModel())) {
+        if (!ModelConstant.COMPANY_MODEL.equals(group.relatedModel()) || !allStringFields(group)) {
             return Set.of();
         }
         Set<List<Object>> missing = new LinkedHashSet<>();
@@ -835,6 +835,21 @@ public class RelationLookupResolver {
             }
         }
         return outside;
+    }
+
+    /**
+     * Whether every lookup field is a plain string column. The second read compares the cells as they
+     * were typed; a number, date, boolean or relation column would need each value converted to its
+     * type first (PostgreSQL refuses {@code integer = varchar}), so such lookups keep "not found".
+     */
+    private boolean allStringFields(LookupGroup group) {
+        for (String field : group.lookupFields()) {
+            MetaField metaField = ModelManager.getModelFieldOrNull(group.relatedModel(), field);
+            if (metaField == null || metaField.getFieldType() != FieldType.STRING) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
