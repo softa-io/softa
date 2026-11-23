@@ -1307,7 +1307,11 @@ The relation is declared both ways: `SmsProviderRegion.providerConfigId` is a
 many-to-one onto `SmsProviderConfig` with `onDelete = CASCADE` (deleting a
 provider deletes its routes), and `SmsProviderConfig.regions` is the
 one-to-many, so a provider's page edits its routes as its own rows while the
-routing list queries them by country. `uk_sms_provider_region`
+routing list queries them by country. `SmsProviderConfig.regions` is
+required: a new provider names at least one route, and saving a provider
+whose routes were all removed on its page is refused. Routes deleted or
+disabled on the routing list itself are not judged — a provider left with no
+active route is simply never chosen. `uk_sms_provider_region`
 (provider, country) refuses a second route for the same pair with a message of
 its own; it counts disabled routes too — re-enable one instead. The provider
 references on `SmsTemplateProviderBinding` and `SmsSendRecord` are many-to-one

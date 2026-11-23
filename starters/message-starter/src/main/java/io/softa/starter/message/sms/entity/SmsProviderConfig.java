@@ -25,7 +25,8 @@ import io.softa.starter.message.sms.enums.SmsProvider;
  * not multi-tenant and has no tenant column; tenants never see or configure it.
  * <p>
  * A config sends to no country by itself: which countries it serves, and in which
- * order, is said only by its {@link SmsProviderRegion} rows.
+ * order, is said only by its {@link SmsProviderRegion} rows. It must have at least
+ * one: a new config names its countries, and an edit of its routes keeps one.
  */
 @Data
 @Model(label = "SMS Provider Config", idStrategy = IdStrategy.DISTRIBUTED_LONG,
@@ -88,7 +89,7 @@ public class SmsProviderConfig extends AuditableModel {
                     + "some countries require it to be registered first (Singapore: SSIR)")
     private String senderId;
 
-    @Field(description = "Max SMS per minute")
+    @Field(description = "Max SMS per minute (null = unlimited)")
     private Integer rateLimitPerMinute;
 
     @Field(description = "Max SMS per day (null = unlimited)")
@@ -103,7 +104,13 @@ public class SmsProviderConfig extends AuditableModel {
     @Field(renamedFrom = "isEnabled")
     private Boolean active;
 
-    /** The countries this provider serves — edited on the provider's page, queried by country on its own. */
-    @Field(label = "Country Routing", fieldType = FieldType.ONE_TO_MANY, relatedField = "providerConfigId")
+    /**
+     * The countries this provider serves — edited on the provider's page, queried by country on its own.
+     * Required, so a provider is never saved serving no country: a new config names at least one route,
+     * and an update that sends its routes leaves one. Routes deleted or disabled on the routing list
+     * itself are not judged here — a provider left without routes is simply never chosen.
+     */
+    @Field(label = "Country Routing", required = true, fieldType = FieldType.ONE_TO_MANY,
+            relatedField = "providerConfigId")
     private List<SmsProviderRegion> regions;
 }
