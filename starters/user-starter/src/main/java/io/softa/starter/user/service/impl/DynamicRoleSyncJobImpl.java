@@ -454,7 +454,8 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
     /**
      * {@link #members(Filters)}, tenant-wide or — {@code tenantWide = false}, for the preview — within the
      * caller's own data scope, the employees read with the caller's permissions. A caller who may not
-     * read employees is refused there.
+     * view employees never gets here — the preview refuses them first ({@code assertMayReadEmployees}); for
+     * them this read would only match nobody.
      */
     private Map<Long, Long> members(Filters rule, boolean tenantWide) {
         Filters filters = Filters.and(rule, Filters.of("userId", Operator.IS_SET, null));

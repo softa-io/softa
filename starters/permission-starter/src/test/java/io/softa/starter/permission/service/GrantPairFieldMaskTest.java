@@ -400,6 +400,13 @@ class GrantPairFieldMaskTest {
         pi.setPermissions(new HashSet<>(Set.of(VIEW)));
         assertThat(as(() -> service.hasModelActionGrant("Employee", io.softa.framework.orm.enums.AccessType.READ)))
                 .isTrue();
+
+        // A tenant admin holds no permission rows and is let through, as the endpoint gate lets them.
+        pi.setRoleGrants(List.of());
+        pi.setPermissions(new HashSet<>());
+        pi.setRoleCodes(new HashSet<>(Set.of(PermissionInfo.CODE_TENANT_ADMIN)));
+        assertThat(as(() -> service.hasModelActionGrant("Employee", io.softa.framework.orm.enums.AccessType.READ)))
+                .isTrue();
     }
 
     /** The preview's query for a probing rule: {@code id = <who> AND basePay > 5000}, with an account. */
