@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.function.Consumer;
 import org.apache.fesod.sheet.ExcelWriter;
 import org.apache.fesod.sheet.FesodSheet;
+import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.Row;
@@ -37,7 +38,7 @@ class ExportByFileTemplateFillTest {
         assertEquals("{.deptId.name}", ExportByFileTemplate.normalizeCellValue("{{deptId.name}}"));
         assertEquals("ID-{.code} / {.name}", ExportByFileTemplate.normalizeCellValue("ID-{{ code }} / {{ name }}"));
         assertEquals("Total", ExportByFileTemplate.normalizeCellValue("Total"));
-        // Not a field name: an empty segment is left alone instead of turning into {..x} or {.a..b}.
+        // Not a field name: left alone instead of turning into {..x} or {.a..b}, for the stray-brace check to refuse.
         assertEquals("{{ .x }}", ExportByFileTemplate.normalizeCellValue("{{ .x }}"));
         assertEquals("{{a..b}}", ExportByFileTemplate.normalizeCellValue("{{a..b}}"));
         assertEquals("{{ a. }}", ExportByFileTemplate.normalizeCellValue("{{ a. }}"));
@@ -157,6 +158,69 @@ class ExportByFileTemplateFillTest {
             BusinessException e = assertThrows(BusinessException.class,
                     () -> ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(template), null));
             assertTrue(e.getMessage().contains("[1, 2]"), e.getMessage());
+        }
+    }
+
+    @Test
+    void bracesThatAreNotPlaceholdersAreRefusedWithTheCellNamed() throws Exception {
+        // Each would be read by Fesod as a single-value placeholder and blanked, or leave a stray brace.
+        String[][] cases = {
+                {"A1", "Price {USD}"},
+                {"B2", "{{ name }} {unit}"},
+                {"B2", "{{ dept-name }}"},
+                {"B2", "\\{{ code }}"},
+                {"B2", "{{ }}"},
+                {"B2", "{{ .x }}"},
+        };
+        for (String[] c : cases) {
+            byte[] template = template(wb -> {
+                Sheet sheet = dataSheet(wb, "Data", "{{ code }}", "", "ID-{{ code }}");
+                Row row = c[0].equals("A1") ? sheet.getRow(0) : sheet.getRow(1);
+                row.getCell(c[0].equals("A1") ? 0 : 1).setCellValue(c[1]);
+            });
+            BusinessException e = assertThrows(BusinessException.class,
+                    () -> ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(template), null), c[1]);
+            assertTrue(e.getMessage().contains("Cell " + c[0] + " of sheet Data"), e.getMessage());
+        }
+    }
+
+    @Test
+    void aSheetWithNothingToFillIsRefused() throws Exception {
+        byte[] notesConfigured = template(wb -> {
+            wb.createSheet("Notes").createRow(0).createCell(0).setCellValue("Read me");
+            dataSheet(wb, "Data", "{{ name }}", "{{ deptId.name }}", "{{ code }}");
+        });
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(notesConfigured), "Notes"));
+        assertTrue(e.getMessage().contains("Sheet Notes"), e.getMessage());
+
+        byte[] noPlaceholderAnywhere = template(wb -> wb.createSheet("Data").createRow(0).createCell(0).setCellValue("Name"));
+        assertThrows(BusinessException.class,
+                () -> ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(noPlaceholderAnywhere), null));
+    }
+
+    @Test
+    void aHiddenSheetIsNotPickedWhenNoSheetNameIsConfigured() throws Exception {
+        byte[] template = template(wb -> {
+            dataSheet(wb, "Old", "{{ name }}", "{{ deptId.name }}", "{{ code }}");
+            dataSheet(wb, "Data", "{{ name }}", "{{ deptId.name }}", "{{ code }}");
+            wb.setSheetHidden(0, true);
+        });
+        assertEquals(1, ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(template), null).sheetNo());
+    }
+
+    @Test
+    void aFileThatIsNotAnXlsxWorkbookIsRefusedReadably() throws Exception {
+        byte[] xls;
+        try (HSSFWorkbook workbook = new HSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            workbook.createSheet("Data").createRow(0).createCell(0).setCellValue("{{ name }}");
+            workbook.write(out);
+            xls = out.toByteArray();
+        }
+        for (byte[] file : List.of(xls, "not a workbook".getBytes())) {
+            BusinessException e = assertThrows(BusinessException.class,
+                    () -> ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(file), null));
+            assertTrue(e.getMessage().contains(".xlsx"), e.getMessage());
         }
     }
 
