@@ -70,13 +70,23 @@ public class FlowDirectoryServiceImpl implements FlowDirectoryService {
         }
         // A picker reads a page shorter than it asked for as the end of the list, so the approvers are counted, not the
         // people read: more of the directory is read until there are enough of them, or there is no one left to read.
+        // Each wider read starts over from the top, so whom it was already asked about is remembered: only the people
+        // new to this read are asked whether they may approve.
+        Map<String, Boolean> mayApprove = new HashMap<>();
         int window = size;
         while (true) {
             List<DirectoryPerson> found = read(organization, keyword, window);
-            Set<String> able = new HashSet<>(accounts.ableToApprove(
-                    found.stream().map(person -> String.valueOf(person.id())).toList()));
+            List<String> unasked = found.stream()
+                    .map(person -> String.valueOf(person.id()))
+                    .filter(id -> !mayApprove.containsKey(id))
+                    .distinct()
+                    .toList();
+            if (!unasked.isEmpty()) {
+                Set<String> able = new HashSet<>(accounts.ableToApprove(unasked));
+                unasked.forEach(id -> mayApprove.put(id, able.contains(id)));
+            }
             List<DirectoryPerson> approvers = found.stream()
-                    .filter(person -> able.contains(String.valueOf(person.id())))
+                    .filter(person -> mayApprove.get(String.valueOf(person.id())))
                     .toList();
             if (approvers.size() >= size || found.size() < window || window >= APPROVER_SCAN_LIMIT) {
                 return approvers.size() > size ? approvers.subList(0, size) : approvers;

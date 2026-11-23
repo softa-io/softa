@@ -104,6 +104,36 @@ class FlowDirectoryServiceImplTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void fillingAnApproversOnlyPage_asksAboutEachPersonOnce_thoughEachWiderReadStartsOverFromTheTop() {
+        // Every even one unable to approve: filling 20 reads 20 people, then 40 from the top again.
+        List<DirectoryPerson> everyone = LongStream.rangeClosed(1, 60)
+                .mapToObj(id -> new DirectoryPerson(id, "P" + id, "E" + id, "Finance", null, true))
+                .toList();
+        when(organization.searchPeople(eq("p"), anyInt())).thenAnswer(invocation ->
+                everyone.subList(0, Math.min(invocation.<Integer>getArgument(1), everyone.size())));
+        ObjectProvider<OrganizationService> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(organization);
+        Set<Long> unable = new HashSet<>();
+        LongStream.rangeClosed(1, 60).filter(id -> id % 2 == 0).forEach(unable::add);
+        ActorAccounts oddOnesApprove = spy(TestActorAccounts.of(Map.of(), Map.of(), unable));
+        ObjectProvider<ActorAccounts> accounts = mock(ObjectProvider.class);
+        when(accounts.getIfAvailable()).thenReturn(oddOnesApprove);
+        List<String> asked = new ArrayList<>();
+        doAnswer(invocation -> {
+            asked.addAll(invocation.getArgument(0));
+            return invocation.callRealMethod();
+        }).when(oddOnesApprove).ableToApprove(anyList());
+        FlowDirectoryServiceImpl withAccounts = new FlowDirectoryServiceImpl(provider, userNames, accounts);
+
+        assertEquals(20, withAccounts.searchPeople("p", 20, true).size());
+
+        // Each permission snapshot read once: the 20 of the first read, then only the 20 the wider one adds.
+        assertEquals(40, asked.size());
+        assertEquals(40, new HashSet<>(asked).size());
+    }
+
+    @Test
     void theWholeDirectoryIsAskedPastTheCallersPermissions() {
         boolean[] skipped = {false};
         when(organization.searchAllPeople("ann", true, 20)).thenAnswer(invocation -> {
