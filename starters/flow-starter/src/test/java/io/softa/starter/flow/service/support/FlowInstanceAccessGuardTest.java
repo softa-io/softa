@@ -529,13 +529,29 @@ class FlowInstanceAccessGuardTest {
 
     @Test
     void aParticipantPreviewsOnlyTheApprovalInProgress() {
-        FlowExecutionState running = FlowExecutionState.builder().instanceId("i1").initiatorId("u1").build();
+        FlowExecutionState running = FlowExecutionState.builder().instanceId("i1").initiatorId("u1")
+                .status(FlowExecutionStatus.WAITING).build();
 
         assertSame(running, guard.requirePreviewer("LeaveRequest", "42", () -> running, "u1"));
         assertThrows(FlowAuthorizationException.class,
                 () -> guard.requirePreviewer("LeaveRequest", "42", () -> running, "u2"));
         assertThrows(FlowAuthorizationException.class,
                 () -> guard.requirePreviewer("LeaveRequest", "42", () -> null, "u1"));
+    }
+
+    /** The guard does not take the caller's word that the approval is in progress: it checks the state itself. */
+    @Test
+    void anApprovalThatEndedOrHasNoStatusLetsNoParticipantIn() {
+        for (FlowExecutionStatus ended : List.of(FlowExecutionStatus.WITHDRAWN, FlowExecutionStatus.COMPLETED,
+                FlowExecutionStatus.REJECTED)) {
+            FlowExecutionState state = FlowExecutionState.builder().instanceId("i1").initiatorId("u1")
+                    .status(ended).build();
+            assertThrows(FlowAuthorizationException.class,
+                    () -> guard.requirePreviewer("LeaveRequest", "42", () -> state, "u1"), ended.name());
+        }
+        FlowExecutionState noStatus = FlowExecutionState.builder().instanceId("i1").initiatorId("u1").build();
+        assertThrows(FlowAuthorizationException.class,
+                () -> guard.requirePreviewer("LeaveRequest", "42", () -> noStatus, "u1"));
     }
 
     @Test

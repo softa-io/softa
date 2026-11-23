@@ -127,7 +127,8 @@ public class FlowInstanceAccessGuard {
      * @param modelName   the record's model
      * @param rowId       the record
      * @param running     the record's approval in progress, or null when it has none; asked only of an
-     *                    authenticated caller who cannot read the record
+     *                    authenticated caller who cannot read the record. Its state is checked here as well: a state
+     *                    without a status, or one that has ended, is no approval in progress and lets no one in
      * @param requesterId the authenticated caller's user id
      * @return the approval in progress the caller was let in on by taking part in it, or null when they read the
      *         record themselves. A caller let in this way may be told of that approval and nothing else.
@@ -140,11 +141,15 @@ public class FlowInstanceAccessGuard {
             return null;
         }
         FlowExecutionState approval = running.get();
-        if (approval != null && isParticipant(approval, requesterId)) {
+        if (isInProgress(approval) && isParticipant(approval, requesterId)) {
             return approval;
         }
         throw new FlowAuthorizationException(
                 "You do not have access to this record, so you cannot preview its approval.");
+    }
+
+    private static boolean isInProgress(FlowExecutionState state) {
+        return state != null && state.getStatus() != null && !state.getStatus().isTerminal();
     }
 
     /**
