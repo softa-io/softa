@@ -384,6 +384,24 @@ class GrantPairFieldMaskTest {
         assertThat(holds(aboutTheInsider, insider)).isTrue();
     }
 
+    @Test
+    @DisplayName("a caller whose roles hold no employee view may not read employees; a narrow view may")
+    void employeeViewIsAskedOfTheGrantsAsTheEndpointGateAsks() {
+        // Roles only: the dynamic-role preview refuses this caller rather than show them "0".
+        // The snapshot carries the union of the roles' permissions beside the roles themselves.
+        pi.setRoleGrants(List.of(role(7, Set.of("permission.users.roles.view"), ScopeType.ALL, null, false)));
+        pi.setPermissions(new HashSet<>(Set.of("permission.users.roles.view")));
+        assertThat(as(() -> service.hasModelActionGrant("Employee", io.softa.framework.orm.enums.AccessType.READ)))
+                .isFalse();
+
+        // A view on one department is a view: the preview runs, counting within that department
+        // (aRuleReadInTheCallersScopeLeavesOutsidersOut).
+        pi.setRoleGrants(List.of(role(2, Set.of(VIEW), ScopeType.MANAGED_DEPARTMENTS, null, true)));
+        pi.setPermissions(new HashSet<>(Set.of(VIEW)));
+        assertThat(as(() -> service.hasModelActionGrant("Employee", io.softa.framework.orm.enums.AccessType.READ)))
+                .isTrue();
+    }
+
     /** The preview's query for a probing rule: {@code id = <who> AND basePay > 5000}, with an account. */
     private static Filters probe(long who) {
         return Filters.and(

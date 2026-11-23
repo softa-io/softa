@@ -46,6 +46,9 @@ class DynamicRoleSyncJobImplTest {
         tm = mock(PlatformTransactionManager.class);
         permissionService = mock(io.softa.framework.orm.service.PermissionService.class);
         when(permissionService.conditionFieldsNotSeenEverywhere(any(), any())).thenReturn(java.util.Set.of());
+        // The caller may view employees unless a test says otherwise.
+        when(permissionService.hasModelActionGrant(org.mockito.ArgumentMatchers.eq("Employee"),
+                org.mockito.ArgumentMatchers.eq(io.softa.framework.orm.enums.AccessType.READ))).thenReturn(true);
         org.springframework.beans.factory.ObjectProvider<io.softa.framework.orm.service.PermissionService> provider =
                 mock(org.springframework.beans.factory.ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(permissionService);
@@ -436,19 +439,18 @@ class DynamicRoleSyncJobImplTest {
     }
 
     @Test
-    void previewMembers_callerWhoMayNotReadEmployees_isRefused_withNoCount() {
-        when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
-                any(io.softa.framework.orm.domain.FlexQuery.class)))
-                .thenAnswer(inv -> {
-                    if (ContextHolder.getContext().isSkipPermissionCheck()) {
-                        return List.of(java.util.Map.of("id", 101L, "userId", 1L));
-                    }
-                    throw new io.softa.framework.base.exception.PermissionException("No read on Employee");
-                });
+    void previewMembers_callerWhoMayNotViewEmployees_isRefused_beforeAnythingIsMatched() {
+        // Asked of the grants the way the endpoint gate asks it — whether such a caller holds an employee
+        // view is decided in permission-starter (GrantPairFieldMaskTest). Without the question, the read
+        // inside the service would match nobody and the caller would be shown "0".
+        when(permissionService.hasModelActionGrant(org.mockito.ArgumentMatchers.eq("Employee"),
+                org.mockito.ArgumentMatchers.eq(io.softa.framework.orm.enums.AccessType.READ))).thenReturn(false);
 
         assertThatThrownBy(() -> ContextHolder.callWith(ctx(10L),
                 () -> job.previewMembers(roleWithDynamic(500L, "OnCall").getDynamicFilter(), List.of("code"), 1, 20)))
                 .isInstanceOf(io.softa.framework.base.exception.PermissionException.class);
+        verify(modelService, never()).searchList(org.mockito.ArgumentMatchers.eq("Employee"),
+                any(io.softa.framework.orm.domain.FlexQuery.class));
     }
 
     @Test

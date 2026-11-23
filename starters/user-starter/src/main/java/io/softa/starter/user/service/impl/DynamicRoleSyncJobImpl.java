@@ -25,9 +25,11 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.enums.Operator;
+import io.softa.framework.base.exception.PermissionException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.framework.orm.constant.ModelConstant;
+import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.domain.Orders;
@@ -353,6 +355,7 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
     public DynamicMembersPreview previewMembers(JsonNode dynamicFilter, List<String> fields,
                                                 Integer pageNumber, Integer pageSize) {
         assertActiveTenantContext("previewMembers");
+        assertMayReadEmployees();
         assertRuleSeenByCaller(dynamicFilter);
         Page<Map<String, Object>> page = Page.of(pageNumber, pageSize);
         Filters filters = ruleFilters(dynamicFilter);
@@ -375,6 +378,18 @@ public class DynamicRoleSyncJobImpl implements DynamicRoleSyncJob {
         }
         page.setRows(rows);
         return new DynamicMembersPreview(memberIds.size(), page);
+    }
+
+    /**
+     * Refuses a caller none of whose roles may view employees, asked as the endpoint gate asks it. The
+     * preview reads employees inside this service, past that gate, and for such a caller the row scope
+     * only matches nobody: they would be shown "0" instead of being told they cannot preview at all.
+     */
+    private void assertMayReadEmployees() {
+        PermissionService permissions = permissionService.getIfAvailable();
+        if (permissions != null && !permissions.hasModelActionGrant(EMPLOYEE, AccessType.READ)) {
+            throw new PermissionException("You may not view employees, so a rule's members cannot be previewed.");
+        }
     }
 
     /**
