@@ -498,7 +498,7 @@ masked and checked as the caller.
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `fileName` | String | `null` | Export file name |
-| `sheetName` | String | `null` | Sheet name |
+| `sheetName` | String | `null` | Sheet name. In file template mode, the template's sheet of this name is filled; when unset or the template has no such sheet, its first sheet |
 | `modelName` | String | `null` | Model name to export |
 | `customFileTemplate` | Boolean | `null` | If true, use file template export mode; otherwise use field template mode |
 | `fileId` | Long | `null` | Template file id (required when `customFileTemplate = true`) |

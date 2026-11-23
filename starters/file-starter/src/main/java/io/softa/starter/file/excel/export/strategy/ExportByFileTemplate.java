@@ -88,16 +88,15 @@ public class ExportByFileTemplate implements ExportStrategy {
      */
     private FileInfo generateByFileTemplateAndUpload(ExportTemplate exportTemplate, List<Map<String, Object>> rows) {
         String fileName = exportTemplate.getFileName();
-        String sheetName = StringUtils.isNotBlank(exportTemplate.getSheetName()) ? exportTemplate.getSheetName()
-                : fileName;
-        try (InputStream inputStream = normalizeTemplateInputStream(fileService.downloadStream(exportTemplate.getFileId()));
+        try (PreparedTemplate template = prepareTemplate(fileService.downloadStream(exportTemplate.getFileId()),
+                     exportTemplate.getSheetName());
              ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
              // Use FesodSheet to write the template and fill in the data
-             ExcelWriter excelWriter = FesodSheet.write(outputStream).withTemplate(inputStream).build()) {
+             ExcelWriter excelWriter = FesodSheet.write(outputStream).withTemplate(template.stream()).build()) {
             // Create a write sheet and fill in the data. This path builds its own sheet rather than
             // going through ExcelWriterFactory — the template supplies the styling — so the one
             // handler that is about VALUES, not appearance, has to be named here as well.
-            WriteSheet writeSheet = FesodSheet.writerSheet(sheetName)
+            WriteSheet writeSheet = FesodSheet.writerSheet(template.sheetNo())
                     .registerWriteHandler(new LargeIntegerAsTextHandler())
                     .build();
             excelWriter.fill(rows, writeSheet);
@@ -163,12 +162,32 @@ public class ExportByFileTemplate implements ExportStrategy {
         return variables;
     }
 
-    static InputStream normalizeTemplateInputStream(InputStream inputStream) throws IOException {
+    /**
+     * The template with its placeholders in Fesod's syntax, and the sheet the rows go into.
+     *
+     * @param stream  the normalized template
+     * @param sheetNo the index of the template's sheet to fill
+     */
+    record PreparedTemplate(InputStream stream, int sheetNo) implements AutoCloseable {
+        @Override
+        public void close() throws IOException {
+            stream.close();
+        }
+    }
+
+    /**
+     * Normalizes the uploaded template and picks the sheet to fill: the template's sheet named {@code sheetName}
+     * when it has one, otherwise its first sheet. Filling by a name the template does not have makes Fesod append
+     * a new, empty sheet and leave the template's own placeholders unfilled — which is what filling by the file
+     * name used to do whenever the template's sheet was called anything else.
+     */
+    static PreparedTemplate prepareTemplate(InputStream inputStream, String sheetName) throws IOException {
         try (Workbook workbook = new XSSFWorkbook(inputStream);
              ByteArrayOutputStream normalizedOutput = new ByteArrayOutputStream()) {
             normalizeWorkbookPlaceholders(workbook);
+            int sheetNo = StringUtils.isBlank(sheetName) ? 0 : Math.max(workbook.getSheetIndex(sheetName), 0);
             workbook.write(normalizedOutput);
-            return new ByteArrayInputStream(normalizedOutput.toByteArray());
+            return new PreparedTemplate(new ByteArrayInputStream(normalizedOutput.toByteArray()), sheetNo);
         }
     }
 
