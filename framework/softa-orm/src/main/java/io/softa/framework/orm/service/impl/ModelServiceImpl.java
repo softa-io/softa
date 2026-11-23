@@ -23,12 +23,14 @@ import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.exception.SecurityException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.Cast;
+import io.softa.framework.base.utils.PhoneUtils;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.*;
 import io.softa.framework.orm.entity.TimelineSlice;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.enums.WidgetType;
 import io.softa.framework.orm.jdbc.JdbcService;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
@@ -168,6 +170,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
             permissionService.checkWritePayload(modelName, row);
         }
         this.checkTenantId(modelName, rows);
+        this.canonicalizePhones(modelName, rows);
         // Code-layer rules see the caller's rows before the pipeline coerces them.
         if (writeValidators != null) {
             writeValidators.validateCreate(modelName, rows);
@@ -937,6 +940,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         if (ContextHolder.getContext().isSkipAutoAudit()) {
             updatableFields.addAll(ModelManager.getModel(modelName).getAuditUpdateFields());
         }
+        this.canonicalizePhones(modelName, rows);
         Set<String> toUpdateFields = new HashSet<>();
         List<Map<String, Object>> toUpdateRows = new ArrayList<>();
         String pkField = ModelManager.getModelPrimaryKey(modelName);
@@ -1792,4 +1796,29 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         }
     }
 
+    /**
+     * Writes each phone-widget field of the rows in its stored form ({@link PhoneUtils#canonical}) before anything
+     * judges them. The pipeline would store "+64 021 123 4678" as "+64211234678" anyway, but the code-layer rules run
+     * first: one comparing the typed spelling with the stored one — whether a number is already someone's — would
+     * see two numbers where there is one.
+     */
+    private void canonicalizePhones(String modelName, List<Map<String, Object>> rows) {
+        List<String> phoneFields = ModelManager.getModelFields(modelName).stream()
+                .filter(field -> WidgetType.PHONE.equals(field.getWidgetType()))
+                .map(MetaField::getFieldName)
+                .toList();
+        if (phoneFields.isEmpty()) {
+            return;
+        }
+        for (Map<String, Object> row : rows) {
+            for (String field : phoneFields) {
+                if (row.get(field) instanceof String value && StringUtils.isNotBlank(value)) {
+                    String canonical = PhoneUtils.canonical(value.trim());
+                    if (!canonical.equals(value)) {
+                        row.put(field, canonical);
+                    }
+                }
+            }
+        }
+    }
 }

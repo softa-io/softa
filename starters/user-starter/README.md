@@ -114,7 +114,9 @@ finds it in a search (`searchName`).
   `SELECT id, tenant_id, mobile FROM user_account WHERE mobile IS NOT NULL AND mobile !~ '^\+[1-9][0-9]{6,14}$';`
   (PostgreSQL; MySQL `NOT REGEXP`).
 - **One spelling per number, trunk prefix dropped.** Every `PHONE`-widget field is written in the form
-  `PhoneUtils.canonical` gives it (softa-orm's `StringProcessor`), and a login identifier is looked up
+  `PhoneUtils.canonical` gives it — before the write validators run, so a rule comparing it with stored
+  numbers sees one spelling (softa-orm's `ModelServiceImpl`), and again as it is stored (`StringProcessor`) —
+  and a login identifier is looked up
   in it (`LoginIdentifiers.normalize`): separators dropped, and the national trunk prefix typed after the
   calling code dropped too, by libphonenumber's metadata for the country — "+64 021 123 4678" is
   "+64211234678", as "+44 07700 900123" is "+447700900123"; Singapore has none. A person signs in with or
