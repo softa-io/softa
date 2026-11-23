@@ -112,12 +112,17 @@ class OneToManyDeletedRowsTest {
     void theSqlFiltersOutTheDeletedButKeepsTheInactive() {
         FlexQuery sent = expansionQueryFor(new SubQuery(List.of("amount")));
 
-        String where = whereOf(sent);
+        Built built = whereOf(sent);
 
-        assertThat(where).contains("t.claim_id").contains("t.deleted").doesNotContain("t.active");
+        assertThat(built.where()).contains("t.claim_id").contains("t.deleted").doesNotContain("t.active");
+        // The parent ids, then false for the deleted flag: the rows kept are those not deleted.
+        assertThat(built.args()).containsExactly(7L, false);
     }
 
-    private static String whereOf(FlexQuery query) {
+    private record Built(String where, List<Object> args) {
+    }
+
+    private static Built whereOf(FlexQuery query) {
         Object previousDialect = ReflectionTestUtils.getField(DBUtil.class, "singleDbDialect");
         ReflectionTestUtils.setField(DBUtil.class, "singleDbDialect", new PostgreSQLDialect());
         try (MockedStatic<ModelManager> models = mockStatic(ModelManager.class)) {
@@ -136,7 +141,10 @@ class OneToManyDeletedRowsTest {
             SqlWrapper sqlWrapper = new SqlWrapper(RELATED);
             new WhereBuilder(sqlWrapper, query).build();
             Object where = ReflectionTestUtils.getField(sqlWrapper, "whereClause");
-            return where == null ? "" : where.toString();
+            Object sqlParams = ReflectionTestUtils.getField(sqlWrapper, "sqlParams");
+            @SuppressWarnings("unchecked")
+            List<Object> args = (List<Object>) ReflectionTestUtils.getField(sqlParams, "args");
+            return new Built(where == null ? "" : where.toString(), new ArrayList<>(args));
         } finally {
             ReflectionTestUtils.setField(DBUtil.class, "singleDbDialect", previousDialect);
         }

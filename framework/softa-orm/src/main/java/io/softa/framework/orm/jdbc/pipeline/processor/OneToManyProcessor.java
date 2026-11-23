@@ -266,7 +266,11 @@ public class OneToManyProcessor extends BaseProcessor {
                                            List<Serializable> deleteIds) {
         OneToManyPatch patchValues = parseOneToManyPatchValues(patchMap);
         if (!patchValues.createRows().isEmpty()) {
-            createRows.addAll(convertAndLinkSubRows(mainId, patchValues.createRows()));
+            List<Map<String, Object>> patchCreateRows = convertAndLinkSubRows(mainId, patchValues.createRows());
+            // Created under the old id of a row deleted from this parent, it would bring the row back: refused as an
+            // Update is.
+            refuseDeletedRows(patchCreateRows, deletedSubIds);
+            createRows.addAll(patchCreateRows);
         }
         if (!patchValues.updateRows().isEmpty()) {
             List<Map<String, Object>> patchUpdateRows = convertAndLinkSubRows(mainId, patchValues.updateRows());

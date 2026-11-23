@@ -100,12 +100,68 @@ class OneToManyLiveChildrenDiffTest {
     }
 
     private static void write(Object value) {
-        Map<String, Object> claim = new HashMap<>();
-        claim.put("id", 1L);
-        claim.put("lines", value);
+        Map<Long, Object> linesByClaim = new HashMap<>();
+        linesByClaim.put(1L, value);
+        writeAll(linesByClaim);
+    }
+
+    /** One write of several parents, each with the value of its lines. */
+    private static void writeAll(Map<Long, Object> linesByClaim) {
+        List<Map<String, Object>> claims = new ArrayList<>();
+        linesByClaim.forEach((claimId, value) -> {
+            Map<String, Object> claim = new HashMap<>();
+            claim.put("id", claimId);
+            claim.put("lines", value);
+            claims.add(claim);
+        });
         Context context = new Context();
         context.setUserId(1L);
-        ContextHolder.runWith(context, () -> processor().batchProcessInputRows(new ArrayList<>(List.of(claim))));
+        ContextHolder.runWith(context, () -> processor().batchProcessInputRows(claims));
+    }
+
+    /** Claim 1 holds live line 10 and deleted line 11; claim 2 holds live line 20 and deleted line 21. */
+    private void twoClaims() {
+        reflect.when(() -> ReflectTool.searchListIgnoringRowScope(eq(RELATED), any()))
+                .thenReturn(List.of(new HashMap<>(Map.of("id", 10L, "claimId", 1L, "deleted", false)),
+                        new HashMap<>(Map.of("id", 11L, "claimId", 1L, "deleted", true)),
+                        new HashMap<>(Map.of("id", 20L, "claimId", 2L, "deleted", false)),
+                        new HashMap<>(Map.of("id", 21L, "claimId", 2L, "deleted", true))));
+    }
+
+    @Test
+    void severalParentsInOneWrite_eachDiffsAgainstItsOwnLiveChildren() {
+        twoClaims();
+
+        writeAll(Map.of(1L, new ArrayList<>(), 2L, new ArrayList<>(List.of(line(20L)))));
+
+        assertThat(deleted).containsExactly(List.of(10L));
+    }
+
+    @Test
+    void severalParentsInOneWrite_aChildDeletedFromOneIsRefusedOnlyUnderThatOne() {
+        twoClaims();
+
+        // Line 11 was deleted from claim 1: sent back under claim 1 it is refused, naming it.
+        assertThatThrownBy(() -> writeAll(Map.of(1L, new ArrayList<>(List.of(line(10L), line(11L))),
+                2L, new ArrayList<>(List.of(line(20L))))))
+                .hasMessageContaining("has been deleted").hasMessageContaining("11");
+        // Under claim 2 it is no child of that claim's, deleted or not: not refused as deleted, it is a new line.
+        writeAll(Map.of(1L, new ArrayList<>(List.of(line(10L))), 2L, new ArrayList<>(List.of(line(20L), line(11L)))));
+        assertThat(deleted).isEmpty();
+    }
+
+    @Test
+    void aPatchCreatingUnderTheIdOfADeletedChildIsRefused() {
+        assertThatThrownBy(() -> write(new HashMap<>(Map.of("Create", new ArrayList<>(List.of(line(11L)))))))
+                .hasMessageContaining("has been deleted");
+        reflect.verify(() -> ReflectTool.createList(anyString(), anyList()), Mockito.never());
+    }
+
+    @Test
+    void aPatchCreatingANewChildStillCreatesIt() {
+        write(new HashMap<>(Map.of("Create", new ArrayList<>(List.of(line(null))))));
+
+        reflect.verify(() -> ReflectTool.createList(eq(RELATED), anyList()));
     }
 
     @Test
