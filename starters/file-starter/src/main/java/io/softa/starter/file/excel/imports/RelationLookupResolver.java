@@ -14,6 +14,7 @@ import io.softa.framework.base.exception.ValidationException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.constant.FileConstant;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
@@ -812,9 +813,28 @@ public class RelationLookupResolver {
         if (missing.isEmpty()) {
             return Set.of();
         }
-        Map<List<Object>, ?> existing = ContextUtils.withoutPermissionChecks(() -> modelService.getIdsByBusinessKeys(
-                group.relatedModel(), group.lookupFields(), missing, group.relationFilters()));
-        return existing.keySet();
+        // A plain read, not getIdsByBusinessKeys: that one requires each key to name exactly one row and
+        // fails the whole call otherwise, which would turn two same-named companies outside the grant into
+        // a failed import — and tell the importer both exist. Only whether a key matches anything matters.
+        List<String> fields = group.lookupFields();
+        Filters keyFilter = fields.size() == 1
+                ? new Filters().in(fields.getFirst(), missing.stream().map(List::getFirst).toList())
+                : new Filters().tupleIn(fields, missing);
+        Filters filters = Filters.isEmpty(group.relationFilters())
+                ? keyFilter : Filters.and(keyFilter, group.relationFilters());
+        List<Map<String, Object>> found = ContextUtils.withoutPermissionChecks(() -> modelService.searchList(
+                group.relatedModel(), new FlexQuery(fields, filters)));
+        Set<List<String>> foundKeys = new HashSet<>();
+        for (Map<String, Object> record : found) {
+            foundKeys.add(fields.stream().map(field -> String.valueOf(record.get(field))).toList());
+        }
+        Set<List<Object>> outside = new HashSet<>();
+        for (List<Object> key : missing) {
+            if (foundKeys.contains(key.stream().map(String::valueOf).toList())) {
+                outside.add(key);
+            }
+        }
+        return outside;
     }
 
     /**
