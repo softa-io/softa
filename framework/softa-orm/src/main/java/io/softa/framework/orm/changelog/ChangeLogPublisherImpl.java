@@ -14,12 +14,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import io.softa.framework.base.constant.TimeConstant;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.utils.ListUtils;
 import io.softa.framework.orm.changelog.event.TransactionEvent;
+import io.softa.framework.orm.changelog.message.ChangeLogProducer;
 import io.softa.framework.orm.changelog.message.dto.ChangeLog;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.enums.AccessType;
@@ -32,7 +35,8 @@ import io.softa.framework.orm.meta.ModelManager;
  * Builds the logs of models with {@code enableAuditLog} on, stores them in the transaction-bound
  * ChangeLogHolder and publishes a ChangeLog event once per transaction. flow-starter's synchronous
  * triggers read the buffer before commit whatever the configuration; sending it to MQ after commit
- * is what `system.enable-change-log` gates (see ChangeLogProducer).
+ * is what `system.enable-change-log` gates (see ChangeLogProducer). Without transaction
+ * synchronization nothing is sent after commit, as before.
  */
 @Slf4j
 @Service
@@ -43,12 +47,13 @@ public class ChangeLogPublisherImpl implements ChangeLogPublisher {
     @Autowired
     private ApplicationEventPublisher applicationEventPublisher;
 
+    @Autowired
+    private ChangeLogProducer changeLogProducer;
+
     /**
-     * Save changeLogs to transaction-bound buffer and publish ChangeLog event (only publish
-     * once in a transaction).
-     * This operation is performed only if change log is enabled in the system
-     * configuration.
-     * If the transaction-bound list is not empty, append the ChangeLog list.
+     * Save changeLogs to the transaction-bound buffer. The first batch of a transaction also
+     * registers the synchronization that sends the buffer after commit, and publishes the
+     * ChangeLog event the {@code BEFORE_COMMIT} listeners run on.
      *
      * @param changeLogs ChangeLog list
      */
@@ -56,11 +61,33 @@ public class ChangeLogPublisherImpl implements ChangeLogPublisher {
         if (changeLogs == null || changeLogs.isEmpty()) {
             return;
         }
-        boolean publishEvent = ChangeLogHolder.isEmpty();
+        boolean firstBatch = ChangeLogHolder.isEmpty();
         ChangeLogHolder.add(changeLogs);
-        if (publishEvent) {
-            // Publish event only when adding the first batch in the transaction
+        if (firstBatch) {
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new SendAfterCommit());
+            }
             applicationEventPublisher.publishEvent(CHANGE_LOG_EVENT);
+        }
+    }
+
+    /**
+     * Sends the buffer after commit and clears it once the transaction completes, commit or
+     * rollback. Both steps live in one synchronization because Spring runs AFTER_COMMIT and
+     * AFTER_COMPLETION transactional listeners in the same step: as two listeners of equal order
+     * they ran in whatever order reflection returned the methods, and a clear that ran first left
+     * the send an empty buffer, losing every change log of the process.
+     */
+    private final class SendAfterCommit implements TransactionSynchronization {
+
+        @Override
+        public void afterCommit() {
+            changeLogProducer.sendChangeLog(ChangeLogHolder.get());
+        }
+
+        @Override
+        public void afterCompletion(int status) {
+            ChangeLogHolder.clear();
         }
     }
 
