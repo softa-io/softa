@@ -52,22 +52,23 @@ public class SmsProviderConfig extends AuditableModel {
 
     @Field(label = "API Key", length = 512, encrypted = true, copyable = false, unsearchable = true,
             maskingType = MaskingType.ALL,
-            description = "Primary credential (Twilio=accountSid, Infobip=apiKey, Aliyun Mainland / Global=AccessKey ID) — "
-                    + "AES-encrypted at rest, masked in API reads. Omit the field on update to keep the "
+            description = "Primary credential (Twilio=accountSid, Infobip=apiKey, Aliyun Mainland / Global=AccessKey ID, "
+                    + "OneWaySMS=API username) — AES-encrypted at rest, masked in API reads. Omit the field on update to keep the "
                     + "stored value; a payload containing the mask symbol is rejected.")
     private String apiKey;
 
     @Field(label = "API Secret", length = 512, encrypted = true, copyable = false, unsearchable = true,
             maskingType = MaskingType.ALL,
-            description = "Secondary credential (Twilio=authToken, Aliyun Mainland / Global=AccessKey Secret; unused by Infobip) — "
-                    + "AES-encrypted at rest, masked in API reads. Omit the field on update to keep the "
+            description = "Secondary credential (Twilio=authToken, Aliyun Mainland / Global=AccessKey Secret, "
+                    + "OneWaySMS=API password; unused by Infobip) — AES-encrypted at rest, masked in API reads. Omit the field on update to keep the "
                     + "stored value; a payload containing the mask symbol is rejected.")
     private String apiSecret;
 
     @Field(label = "API Endpoint", length = 500,
             description = "Provider API base URL (null = adapter default; required for Infobip, "
                     + "the account's own base URL, e.g. https://xxxxx.api.infobip.com; Aliyun Global: the "
-                    + "account's region, default https://dysmsapi.ap-southeast-1.aliyuncs.com)")
+                    + "account's region, default https://dysmsapi.ap-southeast-1.aliyuncs.com; OneWaySMS: "
+                    + "scheme and host of the account's MT URL, default https://gatewayv5.onewaysms.sg)")
     private String apiEndpoint;
 
     @Field(label = "Account ID", length = 255,

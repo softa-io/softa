@@ -10,7 +10,8 @@ import org.springframework.stereotype.Component;
  * Implementation is intentionally defensive: when in doubt, return
  * {@link ErrorCategory#UNKNOWN} so retry keeps running. Specific provider
  * code tables are folded in here without changing callers: SMTP reply codes,
- * HTTP statuses ({@code HTTP_<status>}), Infobip's status names and Aliyun's error codes so far.
+ * HTTP statuses ({@code HTTP_<status>}), Infobip's status names, Aliyun's error codes and OneWaySMS's
+ * results so far.
  */
 @Component
 public class ErrorClassifier {
@@ -140,6 +141,19 @@ public class ErrorClassifier {
             Map.entry("InvalidTimeStamp.Expired", ErrorCategory.TRANSIENT),
             Map.entry("SignatureNonceUsed", ErrorCategory.TRANSIENT));
 
+    /**
+     * The refusals the OneWaySMS gateway answers a send with, recorded by its adapter as
+     * {@code ONEWAYSMS_<result>} (<a href="https://sms.onewaysms.sg/api.pdf">HTTP API</a>, section 5.1).
+     * None heals by retrying. A result the API does not document stays UNKNOWN.
+     */
+    private static final Map<String, ErrorCategory> ONEWAYSMS_CODES = Map.of(
+            "ONEWAYSMS_-100", ErrorCategory.AUTH,           // API username or password
+            "ONEWAYSMS_-200", ErrorCategory.CONFIG,         // sender ID
+            "ONEWAYSMS_-300", ErrorCategory.INVALID_INPUT,  // the number
+            "ONEWAYSMS_-400", ErrorCategory.INVALID_INPUT,  // language type: only a defect of the adapter
+            "ONEWAYSMS_-500", ErrorCategory.INVALID_INPUT,  // characters in the text
+            "ONEWAYSMS_-600", ErrorCategory.CONFIG);        // credit balance
+
     public ErrorCategory classify(String errorCode, String errorMessage) {
         if (errorCode != null) {
             ErrorCategory c = classifyByCode(errorCode.trim());
@@ -176,6 +190,10 @@ public class ErrorClassifier {
         ErrorCategory aliyun = ALIYUN_CODES.get(code);
         if (aliyun != null) {
             return aliyun;
+        }
+        ErrorCategory oneWaySms = ONEWAYSMS_CODES.get(code);
+        if (oneWaySms != null) {
+            return oneWaySms;
         }
         // SMTP reply codes from SmtpMailTransport: "SMTP_<ExceptionType>".
         if (code.startsWith("SMTP_")) {
