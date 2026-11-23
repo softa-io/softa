@@ -2,22 +2,32 @@ package io.softa.starter.file.excel.export.strategy;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
 import org.apache.fesod.sheet.ExcelWriter;
 import org.apache.fesod.sheet.FesodSheet;
+import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
 
+import io.softa.framework.base.exception.BusinessException;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * A file template's {@code {{ field }}} placeholders, filled the way the export fills them: the rows as a list.
+ * A file template's {@code {{ field }}} placeholders, filled the way the export fills them: the rows as a list, each
+ * record on a row of its own.
  */
 class ExportByFileTemplateFillTest {
 
@@ -27,80 +37,167 @@ class ExportByFileTemplateFillTest {
         assertEquals("{.deptId.name}", ExportByFileTemplate.normalizeCellValue("{{deptId.name}}"));
         assertEquals("ID-{.code} / {.name}", ExportByFileTemplate.normalizeCellValue("ID-{{ code }} / {{ name }}"));
         assertEquals("Total", ExportByFileTemplate.normalizeCellValue("Total"));
+        // Not a field name: an empty segment is left alone instead of turning into {..x} or {.a..b}.
+        assertEquals("{{ .x }}", ExportByFileTemplate.normalizeCellValue("{{ .x }}"));
+        assertEquals("{{a..b}}", ExportByFileTemplate.normalizeCellValue("{{a..b}}"));
+        assertEquals("{{ a. }}", ExportByFileTemplate.normalizeCellValue("{{ a. }}"));
     }
 
     @Test
     void everyRowIsFilledIncludingCascadedFieldsAndSurroundingText() throws Exception {
-        byte[] template = template("Data", "{{ name }}", "{{ deptId.name }}", "ID-{{ code }}");
+        byte[] template = template(wb -> dataSheet(wb, "Data", "{{ name }}", "{{ deptId.name }}", "ID-{{ code }}"));
 
-        try (Workbook result = fill(template, null)) {
+        try (Workbook result = fill(template, null, 2)) {
             assertEquals(1, result.getNumberOfSheets());
             Sheet sheet = result.getSheet("Data");
             assertEquals(List.of("Name", "Department", "Code"), texts(sheet.getRow(0)));
-            assertEquals(List.of("Alice", "HR", "ID-1"), texts(sheet.getRow(1)));
-            assertEquals(List.of("Bob", "IT", "ID-2"), texts(sheet.getRow(2)));
+            assertEquals(List.of("Alice1", "Dept1", "ID-1"), texts(sheet.getRow(1)));
+            assertEquals(List.of("Alice2", "Dept2", "ID-2"), texts(sheet.getRow(2)));
         }
     }
 
     @Test
-    void rowsGoIntoTheTemplatesOwnSheetWhateverItIsCalled() throws Exception {
-        // No sheet name configured, or one the template does not have: the template's first sheet.
-        for (String sheetName : new String[] {null, "Employees"}) {
-            try (Workbook result = fill(template("Sheet1", "{{ name }}", "{{ deptId.name }}", "{{ code }}"), sheetName)) {
-                assertEquals(1, result.getNumberOfSheets(), "no extra sheet for " + sheetName);
-                assertEquals(List.of("Alice", "HR", "1"), texts(result.getSheet("Sheet1").getRow(1)));
+    void rowsBelowTheDataRowMoveDownInsteadOfBeingWrittenOver() throws Exception {
+        byte[] template = template(wb -> {
+            Sheet sheet = dataSheet(wb, "Data", "{{ name }}", "{{ deptId.name }}", "{{ code }}");
+            sheet.createRow(2).createCell(0).setCellValue("Total");
+            sheet.createRow(3).createCell(0).setCellValue("Signed by");
+        });
+
+        try (Workbook result = fill(template, null, 4)) {
+            Sheet sheet = result.getSheet("Data");
+            for (int i = 1; i <= 4; i++) {
+                assertEquals(List.of("Alice" + i, "Dept" + i, String.valueOf(i)), texts(sheet.getRow(i)));
             }
+            assertEquals("Total", sheet.getRow(5).getCell(0).getStringCellValue());
+            assertEquals("Signed by", sheet.getRow(6).getCell(0).getStringCellValue());
         }
     }
 
     @Test
-    void aConfiguredSheetNameTheTemplateHasIsTheOneFilled() throws Exception {
-        byte[] template;
-        try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            workbook.createSheet("Notes").createRow(0).createCell(0).setCellValue("Read me");
-            Sheet data = workbook.createSheet("Data");
-            data.createRow(0).createCell(0).setCellValue("Name");
-            data.createRow(1).createCell(0).setCellValue("{{ name }}");
-            workbook.write(out);
-            template = out.toByteArray();
+    void aMergedDataCellKeepsEveryRecord() throws Exception {
+        // The name spans A:B on the data row, the code sits in C; a footer row follows.
+        byte[] template = template(wb -> {
+            Sheet sheet = wb.createSheet("Data");
+            sheet.createRow(0).createCell(0).setCellValue("Name");
+            Row row = sheet.createRow(1);
+            row.createCell(0).setCellValue("{{ name }}");
+            row.createCell(2).setCellValue("{{ code }}");
+            sheet.addMergedRegion(new CellRangeAddress(1, 1, 0, 1));
+            sheet.createRow(2).createCell(0).setCellValue("Total");
+        });
+
+        try (Workbook result = fill(template, null, 3)) {
+            Sheet sheet = result.getSheet("Data");
+            for (int i = 1; i <= 3; i++) {
+                assertEquals("Alice" + i, sheet.getRow(i).getCell(0).getStringCellValue());
+                assertEquals(String.valueOf(i), new DataFormatter().formatCellValue(sheet.getRow(i).getCell(2)));
+            }
+            assertEquals("Total", sheet.getRow(4).getCell(0).getStringCellValue());
         }
-        try (Workbook result = fill(template, "Data")) {
+    }
+
+    @Test
+    void withNoSheetNameTheFirstSheetWithPlaceholdersIsFilled() throws Exception {
+        byte[] template = template(wb -> {
+            wb.createSheet("Notes").createRow(0).createCell(0).setCellValue("Read me");
+            dataSheet(wb, "Data", "{{ name }}", "{{ deptId.name }}", "{{ code }}");
+        });
+
+        try (Workbook result = fill(template, null, 2)) {
             assertEquals(2, result.getNumberOfSheets());
             assertEquals("Read me", result.getSheet("Notes").getRow(0).getCell(0).getStringCellValue());
-            assertEquals("Alice", result.getSheet("Data").getRow(1).getCell(0).getStringCellValue());
-            assertEquals("Bob", result.getSheet("Data").getRow(2).getCell(0).getStringCellValue());
+            assertEquals(List.of("Alice1", "Dept1", "1"), texts(result.getSheet("Data").getRow(1)));
+            assertEquals(List.of("Alice2", "Dept2", "2"), texts(result.getSheet("Data").getRow(2)));
         }
     }
 
-    private static byte[] template(String sheetName, String... placeholders) throws Exception {
+    @Test
+    void aConfiguredSheetIsFilledAndTheOtherSheetsAreLeftAsTheyAre() throws Exception {
+        byte[] template = template(wb -> {
+            wb.createSheet("Notes").createRow(0).createCell(0).setCellValue("Use {{ remark }} syntax");
+            dataSheet(wb, "Data", "{{ name }}", "{{ deptId.name }}", "{{ code }}");
+        });
+
+        ExportByFileTemplate.PreparedTemplate prepared =
+                ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(template), "Data");
+        assertEquals(1, prepared.sheetNo());
+        assertEquals(Set.of("name", "deptId.name", "code"), prepared.variables(), "only the filled sheet is queried");
+
+        try (Workbook result = fill(template, "Data", 2)) {
+            assertEquals("Use {{ remark }} syntax", result.getSheet("Notes").getRow(0).getCell(0).getStringCellValue());
+            assertEquals(List.of("Alice2", "Dept2", "2"), texts(result.getSheet("Data").getRow(2)));
+        }
+    }
+
+    @Test
+    void aConfiguredSheetNameTheTemplateLacksIsRefused() throws Exception {
+        byte[] template = template(wb -> dataSheet(wb, "Data", "{{ name }}", "{{ deptId.name }}", "{{ code }}"));
+
+        BusinessException e = assertThrows(BusinessException.class,
+                () -> ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(template), "Dta"));
+        assertTrue(e.getMessage().contains("Dta"), e.getMessage());
+    }
+
+    @Test
+    void placeholdersOnMoreThanOneRowAreRefused() throws Exception {
+        // A title naming a field above the data row.
+        byte[] titled = template(wb -> {
+            Sheet sheet = dataSheet(wb, "Data", "{{ name }}", "{{ deptId.name }}", "{{ code }}");
+            sheet.getRow(0).getCell(0).setCellValue("Report for {{ deptId.name }}");
+        });
+        // One record spread over two rows.
+        byte[] twoRows = template(wb -> {
+            Sheet sheet = wb.createSheet("Data");
+            sheet.createRow(0).createCell(0).setCellValue("{{ name }}");
+            sheet.createRow(1).createCell(0).setCellValue("{{ code }}");
+        });
+
+        for (byte[] template : List.of(titled, twoRows)) {
+            BusinessException e = assertThrows(BusinessException.class,
+                    () -> ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(template), null));
+            assertTrue(e.getMessage().contains("[1, 2]"), e.getMessage());
+        }
+    }
+
+    private static byte[] template(Consumer<XSSFWorkbook> build) throws Exception {
         try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            Sheet sheet = workbook.createSheet(sheetName);
-            Row header = sheet.createRow(0);
-            header.createCell(0).setCellValue("Name");
-            header.createCell(1).setCellValue("Department");
-            header.createCell(2).setCellValue("Code");
-            Row row = sheet.createRow(1);
-            for (int i = 0; i < placeholders.length; i++) {
-                row.createCell(i).setCellValue(placeholders[i]);
-            }
+            build.accept(workbook);
             workbook.write(out);
             return out.toByteArray();
         }
     }
 
-    /** Fills two rows the way the export does: the prepared template, its chosen sheet, the rows as a list. */
-    private static Workbook fill(byte[] template, String sheetName) throws Exception {
-        List<Map<String, Object>> rows = List.of(row("Alice", "HR", "1"), row("Bob", "IT", "2"));
+    /** A header row and, under it, the data row holding the placeholders. */
+    private static Sheet dataSheet(Workbook workbook, String sheetName, String... placeholders) {
+        Sheet sheet = workbook.createSheet(sheetName);
+        Row header = sheet.createRow(0);
+        header.createCell(0).setCellValue("Name");
+        header.createCell(1).setCellValue("Department");
+        header.createCell(2).setCellValue("Code");
+        Row row = sheet.createRow(1);
+        for (int i = 0; i < placeholders.length; i++) {
+            row.createCell(i).setCellValue(placeholders[i]);
+        }
+        return sheet;
+    }
+
+    /** Fills {@code count} records the way the export does: the prepared template, its chosen sheet, the same fill config. */
+    private static Workbook fill(byte[] template, String sheetName, int count) throws Exception {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int i = 1; i <= count; i++) {
+            rows.add(row("Alice" + i, "Dept" + i, i));
+        }
+        ExportByFileTemplate.PreparedTemplate prepared =
+                ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(template), sheetName);
         ByteArrayOutputStream filled = new ByteArrayOutputStream();
-        try (ExportByFileTemplate.PreparedTemplate prepared =
-                     ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(template), sheetName);
-             ExcelWriter writer = FesodSheet.write(filled).withTemplate(prepared.stream()).build()) {
-            writer.fill(rows, FesodSheet.writerSheet(prepared.sheetNo()).build());
+        try (ExcelWriter writer = FesodSheet.write(filled).withTemplate(prepared.stream()).build()) {
+            writer.fill(rows, ExportByFileTemplate.FILL_CONFIG, FesodSheet.writerSheet(prepared.sheetNo()).build());
         }
         return new XSSFWorkbook(new ByteArrayInputStream(filled.toByteArray()));
     }
 
-    private static Map<String, Object> row(String name, String department, String code) {
+    private static Map<String, Object> row(String name, String department, int code) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("name", name);
         row.put("deptId.name", department);
@@ -110,7 +207,11 @@ class ExportByFileTemplateFillTest {
 
     private static List<String> texts(Row row) {
         DataFormatter formatter = new DataFormatter();
-        return List.of(formatter.formatCellValue(row.getCell(0)), formatter.formatCellValue(row.getCell(1)),
-                formatter.formatCellValue(row.getCell(2)));
+        List<String> texts = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            Cell cell = row.getCell(i);
+            texts.add(formatter.formatCellValue(cell));
+        }
+        return texts;
     }
 }

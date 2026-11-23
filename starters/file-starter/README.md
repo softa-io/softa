@@ -498,7 +498,7 @@ masked and checked as the caller.
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `fileName` | String | `null` | Export file name |
-| `sheetName` | String | `null` | Sheet name. In file template mode, the template's sheet of this name is filled; when unset or the template has no such sheet, its first sheet |
+| `sheetName` | String | `null` | Sheet name. In file template mode, the template's sheet of this name is filled, and a name the template does not have is refused; when unset, the first sheet that has a placeholder |
 | `modelName` | String | `null` | Model name to export |
 | `customFileTemplate` | Boolean | `null` | If true, use file template export mode; otherwise use field template mode |
 | `fileId` | Long | `null` | Template file id (required when `customFileTemplate = true`) |
@@ -634,6 +634,9 @@ JSON
 - `{{ fieldName }}` — replaced with the field value of each row
 - `{{ deptId.name }}` — cascaded field reference (resolved by the ORM layer)
 - Each `{{ field }}` is rewritten to Fesod's list placeholder `{.field}` before rendering, as the rows are filled as a list; text around a placeholder in the same cell is kept (`ID-{{ code }}`)
+- A field name is dot-separated words of letters, digits and `_`; anything else between the braces (`{{ .x }}`, `{{ a..b }}`) is not a placeholder and is left as text
+- **Placeholders go on one data row.** Each record fills a row of its own, starting at that row; the rows below it (totals, signatures, notes) move down rather than being written over. A placeholder on any other row of the sheet — a title such as `Report for {{ deptId.name }}`, or a record laid out over two rows — is refused with the rows named, because it would be repeated per record or written over
+- Only the filled sheet is read and rewritten: its placeholders decide the fields queried, and the other sheets (instructions, lookups) are kept as they are. Without `sheetName`, the filled sheet is the first one that has a placeholder, so when an instructions sheet in front quotes the `{{ … }}` syntax itself, set `sheetName`
 
 ### 3. Dynamic Export
 Export without a template by providing fields and filters directly.

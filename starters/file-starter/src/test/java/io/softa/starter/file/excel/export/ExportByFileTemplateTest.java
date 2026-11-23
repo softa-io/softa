@@ -17,7 +17,7 @@ class ExportByFileTemplateTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void getVariablesInWorkbookExtractsBareVariableNamesAndSkipsEscapedTokens() throws Exception {
+    void getVariablesInSheetExtractsBareVariableNamesAndSkipsEscapedTokens() throws Exception {
         try (Workbook workbook = new XSSFWorkbook()) {
             Sheet sheet = workbook.createSheet("sheet1");
             Row row = sheet.createRow(0);
@@ -25,10 +25,10 @@ class ExportByFileTemplateTest {
             row.createCell(1).setCellValue("{{deptId.name}}");
             row.createCell(2).setCellValue("\\{{ignored}}");
 
-            Method method = ExportByFileTemplate.class.getDeclaredMethod("getVariablesInWorkbook", Workbook.class);
+            Method method = ExportByFileTemplate.class.getDeclaredMethod("getVariablesInSheet", Sheet.class);
             method.setAccessible(true);
 
-            Set<String> variables = (Set<String>) method.invoke(null, workbook);
+            Set<String> variables = (Set<String>) method.invoke(null, sheet);
 
             assertEquals(Set.of("name", "orderNumber", "deptId.name"), variables);
             assertFalse(variables.contains("{{name}}"));

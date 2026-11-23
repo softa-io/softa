@@ -4,10 +4,12 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +17,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.fesod.sheet.ExcelWriter;
 import org.apache.fesod.sheet.FesodSheet;
 import org.apache.fesod.sheet.write.metadata.WriteSheet;
+import org.apache.fesod.sheet.write.metadata.fill.FillConfig;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,8 +44,15 @@ public class ExportByFileTemplate implements ExportStrategy {
 
     private static final String HISTORY_MODEL = ExportHistory.class.getSimpleName();
 
-    // {{ variable }} or {{ object.field }} in the uploaded template.
-    private static final Pattern VARIABLE_PATTERN = Pattern.compile("(?<!\\\\)\\{\\{\\s*([a-zA-Z0-9_.]+)\\s*}}");
+    /**
+     * Each record gets a row of its own, inserted at the data row: whatever the template has below that row — a
+     * total, a signature, notes — moves down instead of being written over by the second record onwards.
+     */
+    static final FillConfig FILL_CONFIG = FillConfig.builder().forceNewRow(Boolean.TRUE).build();
+
+    // {{ variable }} or {{ object.field }} in the uploaded template: dot-separated names, no empty segment.
+    private static final Pattern VARIABLE_PATTERN =
+            Pattern.compile("(?<!\\\\)\\{\\{\\s*([A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)*)\\s*}}");
 
     @Autowired
     private FileService fileService;
@@ -62,13 +72,12 @@ public class ExportByFileTemplate implements ExportStrategy {
      * @return fileInfo object with download URL
      */
     public ExportResult export(ExportTemplate exportTemplate, FlexQuery flexQuery) {
-        // TODO: cache the extracted fields in the exportTemplate
-        Set<String> fields = extractVariablesOfFileTemplate(exportTemplate.getFileId());
-        flexQuery.setFields(fields);
+        PreparedTemplate template = readTemplate(exportTemplate);
+        flexQuery.setFields(template.variables());
         List<Map<String, Object>> rows = exportDataFetcher.fetchRows(exportTemplate.getModelName(),
                 exportTemplate.getCustomHandler(), flexQuery);
         // Fill in the data into the file template
-        FileInfo fileInfo = this.generateByFileTemplateAndUpload(exportTemplate, rows);
+        FileInfo fileInfo = this.fillAndUpload(exportTemplate.getFileName(), template, rows);
         return new ExportResult(fileInfo, rows.size());
     }
 
@@ -82,18 +91,25 @@ public class ExportByFileTemplate implements ExportStrategy {
         return export(exportContext.getExportTemplate(), exportContext.getFlexQuery());
     }
 
+    /** Downloads and prepares the template once: the fields to query and the workbook to fill both come from it. */
+    private PreparedTemplate readTemplate(ExportTemplate exportTemplate) {
+        try (InputStream inputStream = fileService.downloadStream(exportTemplate.getFileId())) {
+            return prepareTemplate(inputStream, exportTemplate.getSheetName());
+        } catch (IOException e) {
+            throw new BusinessException("Failed to read the file template.", e);
+        }
+    }
+
     /**
      * Renders data into a file template and uploads the generated file to OSS.
      *
-     * @param exportTemplate the export template object
+     * @param fileName the name of the generated file
+     * @param template the prepared template
      * @param rows the data to be filled into the file template
      * @return fileInfo object with download URL
      */
-    private FileInfo generateByFileTemplateAndUpload(ExportTemplate exportTemplate, List<Map<String, Object>> rows) {
-        String fileName = exportTemplate.getFileName();
-        try (PreparedTemplate template = prepareTemplate(fileService.downloadStream(exportTemplate.getFileId()),
-                     exportTemplate.getSheetName());
-             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+    private FileInfo fillAndUpload(String fileName, PreparedTemplate template, List<Map<String, Object>> rows) {
+        try (ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
              // Use FesodSheet to write the template and fill in the data
              ExcelWriter excelWriter = FesodSheet.write(outputStream).withTemplate(template.stream()).build()) {
             // Create a write sheet and fill in the data. This path builds its own sheet rather than
@@ -102,7 +118,7 @@ public class ExportByFileTemplate implements ExportStrategy {
             WriteSheet writeSheet = FesodSheet.writerSheet(template.sheetNo())
                     .registerWriteHandler(new LargeIntegerAsTextHandler())
                     .build();
-            excelWriter.fill(rows, writeSheet);
+            excelWriter.fill(rows, FILL_CONFIG, writeSheet);
             // TODO: fill in the ENV related to current user
             excelWriter.finish();
             // Upload the Excel stream to OSS
@@ -111,27 +127,71 @@ public class ExportByFileTemplate implements ExportStrategy {
             // as the other export modes do; otherwise attaching it to the history is refused.
             return excelUploadService.uploadExcelBytes(HISTORY_MODEL, fileName, excelBytes);
         } catch (Exception e) {
-            throw new BusinessException("Failed to fill data into the file template {}.", fileName, e);
+            throw new BusinessException("Failed to fill data into the file template {0}.", fileName, e);
         }
     }
 
     /**
-     * Get all the variable parameters in the file template.
+     * The template with its placeholders in Fesod's syntax, the sheet the rows go into, and the fields that
+     * sheet's placeholders name.
      *
-     * @param fileId the ID of the file template
-     * @return all variables in the template
+     * @param bytes     the normalized template
+     * @param sheetNo   the index of the template's sheet to fill
+     * @param variables the fields the sheet's placeholders name, which are the fields to query
      */
-    private Set<String> extractVariablesOfFileTemplate(Long fileId) {
-        try (InputStream inputStream = fileService.downloadStream(fileId);
-             Workbook workbook = new XSSFWorkbook(inputStream)) {
-            return getVariablesInWorkbook(workbook);
-        } catch (IOException e) {
-            throw new BusinessException("Failed to read the file template.", e);
+    record PreparedTemplate(byte[] bytes, int sheetNo, Set<String> variables) {
+        InputStream stream() {
+            return new ByteArrayInputStream(bytes);
         }
     }
 
     /**
-     * Get all the variable parameters in the Workbook.
+     * Normalizes the uploaded template and picks the sheet to fill: the sheet named {@code sheetName} when one is
+     * configured, otherwise the first sheet that has a placeholder. Only that sheet's placeholders are rewritten and
+     * queried; the other sheets — instructions, lookups — are left as they are.
+     *
+     * <p>The rows are filled as a list, one record per row starting at the data row, so every placeholder of the
+     * sheet must sit on that one row. A placeholder above it (a title naming a field) would be repeated once per
+     * record, and a record spread over two rows would have its rows written over each other; both are refused
+     * here, with the rows named, rather than producing a workbook that looks filled but is not.
+     *
+     * @throws BusinessException when the configured sheet does not exist, or the placeholders span several rows
+     */
+    static PreparedTemplate prepareTemplate(InputStream inputStream, String sheetName) throws IOException {
+        try (Workbook workbook = new XSSFWorkbook(inputStream);
+             ByteArrayOutputStream normalizedOutput = new ByteArrayOutputStream()) {
+            int sheetNo = targetSheet(workbook, sheetName);
+            Sheet sheet = workbook.getSheetAt(sheetNo);
+            Set<String> variables = getVariablesInSheet(sheet);
+            normalizeSheetPlaceholders(sheet);
+            workbook.write(normalizedOutput);
+            return new PreparedTemplate(normalizedOutput.toByteArray(), sheetNo, variables);
+        }
+    }
+
+    /**
+     * The configured sheet, refused when the template has none of that name — falling back to another sheet would
+     * fill the wrong one without a word. With none configured, the first sheet holding a placeholder, so a leading
+     * instructions sheet is not mistaken for the data; a template with no placeholder at all is its first sheet.
+     */
+    private static int targetSheet(Workbook workbook, String sheetName) {
+        if (StringUtils.isNotBlank(sheetName)) {
+            int index = workbook.getSheetIndex(sheetName);
+            if (index < 0) {
+                throw new BusinessException("The file template has no sheet named {0}.", sheetName);
+            }
+            return index;
+        }
+        for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
+            if (!placeholderRows(workbook.getSheetAt(i)).isEmpty()) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Get all the variable parameters in the sheet, which must all be on one row.
      * The uploaded template uses `{{ variable }}`; see {@link #normalizeCellValue} for what Fesod is handed.
      * Cases of variable extraction:
      *      - `{{ name }}` -> `name`
@@ -142,70 +202,52 @@ public class ExportByFileTemplate implements ExportStrategy {
      *      - `Hello, {{ name }}, {{}}` -> `name`
      *      - `Hello, {{ name }}, \{{ id }}` -> `name`
      *
-     * @param workbook workbook object
-     * @return all variables in the template
+     * @param sheet the sheet to fill
+     * @return all variables in the sheet
      */
-    private static Set<String> getVariablesInWorkbook(Workbook workbook) {
-        Set<String> variables = new HashSet<>();
-        // Iterate over all sheets
-        for(Sheet sheet : workbook) {
-            // Iterate over all rows in each sheet
-            for(Row row : sheet) {
-                // Iterate over all cells in each row
-                for(Cell cell : row) {
-                    if(cell.getCellType() == CellType.STRING) {
-                        String cellValue = cell.getStringCellValue();
-                        // Use regular expressions to match the variable format {{ variable }}
-                        Matcher matcher = VARIABLE_PATTERN.matcher(cellValue);
-                        while(matcher.find()) {
-                            variables.add(matcher.group(1));
-                        }
-                    }
-                }
-            }
+    private static Set<String> getVariablesInSheet(Sheet sheet) {
+        Set<Integer> rows = placeholderRows(sheet);
+        if (rows.size() > 1) {
+            List<Integer> rowNumbers = rows.stream().map(row -> row + 1).toList();
+            throw new BusinessException("Sheet {0} of the file template has placeholders on rows {1}. "
+                    + "Put every placeholder on the one data row: each record fills a row of its own from there.",
+                    sheet.getSheetName(), rowNumbers);
         }
+        Set<String> variables = new LinkedHashSet<>();
+        forEachText(sheet, cell -> {
+            Matcher matcher = VARIABLE_PATTERN.matcher(cell.getStringCellValue());
+            while (matcher.find()) {
+                variables.add(matcher.group(1));
+            }
+        });
         return variables;
     }
 
-    /**
-     * The template with its placeholders in Fesod's syntax, and the sheet the rows go into.
-     *
-     * @param stream  the normalized template
-     * @param sheetNo the index of the template's sheet to fill
-     */
-    record PreparedTemplate(InputStream stream, int sheetNo) implements AutoCloseable {
-        @Override
-        public void close() throws IOException {
-            stream.close();
-        }
+    /** The 0-based indexes of the rows that hold a placeholder. */
+    private static Set<Integer> placeholderRows(Sheet sheet) {
+        Set<Integer> rows = new TreeSet<>();
+        forEachText(sheet, cell -> {
+            if (VARIABLE_PATTERN.matcher(cell.getStringCellValue()).find()) {
+                rows.add(cell.getRowIndex());
+            }
+        });
+        return rows;
     }
 
-    /**
-     * Normalizes the uploaded template and picks the sheet to fill: the template's sheet named {@code sheetName}
-     * when it has one, otherwise its first sheet. Filling by a name the template does not have makes Fesod append
-     * a new, empty sheet and leave the template's own placeholders unfilled — which is what filling by the file
-     * name used to do whenever the template's sheet was called anything else.
-     */
-    static PreparedTemplate prepareTemplate(InputStream inputStream, String sheetName) throws IOException {
-        try (Workbook workbook = new XSSFWorkbook(inputStream);
-             ByteArrayOutputStream normalizedOutput = new ByteArrayOutputStream()) {
-            normalizeWorkbookPlaceholders(workbook);
-            int sheetNo = StringUtils.isBlank(sheetName) ? 0 : Math.max(workbook.getSheetIndex(sheetName), 0);
-            workbook.write(normalizedOutput);
-            return new PreparedTemplate(new ByteArrayInputStream(normalizedOutput.toByteArray()), sheetNo);
-        }
+    private static void normalizeSheetPlaceholders(Sheet sheet) {
+        forEachText(sheet, cell -> {
+            String normalized = normalizeCellValue(cell.getStringCellValue());
+            if (!normalized.equals(cell.getStringCellValue())) {
+                cell.setCellValue(normalized);
+            }
+        });
     }
 
-    private static void normalizeWorkbookPlaceholders(Workbook workbook) {
-        for (Sheet sheet : workbook) {
-            for (Row row : sheet) {
-                for (Cell cell : row) {
-                    if (cell.getCellType() == CellType.STRING) {
-                        String normalized = normalizeCellValue(cell.getStringCellValue());
-                        if (!normalized.equals(cell.getStringCellValue())) {
-                            cell.setCellValue(normalized);
-                        }
-                    }
+    private static void forEachText(Sheet sheet, Consumer<Cell> action) {
+        for (Row row : sheet) {
+            for (Cell cell : row) {
+                if (cell.getCellType() == CellType.STRING) {
+                    action.accept(cell);
                 }
             }
         }
@@ -222,7 +264,7 @@ public class ExportByFileTemplate implements ExportStrategy {
         Matcher matcher = VARIABLE_PATTERN.matcher(cellValue);
         StringBuilder normalized = new StringBuilder();
         while (matcher.find()) {
-            matcher.appendReplacement(normalized, Matcher.quoteReplacement("{." + matcher.group(1).trim() + "}"));
+            matcher.appendReplacement(normalized, Matcher.quoteReplacement("{." + matcher.group(1) + "}"));
         }
         matcher.appendTail(normalized);
         return normalized.toString();
