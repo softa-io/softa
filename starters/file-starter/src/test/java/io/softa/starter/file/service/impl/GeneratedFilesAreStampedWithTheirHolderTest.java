@@ -1,7 +1,11 @@
 package io.softa.starter.file.service.impl;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.util.List;
+import java.util.Map;
 
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -14,13 +18,16 @@ import io.softa.framework.orm.dto.FileInfo;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.meta.ModelManager;
+import io.softa.framework.orm.service.FileService;
 import io.softa.starter.file.dto.ImportDataDTO;
 import io.softa.starter.file.dto.ImportFieldDTO;
 import io.softa.starter.file.dto.ImportTemplateDTO;
 import io.softa.starter.file.entity.ExportHistory;
+import io.softa.starter.file.entity.ExportTemplate;
 import io.softa.starter.file.entity.ImportHistory;
 import io.softa.starter.file.excel.export.ExcelSheetData;
 import io.softa.starter.file.excel.export.strategy.ExportByDynamic;
+import io.softa.starter.file.excel.export.strategy.ExportByFileTemplate;
 import io.softa.starter.file.excel.export.support.ExcelUploadService;
 import io.softa.starter.file.excel.export.support.ExportDataFetcher;
 
@@ -127,6 +134,40 @@ class GeneratedFilesAreStampedWithTheirHolderTest {
         }
 
         assertThat(stampOf(uploadService))
+                .as("the workbook hangs on ExportHistory.fileId, so that is what may claim it")
+                .isEqualTo(ExportHistory.class.getSimpleName())
+                .isNotEqualTo("Employee");
+    }
+
+    @Test
+    @DisplayName("a file-template export is stamped ExportHistory, not the model exported")
+    void aFileTemplateExport() throws Exception {
+        byte[] template;
+        try (XSSFWorkbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            workbook.createSheet("Sheet1").createRow(0).createCell(0).setCellValue("{{ code }}");
+            workbook.write(out);
+            template = out.toByteArray();
+        }
+        ExportByFileTemplate strategy = new ExportByFileTemplate();
+        FileService fileService = mock(FileService.class);
+        when(fileService.downloadStream(7L)).thenAnswer(invocation -> new ByteArrayInputStream(template));
+        ExportDataFetcher fetcher = mock(ExportDataFetcher.class);
+        when(fetcher.fetchRows(anyString(), any(), any())).thenReturn(List.of(Map.of("code", "E1")));
+        ExcelUploadService uploadService = mock(ExcelUploadService.class);
+        when(uploadService.uploadExcelBytes(anyString(), anyString(), any(byte[].class))).thenReturn(new FileInfo());
+        ReflectionTestUtils.setField(strategy, "fileService", fileService);
+        ReflectionTestUtils.setField(strategy, "exportDataFetcher", fetcher);
+        ReflectionTestUtils.setField(strategy, "excelUploadService", uploadService);
+        ExportTemplate exportTemplate = new ExportTemplate();
+        exportTemplate.setModelName("Employee");
+        exportTemplate.setFileName("employees");
+        exportTemplate.setFileId(7L);
+
+        strategy.export(exportTemplate, new FlexQuery());
+
+        ArgumentCaptor<String> model = ArgumentCaptor.forClass(String.class);
+        verify(uploadService).uploadExcelBytes(model.capture(), anyString(), any(byte[].class));
+        assertThat(model.getValue())
                 .as("the workbook hangs on ExportHistory.fileId, so that is what may claim it")
                 .isEqualTo(ExportHistory.class.getSimpleName())
                 .isNotEqualTo("Employee");

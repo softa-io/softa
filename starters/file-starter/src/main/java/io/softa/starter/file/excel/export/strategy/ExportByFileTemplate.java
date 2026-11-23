@@ -25,6 +25,7 @@ import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.dto.FileInfo;
 import io.softa.framework.orm.service.FileService;
 import io.softa.starter.file.dto.ExportResult;
+import io.softa.starter.file.entity.ExportHistory;
 import io.softa.starter.file.entity.ExportTemplate;
 import io.softa.starter.file.excel.export.support.ExcelUploadService;
 import io.softa.starter.file.excel.export.support.ExportDataFetcher;
@@ -37,6 +38,8 @@ import io.softa.starter.file.excel.export.support.LargeIntegerAsTextHandler;
 @Slf4j
 @Component
 public class ExportByFileTemplate implements ExportStrategy {
+
+    private static final String HISTORY_MODEL = ExportHistory.class.getSimpleName();
 
     // {{ variable }} or {{ object.field }} in the uploaded template.
     private static final Pattern VARIABLE_PATTERN = Pattern.compile("(?<!\\\\)\\{\\{\\s*([a-zA-Z0-9_.]+)\\s*}}");
@@ -104,7 +107,9 @@ public class ExportByFileTemplate implements ExportStrategy {
             excelWriter.finish();
             // Upload the Excel stream to OSS
             byte[] excelBytes = outputStream.toByteArray();
-            return excelUploadService.uploadExcelBytes(exportTemplate.getModelName(), fileName, excelBytes);
+            // Stamped with the model that holds the file — the export history row — not the model exported,
+            // as the other export modes do; otherwise attaching it to the history is refused.
+            return excelUploadService.uploadExcelBytes(HISTORY_MODEL, fileName, excelBytes);
         } catch (Exception e) {
             throw new BusinessException("Failed to fill data into the file template {}.", fileName, e);
         }
