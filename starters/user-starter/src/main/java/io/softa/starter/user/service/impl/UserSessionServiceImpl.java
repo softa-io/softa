@@ -86,8 +86,7 @@ public class UserSessionServiceImpl implements UserSessionService {
         try {
             sessionStore.clearOrgUnavailableMarks(profileId);
         } catch (RuntimeException e) {
-            log.warn("Org-unavailable marks of profile {} not cleared after a credential change: {}", profileId,
-                    e.getMessage());
+            log.warn("Org-unavailable marks of profile {} not cleared after a credential change.", profileId, e);
         }
     }
 

@@ -101,9 +101,9 @@ class CredentialChangeEndsReentryTest {
     }
 
     @Test
-    void aMarkThatSurvivedTheChange_stillYieldsOnlyRefusedTokens_forAsLongAsASessionLives() {
-        // Belt and braces: were a mark to survive the change (written by an org-unavailable revoke racing it),
-        // the credential mark outlives any session, so every token it offers is refused.
+    void aMarkThatSurvivedTheChange_stillYieldsOnlyRefusedTokens_forAsLongAsTheMarkLasts() {
+        // Belt and braces: were a mark to survive the change (written by an org-unavailable revoke racing it), the
+        // credential mark outlives any org-unavailable mark, so every token the surviving mark offers is refused.
         String sessionId = endedSession();
         Object ended = cache.object(SessionStore.ORG_UNAVAILABLE_SESSIONS + sessionId);
         sessionService.revokePerson(PROFILE, null, SessionRevokeReason.PASSWORD_RESET);

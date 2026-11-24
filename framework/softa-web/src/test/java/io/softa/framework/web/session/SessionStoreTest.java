@@ -272,16 +272,26 @@ class SessionStoreTest {
 
     @Test
     void clearingAPersonsMarks_keepsTheIndexEntryOfASessionMarkedMeanwhile() {
-        // Read: "frozen". Marked after the read and before the clear: "later". Deleting the whole index would lose
-        // "later", and the next credential change would no longer find its mark.
-        when(cacheService.getSetMembers(SessionStore.ORG_UNAVAILABLE_BY_PERSON + PROFILE)).thenReturn(Set.of("frozen"));
+        // The index as Redis holds it: "frozen" when read, "later" marked right after the read and before the clear.
+        // Deleting the whole index would lose "later", and the next credential change would no longer find its mark.
+        String personKey = SessionStore.ORG_UNAVAILABLE_BY_PERSON + PROFILE;
+        Set<String> index = new java.util.HashSet<>(Set.of("frozen"));
+        when(cacheService.getSetMembers(personKey)).thenAnswer(invocation -> {
+            Set<String> read = Set.copyOf(index);
+            index.add("later");
+            return read;
+        });
+        org.mockito.Mockito.doAnswer(invocation -> index.remove(invocation.<String>getArgument(1)))
+                .when(cacheService).removeFromSet(org.mockito.ArgumentMatchers.eq(personKey), anyString());
+        org.mockito.Mockito.doAnswer(invocation -> {
+            index.clear();
+            return null;
+        }).when(cacheService).clear(personKey);
 
         store.clearOrgUnavailableMarks(PROFILE);
 
-        verify(cacheService).removeFromSet(SessionStore.ORG_UNAVAILABLE_BY_PERSON + PROFILE, "frozen");
-        verify(cacheService, never()).removeFromSet(SessionStore.ORG_UNAVAILABLE_BY_PERSON + PROFILE, "later");
-        verify(cacheService, never()).clear(SessionStore.ORG_UNAVAILABLE_BY_PERSON + PROFILE);
-        verify(cacheService, never()).clear(List.of(SessionStore.ORG_UNAVAILABLE_SESSIONS + "later"));
+        assertThat(index).containsExactly("later");
+        verify(cacheService).clear(List.of(SessionStore.ORG_UNAVAILABLE_SESSIONS + "frozen"));
     }
 
     @Test
