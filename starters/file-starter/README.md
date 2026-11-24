@@ -498,7 +498,7 @@ masked and checked as the caller.
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `fileName` | String | `null` | Export file name |
-| `sheetName` | String | `null` | Sheet name |
+| `sheetName` | String | `null` | Sheet name. In file template mode, the template's sheet of this name is filled, and a name the template does not have is refused; when unset, the first visible sheet that has a placeholder |
 | `modelName` | String | `null` | Model name to export |
 | `customFileTemplate` | Boolean | `null` | If true, use file template export mode; otherwise use field template mode |
 | `fileId` | Long | `null` | Template file id (required when `customFileTemplate = true`) |
@@ -633,7 +633,11 @@ JSON
 **File template placeholder syntax:**
 - `{{ fieldName }}` — replaced with the field value of each row
 - `{{ deptId.name }}` — cascaded field reference (resolved by the ORM layer)
-- The `{{ }}` syntax is normalized to underlying Fesod `{}` syntax before rendering
+- Each `{{ field }}` is rewritten to Fesod's list placeholder `{.field}` before rendering, as the rows are filled as a list; text around a placeholder in the same cell is kept (`ID-{{ code }}`)
+- A field name is dot-separated words of letters, digits and `_`. **No other brace may appear in the filled sheet**: Fesod reads every `{…}` of it as a placeholder, so `Price {USD}`, a mistyped `{{ dept-name }}`, `{{ .x }}`, `{{ }}` or `\{{ code }}` would vanish from the export without a word, and Fesod's own list syntax written by hand (`{.title}`) would be repeated per record and left empty. The export refuses such a sheet and names the cell. Every `{` or `}` outside a `{{ … }}` placeholder counts, an unclosed one included: a literal brace cannot be written in the filled sheet at all, with `\` or otherwise. Other sheets may contain braces
+- **Placeholders go on one data row.** Each record fills a row of its own, starting at that row; the rows below it (totals, signatures, notes) move down rather than being written over. Pushing rows down makes Fesod hold the whole workbook in memory, several times what a plain fill takes: measured with 15 columns, 20,000 rows took about 0.7 GB and 7 s against 0.1 GB and 1 s, and 100,000 rows about 2.7 GB against 0.3 GB, slowing to minutes once the heap ran short, so a template with nothing below its data row is filled the plain, streaming way, and **a template with rows below its data row costs that memory on a large export** — keep those to modest row counts. A placeholder on any other row of the sheet — a title such as `Report for {{ deptId.name }}`, or a record laid out over two rows — is refused with the rows named, because it would be repeated per record or written over
+- Only the filled sheet is read and rewritten: its placeholders decide the fields queried, and the other sheets (instructions, lookups) are kept as they are. Without `sheetName`, the filled sheet is the first visible one that has a placeholder, so when an instructions sheet in front quotes the `{{ … }}` syntax itself, set `sheetName`. A hidden sheet is filled only when named in `sheetName`: when only a hidden sheet has placeholders, the export is refused and names it. A filled sheet without any placeholder is refused, as is a file that is not an `.xlsx` workbook (an `.xls`, an empty or a damaged file)
+- **Formulas and formatting below the data row do not grow with the records.** The rows are inserted at the data row, so a footer `SUM(A2:A2)` on row 3 still adds up the first record only, and a range that reaches down to the footer row itself (`SUM(A2:A3)`) has its end moved along with the footer — `SUM(A2:A5)` after three records, a reference to its own cell. Conditional formatting and data validation stay on the data row and are not copied to the inserted rows, and a merged cell or a formula cell that is not a placeholder (`=A2*B2`) on the data row is on the first record only. Of what sits below the data row, cell contents and formats move down but pictures (a signature, a seal) and data validation do not: a picture stays anchored where it was and ends up over the inserted records, and a validation stays on its original cells, which now hold a record. Totals over the records belong in the report itself or in a sheet of their own
 
 ### 3. Dynamic Export
 Export without a template by providing fields and filters directly.
