@@ -1,11 +1,13 @@
 package io.softa.starter.user.service.impl;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import io.softa.framework.base.exception.BusinessException;
@@ -29,6 +31,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -363,5 +366,23 @@ class MembershipSelectionTest {
         assertThatThrownBy(() -> loginService.selectTenant(TOKEN, 100L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("deactivated");
+    }
+
+    @Test
+    void aReentryToken_isDatedAtTheSignInBehindTheEndedSession_soACredentialChangeSinceThenVoidsIt() {
+        // Offered again on every request that presents the ended session, for as long as it would
+        // have lived. Dated when it is asked for, the credential check would always pass and the
+        // session id would stay a way into the person's other companies after a password reset.
+        LocalDateTime signedIn = LocalDateTime.of(2026, 11, 20, 9, 0);
+
+        loginService.issueReentryToken(PROFILE, signedIn);
+        loginService.issueReentryToken(PROFILE, null);
+
+        ArgumentCaptor<Object> values = ArgumentCaptor.forClass(Object.class);
+        verify(cacheService, org.mockito.Mockito.times(2)).save(startsWith("login:preauth:"), values.capture(), anyInt());
+        assertThat(values.getAllValues()).containsExactly(
+                PROFILE + ":" + signedIn.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                // Unknown: dated at the epoch, which every recorded credential change is after.
+                PROFILE + ":0");
     }
 }

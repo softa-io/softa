@@ -50,6 +50,10 @@ public class LoginHistoryRecorder {
     private static final Set<LoginEvent> CREDENTIAL_EVENTS =
             EnumSet.of(LoginEvent.LOGIN_FAILED, LoginEvent.LOCKED, LoginEvent.UNLOCKED);
 
+    /** Failures that tried no credential, so can be repeated without limit: kept once, never fanned out. */
+    private static final Set<String> REFUSED_UNTRIED = Set.of(
+            AccountErrorCodes.PASSWORD_LOCKED, AccountErrorCodes.CODE_BLOCKED, AccountErrorCodes.CODE_EXPIRED);
+
     /** Lazy: the account service writes history itself, so it is reached only when a row needs it. */
     @Lazy
     @Autowired
@@ -87,16 +91,17 @@ public class LoginHistoryRecorder {
      * their password — each company they have joined and not left; otherwise a single row without a
      * company. A sign-in that stopped at the company picker is not fanned out: it entered none of them.
      *
-     * <p>Nor is an attempt refused because the password is locked. It changes nothing — the lock was
+     * <p>Nor is an attempt refused before the credential was tried: while the password is locked, while
+     * codes are blocked, or with no code there to match. It changes nothing — a lock or a block was
      * already written to each company — and anyone who knows the identifier can repeat it without end;
      * fanned out, every such attempt would be multiplied into every company's history. It is kept once,
      * with the platform.
      */
     private List<UserAccount> companiesOf(LoginEvent event, Long profileId, Long accountId, Long tenantId,
                                           String failureReason) {
-        boolean whileLocked = event == LoginEvent.LOGIN_FAILED
-                && AccountErrorCodes.PASSWORD_LOCKED.equals(failureReason);
-        if (tenantId == null && profileId != null && CREDENTIAL_EVENTS.contains(event) && !whileLocked) {
+        boolean refusedUntried = event == LoginEvent.LOGIN_FAILED && failureReason != null
+                && REFUSED_UNTRIED.contains(failureReason);
+        if (tenantId == null && profileId != null && CREDENTIAL_EVENTS.contains(event) && !refusedUntried) {
             List<UserAccount> joined = new ArrayList<>();
             try {
                 for (UserAccount membership : accountService.listMembershipsOf(profileId)) {
@@ -192,11 +197,13 @@ public class LoginHistoryRecorder {
             if (tenantId != null && !inThatTenant) {
                 // A row for a company the caller is not in: a failure fanned out before any company was
                 // chosen, or a session ended from outside it. The write refuses a row of another tenant
-                // than the context's, so it is made as that company, past the caller's permissions.
-                Context context = ContextHolder.cloneContext();
+                // than the context's, so it is made as that company, past the caller's permissions —
+                // in a context of its own, carrying nothing of the caller's: not their user, roles or
+                // company grants, and no flows started by a write made on nobody's behalf.
+                Context context = new Context();
                 context.setTenantId(tenantId);
-                context.setCrossTenant(false);
                 context.setSkipPermissionCheck(true);
+                context.setTriggerFlow(false);
                 ContextHolder.runWith(context, () -> historyService.record(row));
             } else if (ContextHolder.existContext()) {
                 historyService.record(row);

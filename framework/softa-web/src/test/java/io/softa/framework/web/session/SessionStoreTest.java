@@ -221,6 +221,19 @@ class SessionStoreTest {
     }
 
     @Test
+    void aSecondRevokeOfTheSameSession_doesNotStretchTheMarkToAFullLifetime() {
+        // Two requests read the session before either removes it. The first marks it for the time
+        // the session had left and takes the key; the second then finds the key gone. Marking again
+        // with "unknown" would rewrite the mark to a fresh session's week.
+        live("raced", ACCOUNT, RedisConstant.ONE_WEEK);
+        when(cacheService.getExpire("session:raced")).thenReturn(-2L);
+
+        store.revoke("raced", SessionRevokeReason.ORG_UNAVAILABLE);
+
+        verify(cacheService, never()).save(eq(SessionStore.ORG_UNAVAILABLE_SESSIONS + "raced"), any(), anyInt());
+    }
+
+    @Test
     void endedForUnavailableOrg_readsTheMark() {
         when(cacheService.get(SessionStore.ORG_UNAVAILABLE_SESSIONS + "frozen", SessionRecord.class))
                 .thenReturn(record(ACCOUNT));

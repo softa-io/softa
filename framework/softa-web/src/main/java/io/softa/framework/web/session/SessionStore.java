@@ -209,9 +209,11 @@ public class SessionStore {
     public boolean revoke(String sessionId, SessionRevokeReason reason) {
         Optional<SessionRecord> session = this.peek(sessionId);
         // Marked before the session goes, so a concurrent request never sees neither.
-        if (reason == SessionRevokeReason.ORG_UNAVAILABLE) {
-            session.ifPresent(s -> cacheService.save(ORG_UNAVAILABLE_SESSIONS + sessionId, s,
-                    this.markSeconds(sessionId)));
+        if (reason == SessionRevokeReason.ORG_UNAVAILABLE && session.isPresent()) {
+            int seconds = this.markSeconds(sessionId);
+            if (seconds > 0) {
+                cacheService.save(ORG_UNAVAILABLE_SESSIONS + sessionId, session.get(), seconds);
+            }
         }
         // Two requests can both read the session before either removes it; only the one whose delete
         // took the key announces the removal, so its listeners (the login history) record it once.
@@ -225,13 +227,23 @@ public class SessionStore {
         return removed;
     }
 
-    /** How long the session had left — see {@link #ORG_UNAVAILABLE_MARK_MIN_SECONDS}. */
+    /**
+     * How long the session had left — see {@link #ORG_UNAVAILABLE_MARK_MIN_SECONDS} — or 0 when it is
+     * gone already: a concurrent revoke took it after this one read it, and marked it while it still
+     * knew how long it had. Marking it again then would only stretch the mark to a fresh session's life.
+     */
     private int markSeconds(String sessionId) {
         long left = cacheService.getExpire(sessionKey(sessionId));
-        // Unknown — gone already, or no expiry set: as long as a fresh session lives.
+        if (left == KEY_GONE) {
+            return 0;
+        }
+        // No expiry set, which a session never has: as long as a fresh session lives.
         long seconds = left > 0 ? left : TTL_SECONDS;
         return (int) Math.max(seconds, ORG_UNAVAILABLE_MARK_MIN_SECONDS);
     }
+
+    /** What the store answers for the time left of a key that does not exist. */
+    private static final long KEY_GONE = -2L;
 
     /**
      * Remove every session of one account, except {@code keepSessionId} when given.

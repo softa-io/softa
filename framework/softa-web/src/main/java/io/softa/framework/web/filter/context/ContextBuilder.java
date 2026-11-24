@@ -99,7 +99,7 @@ public class ContextBuilder implements SmartInitializingSingleton {
         e.withErrorCode(SessionErrorCodes.ORG_UNAVAILABLE);
         ReentryTokenIssuer issuer = reentryTokenIssuer == null ? null : reentryTokenIssuer.getIfAvailable();
         String token = issuer == null || session.profileId() == null ? null
-                : issuer.issueReentryToken(session.profileId());
+                : issuer.issueReentryToken(session.profileId(), session.issuedAt());
         if (token != null) {
             e.withErrorDetail("authToken", token);
         }

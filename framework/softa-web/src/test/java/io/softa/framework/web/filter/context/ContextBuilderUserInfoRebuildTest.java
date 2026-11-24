@@ -167,7 +167,7 @@ class ContextBuilderUserInfoRebuildTest {
     void anUnavailableOrganisation_handsBackASignInTokenForTheOtherCompanies() {
         // The person is still who they were: with the token the APP offers their other companies
         // instead of a login screen, which is what tells ORG_UNAVAILABLE from SESSION_EXPIRED.
-        ReentryTokenIssuer issuer = profileId -> "reentry-for-" + profileId;
+        ReentryTokenIssuer issuer = (profileId, authenticatedAt) -> "reentry-for-" + profileId;
         @SuppressWarnings("unchecked")
         ObjectProvider<ReentryTokenIssuer> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(issuer);
@@ -293,14 +293,21 @@ class ContextBuilderUserInfoRebuildTest {
         // The first of two simultaneous requests found the account frozen and ended the session.
         // The second finds no session; it must not answer SESSION_EXPIRED, or a client acting on
         // whichever answer lands first sends the person to the login page.
-        ReentryTokenIssuer issuer = profileId -> "reentry-for-" + profileId;
+        // The token stands for the sign-in behind the ended session, not for this request: dated at
+        // it, a password reset or Reset User since then voids every token the mark hands out.
+        LocalDateTime signedIn = LocalDateTime.of(2026, 11, 20, 9, 0);
+        java.util.List<LocalDateTime> datedAt = new java.util.ArrayList<>();
+        ReentryTokenIssuer issuer = (profileId, authenticatedAt) -> {
+            datedAt.add(authenticatedAt);
+            return "reentry-for-" + profileId;
+        };
         @SuppressWarnings("unchecked")
         ObjectProvider<ReentryTokenIssuer> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(issuer);
         ReflectionTestUtils.setField(contextBuilder, "reentryTokenIssuer", provider);
         when(cacheService.get(eq(RedisConstant.SESSION + SESSION_ID), eq(SessionRecord.class))).thenReturn(null);
         when(cacheService.get(eq(SessionStore.ORG_UNAVAILABLE_SESSIONS + SESSION_ID), eq(SessionRecord.class)))
-                .thenReturn(new SessionRecord(USER_ID, 7L, 9L, null, null, null, null, LocalDateTime.now()));
+                .thenReturn(new SessionRecord(USER_ID, 7L, 9L, null, null, null, null, signedIn));
 
         assertThatThrownBy(() -> contextBuilder.buildUserContext(request()))
                 .isInstanceOf(UserNotFoundException.class)
@@ -309,6 +316,7 @@ class ContextBuilderUserInfoRebuildTest {
                     assertThat(u.getErrorCode()).isEqualTo(SessionErrorCodes.ORG_UNAVAILABLE);
                     assertThat(u.getErrorDetails()).isEqualTo(java.util.Map.of("authToken", "reentry-for-7"));
                 });
+        assertThat(datedAt).containsExactly(signedIn);
     }
 
     @Test

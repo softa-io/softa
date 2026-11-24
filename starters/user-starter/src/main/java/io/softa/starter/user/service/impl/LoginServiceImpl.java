@@ -1,5 +1,7 @@
 package io.softa.starter.user.service.impl;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.RandomStringUtils;
@@ -712,14 +714,26 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      * able to pick a company and get a session.
      */
     private String issuePreAuthToken(Long profileId) {
+        return this.issuePreAuthToken(profileId, System.currentTimeMillis());
+    }
+
+    /** @param authenticatedAtMillis when the person proved who they are — what a credential change voids it from */
+    private String issuePreAuthToken(Long profileId, long authenticatedAtMillis) {
         String token = RandomUtils.randomString(PREAUTH_TOKEN_BYTES);
-        cacheService.save(preAuthKey(token), profileId + ":" + System.currentTimeMillis(), PREAUTH_TTL_SECONDS);
+        cacheService.save(preAuthKey(token), profileId + ":" + authenticatedAtMillis, PREAUTH_TTL_SECONDS);
         return token;
     }
 
     @Override
-    public String issueReentryToken(Long profileId) {
-        return profileId == null ? null : this.issuePreAuthToken(profileId);
+    public String issueReentryToken(Long profileId, LocalDateTime authenticatedAt) {
+        if (profileId == null) {
+            return null;
+        }
+        // Sessions are dated in the server's own zone (LocalDateTime.now()); an unknown date is the
+        // epoch, which any recorded credential change is after.
+        long at = authenticatedAt == null ? 0L
+                : authenticatedAt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+        return this.issuePreAuthToken(profileId, at);
     }
 
     /** The person a live pre-auth token stands for, or a refusal if it expired / never existed. */

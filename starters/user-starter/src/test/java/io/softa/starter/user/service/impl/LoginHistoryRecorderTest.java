@@ -191,19 +191,28 @@ class LoginHistoryRecorderTest {
                 membership(200L, 2L, AccountStatus.ACTIVE)));
         List<Long> writtenAs = new ArrayList<>();
         List<Boolean> pastPermissions = new ArrayList<>();
+        List<Object> asWhom = new ArrayList<>();
+        List<Boolean> flowsStarted = new ArrayList<>();
         doAnswer(invocation -> {
             writtenAs.add(ContextHolder.getContext().getTenantId());
             pastPermissions.add(ContextHolder.getContext().isSkipPermissionCheck());
+            asWhom.add(ContextHolder.getContext().getUserId());
+            flowsStarted.add(ContextHolder.getContext().isTriggerFlow());
             return null;
         }).when(historyService).record(any());
 
+        // Whoever is signing in may already hold a session in another company: nothing of it may
+        // travel into the rows written for these.
         Context signIn = new Context();
         signIn.setTraceId("sign-in");
+        signIn.setUserId(999L);
         ContextHolder.runWith(signIn, () -> recorder.record(LoginEvent.LOGIN_FAILED, ADA, null, null,
                 LoginChannel.MOBILE, LoginMethod.PASSWORD, "PASSWORD_INCORRECT"));
 
         assertThat(writtenAs).containsExactly(1L, 2L);
         assertThat(pastPermissions).containsExactly(true, true);
+        assertThat(asWhom).containsOnlyNulls();
+        assertThat(flowsStarted).containsExactly(false, false);
         // The caller's own context is left as it was.
         assertThat(signIn.getTenantId()).isNull();
         assertThat(signIn.isSkipPermissionCheck()).isFalse();
@@ -223,5 +232,23 @@ class LoginHistoryRecorderTest {
                 LoginChannel.MOBILE, LoginMethod.PASSWORD, null));
 
         assertThat(skipped[0]).isFalse();
+    }
+
+    @Test
+    void aCodeSignInRefusedWithoutTryingTheCode_isKeptOnceWithThePlatform() {
+        // Blocked after too many wrong codes, or no code there to match: repeatable without limit.
+        when(accountService.listMembershipsOf(ADA)).thenReturn(List.of(
+                membership(100L, 1L, AccountStatus.ACTIVE),
+                membership(200L, 2L, AccountStatus.ACTIVE)));
+
+        recorder.record(LoginEvent.LOGIN_FAILED, ADA, null, null, LoginChannel.MOBILE, LoginMethod.SMS_CODE,
+                AccountErrorCodes.CODE_BLOCKED);
+        recorder.record(LoginEvent.LOGIN_FAILED, ADA, null, null, LoginChannel.MOBILE, LoginMethod.SMS_CODE,
+                AccountErrorCodes.CODE_EXPIRED);
+        // A wrong code is a guess at the credential, bounded by the block: still told to each company.
+        recorder.record(LoginEvent.LOGIN_FAILED, ADA, null, null, LoginChannel.MOBILE, LoginMethod.SMS_CODE,
+                AccountErrorCodes.CODE_INCORRECT);
+
+        assertThat(written()).extracting(UserLoginHistory::getTenantId).containsExactly(null, null, 1L, 2L);
     }
 }
