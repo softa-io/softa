@@ -266,8 +266,22 @@ class SessionStoreTest {
 
         assertThat(store.clearOrgUnavailableMarks(PROFILE)).isEqualTo(1);
         verify(cacheService).clear(List.of(SessionStore.ORG_UNAVAILABLE_SESSIONS + "frozen"));
-        verify(cacheService).clear(SessionStore.ORG_UNAVAILABLE_BY_PERSON + PROFILE);
+        verify(cacheService).removeFromSet(SessionStore.ORG_UNAVAILABLE_BY_PERSON + PROFILE, "frozen");
         assertThat(store.clearOrgUnavailableMarks(null)).isZero();
+    }
+
+    @Test
+    void clearingAPersonsMarks_keepsTheIndexEntryOfASessionMarkedMeanwhile() {
+        // Read: "frozen". Marked after the read and before the clear: "later". Deleting the whole index would lose
+        // "later", and the next credential change would no longer find its mark.
+        when(cacheService.getSetMembers(SessionStore.ORG_UNAVAILABLE_BY_PERSON + PROFILE)).thenReturn(Set.of("frozen"));
+
+        store.clearOrgUnavailableMarks(PROFILE);
+
+        verify(cacheService).removeFromSet(SessionStore.ORG_UNAVAILABLE_BY_PERSON + PROFILE, "frozen");
+        verify(cacheService, never()).removeFromSet(SessionStore.ORG_UNAVAILABLE_BY_PERSON + PROFILE, "later");
+        verify(cacheService, never()).clear(SessionStore.ORG_UNAVAILABLE_BY_PERSON + PROFILE);
+        verify(cacheService, never()).clear(List.of(SessionStore.ORG_UNAVAILABLE_SESSIONS + "later"));
     }
 
     @Test

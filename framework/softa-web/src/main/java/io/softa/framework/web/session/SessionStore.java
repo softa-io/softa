@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -259,11 +260,14 @@ public class SessionStore {
             return 0;
         }
         String personKey = ORG_UNAVAILABLE_BY_PERSON + profileId;
-        List<String> marks = cacheService.getSetMembers(personKey).stream()
-                .map(sessionId -> ORG_UNAVAILABLE_SESSIONS + sessionId)
-                .toList();
-        Long cleared = marks.isEmpty() ? 0L : cacheService.clear(marks);
-        cacheService.clear(personKey);
+        Set<String> sessionIds = cacheService.getSetMembers(personKey);
+        if (sessionIds.isEmpty()) {
+            return 0;
+        }
+        Long cleared = cacheService.clear(sessionIds.stream().map(id -> ORG_UNAVAILABLE_SESSIONS + id).toList());
+        // Only the members read: a session marked between the read and here keeps its entry, and with it the
+        // way the next change finds it.
+        sessionIds.forEach(sessionId -> cacheService.removeFromSet(personKey, sessionId));
         return cleared == null ? 0 : cleared.intValue();
     }
 

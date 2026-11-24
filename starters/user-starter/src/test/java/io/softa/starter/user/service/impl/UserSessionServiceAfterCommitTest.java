@@ -81,9 +81,36 @@ class UserSessionServiceAfterCommitTest {
     }
 
     @Test
-    void theCredentialMark_outlivesAnySession() {
-        // A re-entry token is dated at the sign-in behind a session that lived up to a week; a mark gone sooner
-        // would let a token dated before the change through.
+    void aFailureToClearTheMarks_stillEndsThePersonsSessions_inATransactionOrNot() {
+        doThrow(new IllegalStateException("redis down")).when(store).clearOrgUnavailableMarks(7L);
+        when(store.revokeAccounts(List.of(100L), null, SessionRevokeReason.PASSWORD_RESET)).thenReturn(3);
+
+        // No transaction: the sessions end, and the count is theirs.
+        org.assertj.core.api.Assertions.assertThat(
+                service.revokePerson(7L, null, SessionRevokeReason.PASSWORD_RESET)).isEqualTo(3);
+
+        // In one: ended at commit, the failure kept out of the commit.
+        TransactionSynchronizationManager.initSynchronization();
+        service.revokePerson(7L, null, SessionRevokeReason.PASSWORD_RESET);
+        assertThatCode(UserSessionServiceAfterCommitTest::commit).doesNotThrowAnyException();
+
+        verify(store, times(2)).revokeAccounts(List.of(100L), null, SessionRevokeReason.PASSWORD_RESET);
+    }
+
+    @Test
+    void theSessionsEnd_beforeTheMarksAreCleared() {
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(store);
+
+        service.revokePerson(7L, null, SessionRevokeReason.RESET_USER);
+
+        order.verify(store).revokeAccounts(List.of(100L), null, SessionRevokeReason.RESET_USER);
+        order.verify(store).clearOrgUnavailableMarks(7L);
+    }
+
+    @Test
+    void theCredentialMark_outlivesAnOrgUnavailableMark() {
+        // A re-entry token is offered only while its ended session's mark lasts, a week at most: the credential mark
+        // outlives it, so a mark the change failed to clear offers no token the change does not refuse.
         org.assertj.core.api.Assertions.assertThat(UserSessionServiceImpl.CREDENTIAL_MARK_TTL_SECONDS)
                 .isGreaterThan(SessionStore.TTL_SECONDS);
     }
