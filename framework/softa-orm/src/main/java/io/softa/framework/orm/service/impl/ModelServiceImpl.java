@@ -408,7 +408,9 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         if (CollectionUtils.isEmpty(uniqueKeys)) {
             return Collections.emptyMap();
         }
-        Filters filters = this.buildUniqueConstraintFilters(uniqueConstraints, uniqueKeys);
+        Set<Integer> phonePositions = this.phonePositions(modelName, uniqueConstraints);
+        Filters filters = this.buildUniqueConstraintFilters(uniqueConstraints,
+                this.withTrunkPrefixedSpellings(uniqueKeys, phonePositions));
         List<String> fields = new ArrayList<>(List.of(ModelConstant.ID));
         fields.addAll(uniqueConstraints);
         if (!CollectionUtils.isEmpty(extraFields)) {
@@ -421,7 +423,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         List<Map<String, Object>> dbRows = this.searchList(modelName, flexQuery);
         Map<UniqueKey, Map<String, Object>> dbRowKeyMap = new HashMap<>();
         for (Map<String, Object> dbRow : dbRows) {
-            UniqueKey key = generateUniqueKey(modelName, dbRow, uniqueConstraints);
+            UniqueKey key = canonicalPhones(generateUniqueKey(modelName, dbRow, uniqueConstraints), phonePositions);
             Assert.notTrue(dbRowKeyMap.containsKey(key),
                     "The unique key `{0}` of uniqueConstraints `{1}` is duplicated in database model `{2}`.",
                     key, uniqueConstraints, modelName);
@@ -442,6 +444,67 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         List<Object> values = uniqueConstraints.stream()
                 .map(field -> normalizeUniqueConstraintValue(modelName, field, data.get(field)))
                 .toList();
+        return new UniqueKey(values);
+    }
+
+    /** The positions in {@code uniqueConstraints} of the phone-widget fields. */
+    private Set<Integer> phonePositions(String modelName, List<String> uniqueConstraints) {
+        Set<Integer> positions = new HashSet<>();
+        for (int i = 0; i < uniqueConstraints.size(); i++) {
+            MetaField field = ModelManager.getModelField(modelName, uniqueConstraints.get(i));
+            if (WidgetType.PHONE.equals(field.getWidgetType())) {
+                positions.add(i);
+            }
+        }
+        return positions;
+    }
+
+    /**
+     * The keys to look up, each also under the spelling its phone values had with their trunk prefix kept
+     * ({@link PhoneUtils#withTrunkPrefix}): a row stored before numbers were stored in one spelling holds
+     * "+640211234678", and the key, canonicalized, asks for "+64211234678". Missed, the row would be created again
+     * beside it, or an update-only import would report it missing.
+     */
+    private static Collection<UniqueKey> withTrunkPrefixedSpellings(Collection<UniqueKey> keys,
+                                                                    Set<Integer> phonePositions) {
+        if (phonePositions.isEmpty()) {
+            return keys;
+        }
+        Set<UniqueKey> spellings = new LinkedHashSet<>();
+        for (UniqueKey key : keys) {
+            List<List<Object>> variants = new ArrayList<>(List.of(key.values()));
+            for (int position : phonePositions) {
+                if (!(key.values().get(position) instanceof String number)) {
+                    continue;
+                }
+                Optional<String> prefixed = PhoneUtils.withTrunkPrefix(number);
+                if (prefixed.isEmpty()) {
+                    continue;
+                }
+                List<List<Object>> more = new ArrayList<>();
+                for (List<Object> variant : variants) {
+                    List<Object> copy = new ArrayList<>(variant);
+                    copy.set(position, prefixed.get());
+                    more.add(copy);
+                }
+                variants.addAll(more);
+            }
+            variants.forEach(values -> spellings.add(new UniqueKey(values)));
+        }
+        return spellings;
+    }
+
+    /** A stored row's key with its phone values in the spelling the input keys were given in. */
+    private static UniqueKey canonicalPhones(UniqueKey key, Set<Integer> phonePositions) {
+        if (phonePositions.isEmpty()) {
+            return key;
+        }
+        List<Object> values = new ArrayList<>(key.values());
+        for (int position : phonePositions) {
+            if (values.get(position) instanceof String number) {
+                values.set(position, PhoneUtils.canonical(number));
+            }
+        }
         return new UniqueKey(values);
     }
 

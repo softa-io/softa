@@ -86,11 +86,50 @@ class ModelServicePhoneCanonicalTest {
             split = service.splitByExistence("Employee", List.of(row), List.of("workPhone"));
         }
 
-        assertThat(lookedUp).singleElement().asString().contains("+64211234678").doesNotContain("+640211234678");
+        // Asked for under both spellings: a row still stored with the prefix is the same number.
+        assertThat(lookedUp).singleElement().asString().contains("+64211234678").contains("+640211234678");
         assertThat(split.created()).isEmpty();
         assertThat(split.updated()).singleElement().satisfies(updated -> {
             assertThat(updated).containsEntry("id", 5L);
             assertThat(updated).containsEntry("workPhone", "+64211234678");
         });
+    }
+
+    private CreateOrUpdateResult splitAgainstStored(String stored, String typed) {
+        MetaField phone = field("workPhone", WidgetType.PHONE);
+        Mockito.when(phone.getFieldType()).thenReturn(FieldType.STRING);
+        List<MetaField> fields = List.of(phone);
+        ModelServiceImpl<Long> service = Mockito.spy(new ModelServiceImpl<Long>());
+        Mockito.doAnswer(invocation -> {
+            FlexQuery query = invocation.getArgument(1);
+            return query.getFilters().toString().contains(stored)
+                    ? List.of(new HashMap<>(Map.of("id", 5L, "workPhone", stored))) : List.of();
+        }).when(service).searchList(Mockito.eq("Employee"), Mockito.any(FlexQuery.class));
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            mm.when(() -> ModelManager.getModelFields("Employee")).thenReturn(fields);
+            mm.when(() -> ModelManager.getModelField("Employee", "workPhone")).thenReturn(phone);
+            return service.splitByExistence("Employee", List.of(new HashMap<>(Map.of("workPhone", typed))),
+                    List.of("workPhone"));
+        }
+    }
+
+    @Test
+    void aRowStillStoredWithTheTrunkPrefix_isUpdated_whetherTheNumberIsTypedWithTheZeroOrWithout() {
+        // Written before numbers were stored in one spelling, and not yet rewritten: the same number either way.
+        for (String typed : List.of("+64211234678", "+640211234678", "+64 021 123 4678")) {
+            CreateOrUpdateResult split = splitAgainstStored("+640211234678", typed);
+
+            assertThat(split.created()).as(typed).isEmpty();
+            assertThat(split.updated()).as(typed).singleElement()
+                    .satisfies(updated -> assertThat(updated).containsEntry("id", 5L));
+        }
+    }
+
+    @Test
+    void aNumberWithNoTrunkPrefix_isLookedUpAsItIs() {
+        CreateOrUpdateResult split = splitAgainstStored("+6591234567", "+65 9123 4567");
+
+        assertThat(split.updated()).singleElement().satisfies(updated -> assertThat(updated).containsEntry("id", 5L));
+        assertThat(splitAgainstStored("+6591234567", "+6591234568").created()).hasSize(1);
     }
 }
