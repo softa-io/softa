@@ -52,6 +52,17 @@ public class ExponentialBackoffPolicy {
     }
 
     public RetryDecision decide(int attempt, ErrorCategory category) {
+        return decide(attempt, category, true);
+    }
+
+    /**
+     * {@code retriesAllowed = false} fails a send that would otherwise be retried: a one-time code is
+     * worth nothing minutes later, and the person asks for a new one themselves.
+     */
+    public RetryDecision decide(int attempt, ErrorCategory category, boolean retriesAllowed) {
+        if (!retriesAllowed && category.isRetryable()) {
+            return new RetryDecision.Fail();
+        }
         if (!category.isRetryable()) {
             return isPermanent(category) ? new RetryDecision.Fail() : new RetryDecision.DeadLetter();
         }
@@ -78,6 +89,6 @@ public class ExponentialBackoffPolicy {
 
     private static boolean isPermanent(ErrorCategory c) {
         return c == ErrorCategory.PERMANENT || c == ErrorCategory.INVALID_INPUT || c == ErrorCategory.AUTH
-                || c == ErrorCategory.CONFIG;
+                || c == ErrorCategory.CONFIG || c == ErrorCategory.OUTCOME_UNKNOWN;
     }
 }

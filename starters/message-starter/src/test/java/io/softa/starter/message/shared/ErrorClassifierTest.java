@@ -3,6 +3,7 @@ package io.softa.starter.message.shared;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 class ErrorClassifierTest {
 
@@ -81,8 +82,22 @@ class ErrorClassifierTest {
         assertEquals(ErrorCategory.INVALID_INPUT, classifier.classify("HTTP_422", null));
         assertEquals(ErrorCategory.TRANSIENT, classifier.classify("HTTP_408", null));
         assertEquals(ErrorCategory.TRANSIENT, classifier.classify("HTTP_503", null));
+        // The provider failing while it handled the request may come after it sent the text.
+        assertEquals(ErrorCategory.OUTCOME_UNKNOWN, classifier.classify("HTTP_500", null));
+        assertEquals(ErrorCategory.OUTCOME_UNKNOWN, classifier.classify("HTTP_502", null));
+        assertEquals(ErrorCategory.OUTCOME_UNKNOWN, classifier.classify("HTTP_504", null));
         // A status with no rule of its own falls through to the message.
         assertEquals(ErrorCategory.UNKNOWN, classifier.classify("HTTP_409", "conflict"));
+    }
+
+    @Test
+    void unansweredCalls_retryOnlyWhatNeverReachedTheProvider() {
+        assertEquals(ErrorCategory.TRANSIENT,
+                classifier.classify(ErrorClassifier.CONNECT_FAILED, "CM not reached: Connection refused"));
+        // The marker wins over the message heuristics, which would read "timed out" as TRANSIENT.
+        assertEquals(ErrorCategory.OUTCOME_UNKNOWN,
+                classifier.classify(ErrorClassifier.OUTCOME_UNKNOWN, "I/O error on POST: Read timed out"));
+        assertFalse(ErrorCategory.OUTCOME_UNKNOWN.isRetryable());
     }
 
     @Test

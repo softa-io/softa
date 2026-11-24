@@ -125,7 +125,7 @@ class SmsDeliveryProcessorTest {
         processor.deliver(prepared(), 3L);
 
         verify(sendFailureHandler).handle(eq("sms"), isNull(), eq(7L), eq(3L), eq(0),
-                eq("CONFIG_NOT_RESOLVABLE"), contains("not found"), any(SendFailureHandler.RecordTransitions.class));
+                eq("CONFIG_NOT_RESOLVABLE"), contains("not found"), eq(true), any(SendFailureHandler.RecordTransitions.class));
         verifyNoInteractions(adapterFactory);
     }
 
@@ -137,7 +137,7 @@ class SmsDeliveryProcessorTest {
         processor.deliver(prepared(), 3L);
 
         verify(sendFailureHandler).handle(eq("sms"), eq("twilio"), eq(7L), eq(3L), eq(0),
-                eq("QUOTA_EXCEEDED"), contains("Rate limit"), any(SendFailureHandler.RecordTransitions.class));
+                eq("QUOTA_EXCEEDED"), contains("Rate limit"), eq(true), any(SendFailureHandler.RecordTransitions.class));
         verify(adapter, never()).send(any(), any());
     }
 
@@ -150,7 +150,32 @@ class SmsDeliveryProcessorTest {
         processor.deliver(prepared(), 3L);
 
         verify(sendFailureHandler).handle(eq("sms"), eq("twilio"), eq(7L), eq(3L), eq(0),
-                eq("REJECTED"), eq("invalid number"), any(SendFailureHandler.RecordTransitions.class));
+                eq("REJECTED"), eq("invalid number"), eq(true), any(SendFailureHandler.RecordTransitions.class));
+    }
+
+    @Test
+    void aOneTimeCodeThatFailsIsNotRetried() {
+        when(dispatcher.resolveProviderById(20L)).thenReturn(config());
+        when(adapter.send(any(), any(SmsAdapterRequest.class)))
+                .thenReturn(SmsSendResult.failure("CONNECT_FAILED", "not reached"));
+        SmsSendRecord otp = prepared();
+        otp.setCategory(MessageCategory.OTP);
+
+        processor.deliver(otp, 3L);
+
+        verify(sendFailureHandler).handle(eq("sms"), eq("twilio"), eq(7L), eq(3L), eq(0),
+                eq("CONNECT_FAILED"), eq("not reached"), eq(false), any(SendFailureHandler.RecordTransitions.class));
+    }
+
+    @Test
+    void anUnexpectedAdapterExceptionMayHaveBeenSent() {
+        when(dispatcher.resolveProviderById(20L)).thenReturn(config());
+        when(adapter.send(any(), any(SmsAdapterRequest.class))).thenThrow(new IllegalStateException("boom"));
+
+        processor.deliver(prepared(), 3L);
+
+        verify(sendFailureHandler).handle(eq("sms"), eq("twilio"), eq(7L), eq(3L), eq(0),
+                eq("OUTCOME_UNKNOWN"), eq("boom"), eq(true), any(SendFailureHandler.RecordTransitions.class));
     }
 
     @Test
@@ -218,7 +243,7 @@ class SmsDeliveryProcessorTest {
         processor.deliver(fresh(), 3L);
 
         verify(sendFailureHandler).handle(eq("sms"), isNull(), eq(7L), eq(3L), eq(0),
-                eq("CONFIG_NOT_RESOLVABLE"), contains("No SMS provider"), any(SendFailureHandler.RecordTransitions.class));
+                eq("CONFIG_NOT_RESOLVABLE"), contains("No SMS provider"), eq(true), any(SendFailureHandler.RecordTransitions.class));
         verifyNoInteractions(quotaGuard, adapterFactory);
         verify(recordService, never()).markPrepared(any(), anyLong());
     }
@@ -231,7 +256,7 @@ class SmsDeliveryProcessorTest {
         processor.deliver(fresh(), 3L);
 
         verify(sendFailureHandler).handle(eq("sms"), isNull(), eq(7L), eq(3L), eq(0),
-                eq("TEMPLATE_NOT_RESOLVABLE"), contains("No SMS template"), any(SendFailureHandler.RecordTransitions.class));
+                eq("TEMPLATE_NOT_RESOLVABLE"), contains("No SMS template"), eq(true), any(SendFailureHandler.RecordTransitions.class));
         verifyNoInteractions(routingPlanner, quotaGuard, adapterFactory);
     }
 
@@ -351,7 +376,7 @@ class SmsDeliveryProcessorTest {
         processor.deliver(fresh(), 3L);
 
         verify(sendFailureHandler).handle(eq("sms"), isNull(), eq(7L), eq(3L), eq(0),
-                eq("MONTHLY_QUOTA_EXCEEDED"), contains("quota"), any(SendFailureHandler.RecordTransitions.class));
+                eq("MONTHLY_QUOTA_EXCEEDED"), contains("quota"), eq(true), any(SendFailureHandler.RecordTransitions.class));
         verify(recordService, never()).markPrepared(any(), anyLong());
         verifyNoInteractions(adapterFactory);
     }
@@ -370,7 +395,7 @@ class SmsDeliveryProcessorTest {
         processor.deliver(fresh(), 3L);
 
         verify(sendFailureHandler).handle(eq("sms"), isNull(), eq(7L), eq(3L), eq(0),
-                eq("DAILY_QUOTA_EXCEEDED"), contains("today"), any(SendFailureHandler.RecordTransitions.class));
+                eq("DAILY_QUOTA_EXCEEDED"), contains("today"), eq(true), any(SendFailureHandler.RecordTransitions.class));
         verify(recordService, never()).markPrepared(any(), anyLong());
         verifyNoInteractions(adapterFactory);
     }
@@ -391,7 +416,7 @@ class SmsDeliveryProcessorTest {
         processor.deliver(fresh(), 3L);
 
         verify(sendFailureHandler).handle(eq("sms"), isNull(), eq(7L), eq(3L), eq(0),
-                isNull(), contains("try again"), any(SendFailureHandler.RecordTransitions.class));
+                isNull(), contains("try again"), eq(true), any(SendFailureHandler.RecordTransitions.class));
         verify(recordService, never()).markPrepared(any(), anyLong());
         verifyNoInteractions(adapterFactory);
     }

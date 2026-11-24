@@ -21,6 +21,7 @@ import io.softa.starter.message.mail.enums.MailSendStatus;
 import io.softa.starter.message.mail.service.MailSendRecordService;
 import io.softa.starter.message.mail.smtp.SmtpMailTransport;
 import io.softa.starter.message.shared.ErrorCategory;
+import io.softa.starter.message.shared.ErrorClassifier;
 import io.softa.starter.message.shared.retry.ExponentialBackoffPolicy;
 import io.softa.starter.message.shared.retry.SendFailureHandler;
 import io.softa.starter.message.sms.entity.SmsSendRecord;
@@ -44,6 +45,12 @@ import io.softa.starter.message.sms.service.SmsSendRecordService;
  * refuses to start when a channel's transport timeouts would let one run past it
  * (see the constructor): a send that is only slow would otherwise be revived while
  * still in flight and sent twice.
+ * <p>
+ * An SMS is not revived. A text stuck in {@code SENDING} may already be on the phone — the provider
+ * accepted it and only the bookkeeping failed, or the call was cut off after it arrived — and a second
+ * copy (a second sign-in code) is worse than a missing one, which shows as FAILED and is Retried by hand.
+ * The sweep fails it as {@link ErrorClassifier#OUTCOME_UNKNOWN} through the failure handler, which logs
+ * it at ERROR. Mail is revived as before.
  * <p>
  * Each revival counts as a retry, and the budget is checked here too: a record
  * whose retries are already used up is dead-lettered instead of revived. An
@@ -74,6 +81,8 @@ public class ZombieRecordSweeper {
     private static final String EXHAUSTED_CODE = "ZOMBIE_EXHAUSTED";
     private static final String EXHAUSTED_MESSAGE =
             "Stale SENDING with the retry budget used up; not revived again";
+    private static final String STUCK_SMS_MESSAGE =
+            "Stuck in SENDING: the provider may already have sent it; check before Retrying";
 
     private final MailSendRecordService mailSendRecordService;
     private final SmsSendRecordService smsSendRecordService;
@@ -123,9 +132,9 @@ public class ZombieRecordSweeper {
     public void sweep() {
         LocalDateTime threshold = LocalDateTime.now().minus(STALE_AFTER);
         int mail = sweepMail(threshold);
-        int sms = sweepSms(threshold);
-        if (mail + sms > 0) {
-            log.info("ZombieRecordSweeper: revived mail={} sms={}", mail, sms);
+        sweepSms(threshold);
+        if (mail > 0) {
+            log.info("ZombieRecordSweeper: revived mail={}", mail);
         }
     }
 
@@ -149,26 +158,20 @@ public class ZombieRecordSweeper {
         return revived;
     }
 
-    private int sweepSms(LocalDateTime threshold) {
+    /** Fail every stale SMS record instead of reviving it (see the class comment). */
+    private void sweepSms(LocalDateTime threshold) {
         List<SmsSendRecord> rows = smsSendRecordService.searchList(smsQuery(threshold));
-        int revived = 0;
         for (SmsSendRecord row : rows) {
-            int retries = attempts(row.getRetryCount());
-            if (retries >= ExponentialBackoffPolicy.MAX_ATTEMPTS) {
-                String provider = row.getProviderType() != null
-                        ? row.getProviderType().name().toLowerCase() : null;
-                inTenantContext(row.getTenantId(), () -> sendFailureHandler.deadLetter(
-                        "sms", provider, row.getId(), version(row.getVersion()), retries,
-                        EXHAUSTED_CODE, EXHAUSTED_MESSAGE, ErrorCategory.UNKNOWN,
-                        smsSendRecordService::markDeadLetter));
-                continue;
-            }
-            boolean ok = inTenantContext(row.getTenantId(),
-                    () -> smsSendRecordService.markRetry(row.getId(), version(row.getVersion()),
-                            ZOMBIE_CODE, ZOMBIE_MESSAGE, LocalDateTime.now()));
-            if (ok) revived++;
+            String provider = row.getProviderType() != null
+                    ? row.getProviderType().name().toLowerCase() : null;
+            inTenantContext(row.getTenantId(), () -> {
+                sendFailureHandler.handle("sms", provider, row.getId(), version(row.getVersion()),
+                        attempts(row.getRetryCount()), ErrorClassifier.OUTCOME_UNKNOWN, STUCK_SMS_MESSAGE,
+                        new SendFailureHandler.RecordTransitions(smsSendRecordService::markRetry,
+                                smsSendRecordService::markFailed, smsSendRecordService::markDeadLetter));
+                return true;
+            });
         }
-        return revived;
     }
 
     /** Run one revive or dead-letter inside the record's tenant context (see {@link #sweep()}). */

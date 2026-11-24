@@ -80,4 +80,19 @@ class ExponentialBackoffPolicyTest {
         RetryDecision decision = policy.decide(0, ErrorCategory.PERMANENT);
         assertInstanceOf(RetryDecision.Fail.class, decision);
     }
+
+    @Test
+    void anOutcomeNotKnownFailsRatherThanSendingTwice() {
+        assertInstanceOf(RetryDecision.Fail.class, policy.decide(0, ErrorCategory.OUTCOME_UNKNOWN));
+    }
+
+    @Test
+    void withRetriesNotAllowedARetryableFailureFails() {
+        assertInstanceOf(RetryDecision.Fail.class, policy.decide(0, ErrorCategory.TRANSIENT, false));
+        assertInstanceOf(RetryDecision.Fail.class, policy.decide(0, ErrorCategory.QUOTA, false));
+        assertInstanceOf(RetryDecision.Fail.class, policy.decide(0, ErrorCategory.UNKNOWN, false));
+        // The other dispositions are unchanged.
+        assertInstanceOf(RetryDecision.Fail.class, policy.decide(0, ErrorCategory.CONFIG, false));
+        assertInstanceOf(RetryDecision.Retry.class, policy.decide(0, ErrorCategory.TRANSIENT, true));
+    }
 }
