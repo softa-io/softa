@@ -94,24 +94,65 @@ class CmSmsAdapterTest {
         Assertions.assertTrue(result.isSuccess());
     }
 
+    /** The success answer as CM documents its fields: details and messages are there on success too. */
+    private static final String ACCEPTED = """
+            {"details": "Created 1 message(s)", "errorCode": 0, "messages": [
+              {"to": "0065912345678", "status": "Accepted", "reference": null, "parts": 1,
+               "messageDetails": null, "messageErrorCode": 0}]}
+            """;
+
     @Test
-    void sendFailsWhenResponseContainsDetails() {
-        SmsProviderConfig config = createConfig();
-        String expectedUrl = "https://gw.cmtelecom.com/v1.0/message";
+    void theDocumentedSuccessAnswerIsAccepted() {
+        mockServer.expect(requestTo("https://gw.cmtelecom.com/v1.0/message"))
+                .andRespond(withSuccess(ACCEPTED, MediaType.APPLICATION_JSON));
 
-        mockServer.expect(requestTo(expectedUrl))
-                .andExpect(method(HttpMethod.POST))
-                .andRespond(withSuccess(
-                        """
-                        {"details": "Invalid product token"}
-                        """,
-                        MediaType.APPLICATION_JSON));
-
-        SmsSendResult result = adapter.send(config, request("+8613800138000", "Hello", null, null, null));
+        SmsSendResult result = adapter.send(createConfig(), request("+6591234567", "Hello", null, null, null));
 
         mockServer.verify();
+        Assertions.assertTrue(result.isSuccess());
+    }
+
+    @Test
+    void theSuccessAnswerAsAListIsAcceptedToo() {
+        mockServer.expect(requestTo("https://gw.cmtelecom.com/v1.0/message"))
+                .andRespond(withSuccess("[" + ACCEPTED + "]", MediaType.APPLICATION_JSON));
+
+        SmsSendResult result = adapter.send(createConfig(), request("+6591234567", "Hello", null, null, null));
+
+        Assertions.assertTrue(result.isSuccess());
+    }
+
+    @Test
+    void aMessageTheAnswerSaysWasRejectedFails() {
+        mockServer.expect(requestTo("https://gw.cmtelecom.com/v1.0/message"))
+                .andRespond(withSuccess("""
+                        {"details": "Created 0 message(s)", "errorCode": 0, "messages": [
+                          {"to": "0065912345678", "status": "Rejected", "parts": 0,
+                           "messageDetails": "Invalid recipient", "messageErrorCode": 302}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        SmsSendResult result = adapter.send(createConfig(), request("+6591234567", "Hello", null, null, null));
+
         Assertions.assertFalse(result.isSuccess());
-        Assertions.assertEquals("Invalid product token", result.getErrorMessage());
+        Assertions.assertEquals("CM: Invalid recipient", result.getErrorMessage());
+    }
+
+    @Test
+    void theDocumentedRefusalIsClassifiedByItsStatusAndSaysWhy() {
+        mockServer.expect(requestTo("https://gw.cmtelecom.com/v1.0/message"))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                              {"details": "Created 0 message(s)", "errorCode": 201, "messages": [
+                                {"to": "00447911123456", "status": "Rejected", "reference": "", "parts": 0,
+                                 "messageDetails": "Request is missing a body with content", "messageErrorCode": 304}]}
+                              """));
+
+        SmsSendResult result = adapter.send(createConfig(), request("+447911123456", "", null, null, null));
+
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals("HTTP_400", result.getErrorCode());
+        Assertions.assertEquals("CM: Request is missing a body with content", result.getErrorMessage());
     }
 
     @Test
@@ -146,7 +187,8 @@ class CmSmsAdapterTest {
         SmsSendResult result = adapter.send(config, request("+8613800138000", "Hello", null, null, null));
 
         Assertions.assertFalse(result.isSuccess());
-        Assertions.assertEquals("Authentication failed", result.getErrorMessage());
+        Assertions.assertEquals("HTTP_401", result.getErrorCode());
+        Assertions.assertEquals("CM: Authentication failed", result.getErrorMessage());
     }
 
     @Test
