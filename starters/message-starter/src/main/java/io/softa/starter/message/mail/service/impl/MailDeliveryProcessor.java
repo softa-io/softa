@@ -289,10 +289,20 @@ public class MailDeliveryProcessor {
      * (see the catch below).
      */
     private void send(MailSendRecord record, long version, AbstractMailSendServer config) {
-        RateLimiter.Outcome quota = rateLimiter.tryAcquire("mail", config.getId(),
+        RateLimiter.Outcome window = rateLimiter.tryAcquire("mail", config.getId(),
                 config.getDailySendLimit(), config.getRateLimitPerMinute());
-        if (!quota.ok()) {
-            handleFailure(record, version, "QUOTA_EXCEEDED", "Rate limit: " + quota.name());
+        if (window == RateLimiter.Outcome.MINUTE_EXCEEDED) {
+            // Not a failure: the window opens again within a minute, so no retry is spent.
+            if (!recordService.markDeferred(record.getId(), version, window.errorCode(),
+                    "Mail server " + config.getId() + " reached its per-minute rate limit; deferred",
+                    RateLimiter.nextMinuteWindow())) {
+                log.debug("MailDeliveryProcessor: record id={} changed before it could be deferred", record.getId());
+            }
+            return;
+        }
+        if (!window.ok()) {
+            handleFailure(record, version, window.errorCode(), "Mail server " + config.getId()
+                    + " reached its daily send limit; it lifts tomorrow");
             return;
         }
 

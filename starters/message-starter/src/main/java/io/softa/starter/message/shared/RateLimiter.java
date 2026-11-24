@@ -3,7 +3,9 @@ package io.softa.starter.message.shared;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -33,13 +35,19 @@ import io.softa.framework.orm.service.CacheService;
  * share one budget.
  * <p>
  * Semantics: {@code tryAcquire} atomically consumes one token only when both
- * windows still have headroom, returns the exceeded window otherwise. The
- * caller decides what to do (fail synchronously, mark the record QUOTA-failed
- * and retry later, etc.).
+ * windows still have headroom, returns the exceeded window otherwise. The two
+ * are handled differently by the delivery processors: the day's window lifts
+ * tomorrow, so the record fails ({@link ErrorClassifier#SEND_LIMIT_DAILY_EXCEEDED});
+ * the minute's lifts within a minute, so the record is put off to
+ * {@link #nextMinuteWindow()} without spending a retry
+ * ({@link ErrorClassifier#SEND_LIMIT_MINUTE_EXCEEDED}).
  */
 @Slf4j
 @Component
 public class RateLimiter {
+
+    /** The most a send put off by the per-minute window is spread past the window's start. */
+    static final int DEFER_SPREAD_SECONDS = 10;
 
     private static final DateTimeFormatter MINUTE_FMT =
             DateTimeFormatter.ofPattern("yyyyMMddHHmm");
@@ -129,6 +137,16 @@ public class RateLimiter {
         return Outcome.ALLOWED;
     }
 
+    /**
+     * When the per-minute window next opens: the start of the next wall-clock minute, the key the
+     * window counts under, plus up to {@link #DEFER_SPREAD_SECONDS} seconds so the records put off
+     * together do not all come due in the same instant.
+     */
+    public static LocalDateTime nextMinuteWindow() {
+        return LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES).plusMinutes(1)
+                .plusSeconds(ThreadLocalRandom.current().nextInt(DEFER_SPREAD_SECONDS + 1));
+    }
+
     private static int limit(Integer n) {
         return n != null ? n : 0;
     }
@@ -140,10 +158,19 @@ public class RateLimiter {
     }
 
     public enum Outcome {
-        ALLOWED,
-        DAILY_EXCEEDED,
-        MINUTE_EXCEEDED;
+        ALLOWED(null),
+        DAILY_EXCEEDED(ErrorClassifier.SEND_LIMIT_DAILY_EXCEEDED),
+        MINUTE_EXCEEDED(ErrorClassifier.SEND_LIMIT_MINUTE_EXCEEDED);
+
+        /** The error code a send stopped by this window is recorded with. */
+        private final String errorCode;
+
+        Outcome(String errorCode) {
+            this.errorCode = errorCode;
+        }
 
         public boolean ok() { return this == ALLOWED; }
+
+        public String errorCode() { return errorCode; }
     }
 }

@@ -271,7 +271,9 @@ own bucket). The per-config `dailySendLimit` / `rateLimitPerMinute`
 windows are a different axis — delivery-time infrastructure protection, counted
 per server or provider config across every tenant it carries (a platform server
 relaying for many tenants stops at its own daily limit, not at that limit once
-per tenant). A send over one of them is retried later rather than failed.
+per tenant). A send over the per-minute window is put off to the next minute
+without spending a retry; one over the daily window fails, as the tenant's daily
+cap does (*Rate limits*).
 
 ### Async delivery (the only delivery model)
 
@@ -1588,11 +1590,28 @@ handler for that type, so its `getContent()` is a raw stream.
 - `rate_limit_per_minute` — sends per minute (smooths bursts)
 
 Either can be left null/zero to disable that window. Counters live in Redis
-(`rl:{channel}:{daily|min}:{tenantId}:{configId}:{window}`), so multi-instance
-deployments share one budget. A quota breach surfaces as a provider-side
-`QUOTA_EXCEEDED` error, classified as `ErrorCategory.QUOTA` — the retry policy
-waits at least 5 minutes before the next attempt so we don't hammer the
-provider.
+(`rl:{channel}:{daily|min}:{configId}:{window}`, the window being the calendar
+day or the wall-clock minute), so multi-instance deployments share one budget.
+
+A limit is handled by when it lifts. Six kinds stop a send:
+
+| Limit | Set by | Code | Handling |
+|---|---|---|---|
+| Tenant's daily cap | platform, per tenant (`TenantMessageQuota`) | `DAILY_QUOTA_EXCEEDED` | FAILED (CONFIG) — lifts tomorrow |
+| Tenant's monthly allowance | platform, per tenant | `MONTHLY_QUOTA_EXCEEDED` | FAILED (CONFIG) — lifts next month |
+| Server's / provider config's `daily_send_limit` | the config (`RateLimiter`) | `SEND_LIMIT_DAILY_EXCEEDED` | FAILED (CONFIG) — lifts tomorrow |
+| Server's / provider config's `rate_limit_per_minute` | the config (`RateLimiter`) | `SEND_LIMIT_MINUTE_EXCEEDED` | deferred: RETRY, due at the next minute (plus up to 10 s of spread), `retry_count` unchanged (`markDeferred`) |
+| The provider's throttling | the provider: HTTP 429, Aliyun `Throttling.User` (per second), `isv.BUSINESS_LIMIT_CONTROL` (per number) | as answered | QUOTA — retried, at least 5 minutes apart |
+| The provider's daily limit | the provider: Aliyun `isv.DAY_LIMIT_CONTROL`, `DayLimitControl` | as answered | FAILED (CONFIG) — lifts tomorrow |
+
+The per-minute window is not a failure: it opens again within a minute, so a
+batch larger than a minute's allowance drains over the following minutes
+instead of spending — and, past five, exhausting — its records' retries. A
+deferred one-time code waits too; a minute is well inside its five. Retrying a
+daily limit within the retry schedule's quarter hour cannot succeed, so those
+fail at once and say so; Retry them the next day or after raising the limit.
+An unrecognized provider code with LIMIT, QUOTA or THROTTL in it is still read as
+QUOTA.
 
 ### Zombie record sweeper
 
@@ -1712,6 +1731,8 @@ Failed sends are retried by `ExponentialBackoffPolicy` — exponential back-off 
 30 s, 60 s, 120 s, 240 s and 480 s, each ±50% jitter. The error category from
 `ErrorClassifier` decides the disposition: TRANSIENT / QUOTA / UNKNOWN retry
 (QUOTA waits at least 5 minutes) until five retries are used up and the record
-is dead-lettered, about a quarter of an hour after the first failure; PERMANENT / INVALID_INPUT / AUTH / CONFIG fail immediately
-without retry. `RetryDecision` is a sealed type (`Retry` / `Fail` / `DeadLetter`) so the
+is dead-lettered, about a quarter of an hour after the first failure; PERMANENT / INVALID_INPUT / AUTH / CONFIG
+and OUTCOME_UNKNOWN fail immediately without retry, and so does any failure of
+an `OTP` SMS. The per-minute rate limit is not a failure and is not retried
+but deferred (*Rate limits*). `RetryDecision` is a sealed type (`Retry` / `Fail` / `DeadLetter`) so the
 failure handler's `switch` stays exhaustive.

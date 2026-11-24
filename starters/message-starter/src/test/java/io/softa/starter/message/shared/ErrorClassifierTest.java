@@ -17,6 +17,10 @@ class ErrorClassifierTest {
         assertEquals(ErrorCategory.CONFIG, classifier.classify("isv.DOMESTIC_NUMBER_NOT_SUPPORTED", null));
         assertEquals(ErrorCategory.CONFIG, classifier.classify("isv.SMS_TEMPLATE_ILLEGAL", null));
         assertEquals(ErrorCategory.QUOTA, classifier.classify("isv.BUSINESS_LIMIT_CONTROL", null));
+        assertEquals(ErrorCategory.QUOTA, classifier.classify("Throttling.User", null));
+        // The account's daily limit lifts tomorrow: not retried.
+        assertEquals(ErrorCategory.CONFIG, classifier.classify("isv.DAY_LIMIT_CONTROL", null));
+        assertEquals(ErrorCategory.CONFIG, classifier.classify("DayLimitControl", null));
         assertEquals(ErrorCategory.INVALID_INPUT, classifier.classify("isv.MOBILE_NUMBER_ILLEGAL", null));
         assertEquals(ErrorCategory.PERMANENT, classifier.classify("isv.CUSTOMER_REFUSED", null));
         assertEquals(ErrorCategory.TRANSIENT, classifier.classify("isp.SYSTEM_ERROR", null));
@@ -41,6 +45,19 @@ class ErrorClassifierTest {
         assertEquals(ErrorCategory.CONFIG, classifier.classify(ErrorClassifier.MONTHLY_QUOTA_EXCEEDED, null));
         assertEquals(ErrorCategory.CONFIG, classifier.classify(ErrorClassifier.DAILY_QUOTA_EXCEEDED, null));
         assertEquals(ErrorCategory.INVALID_INPUT, classifier.classify(ErrorClassifier.CONTENT_INVALID, null));
+    }
+
+    @Test
+    void eachLimitType_isHandledByWhenItLifts() {
+        // Quotas the platform sets per tenant, and the server's or provider's own daily limit: tomorrow.
+        assertEquals(ErrorCategory.CONFIG, classifier.classify(ErrorClassifier.DAILY_QUOTA_EXCEEDED, null));
+        assertEquals(ErrorCategory.CONFIG, classifier.classify(ErrorClassifier.MONTHLY_QUOTA_EXCEEDED, null));
+        assertEquals(ErrorCategory.CONFIG,
+                classifier.classify(ErrorClassifier.SEND_LIMIT_DAILY_EXCEEDED, "Rate limit reached"));
+        // The per-minute window is deferred, not failed; should it be classified, it is a rate limit.
+        assertEquals(ErrorCategory.QUOTA, classifier.classify(ErrorClassifier.SEND_LIMIT_MINUTE_EXCEEDED, null));
+        // The provider's own throttling.
+        assertEquals(ErrorCategory.QUOTA, classifier.classify("HTTP_429", null));
     }
 
     @Test

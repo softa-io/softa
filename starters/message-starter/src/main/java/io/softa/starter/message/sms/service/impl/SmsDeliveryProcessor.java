@@ -175,6 +175,22 @@ public class SmsDeliveryProcessor {
     }
 
     private void send(SmsSendRecord record, long version, SmsProviderConfig config) {
+        RateLimiter.Outcome window = rateLimiter.tryAcquire("sms", config.getId(),
+                config.getDailySendLimit(), config.getRateLimitPerMinute());
+        if (window == RateLimiter.Outcome.MINUTE_EXCEEDED) {
+            // Not a failure: the window opens again within a minute, so no retry is spent.
+            if (!recordService.markDeferred(record.getId(), version, window.errorCode(),
+                    "Provider config " + config.getId() + " reached its per-minute rate limit; deferred",
+                    RateLimiter.nextMinuteWindow())) {
+                log.debug("SmsDeliveryProcessor: record id={} changed before it could be deferred", record.getId());
+            }
+            return;
+        }
+        if (!window.ok()) {
+            handleFailure(record, version, window.errorCode(), "Provider config " + config.getId()
+                    + " reached its daily send limit; it lifts tomorrow", config);
+            return;
+        }
         SendSmsDTO dto = rebuildDTO(record);
         AttemptResult r = trySend(dto, config, record.getPhoneNumber());
         if (!r.success()) {
@@ -196,12 +212,6 @@ public class SmsDeliveryProcessor {
     }
 
     private AttemptResult trySend(SendSmsDTO dto, SmsProviderConfig config, String phoneNumber) {
-        RateLimiter.Outcome quota = rateLimiter.tryAcquire("sms", config.getId(),
-                config.getDailySendLimit(), config.getRateLimitPerMinute());
-        if (!quota.ok()) {
-            return new AttemptResult(false, null, "QUOTA_EXCEEDED",
-                    "Rate limit: " + quota.name(), 0);
-        }
         try {
             SmsProviderAdapter adapter = adapterFactory.getAdapter(config.getProviderType());
             long started = System.nanoTime();

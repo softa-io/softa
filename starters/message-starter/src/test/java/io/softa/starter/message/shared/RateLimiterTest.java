@@ -1,5 +1,7 @@
 package io.softa.starter.message.shared;
 
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -91,6 +93,24 @@ class RateLimiterTest {
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
+    @Test
+    void eachWindowNamesTheCodeItIsRecordedWith() {
+        assertEquals(ErrorClassifier.SEND_LIMIT_DAILY_EXCEEDED, RateLimiter.Outcome.DAILY_EXCEEDED.errorCode());
+        assertEquals(ErrorClassifier.SEND_LIMIT_MINUTE_EXCEEDED, RateLimiter.Outcome.MINUTE_EXCEEDED.errorCode());
+    }
+
+    @Test
+    void theNextMinuteWindowOpensAtTheNextMinutePlusASpread() {
+        LocalDateTime before = LocalDateTime.now();
+        LocalDateTime nextMinute = before.truncatedTo(ChronoUnit.MINUTES).plusMinutes(1);
+
+        LocalDateTime at = RateLimiter.nextMinuteWindow();
+
+        assertTrue(!at.isBefore(nextMinute), at.toString());
+        // The minute may roll over between the two reads: allow one more.
+        assertTrue(!at.isAfter(nextMinute.plusMinutes(1).plusSeconds(RateLimiter.DEFER_SPREAD_SECONDS)), at.toString());
+    }
+
     private void redisResult(Long result) {
         doReturn(result).when(redisTemplate).execute(
                 any(DefaultRedisScript.class),

@@ -39,6 +39,14 @@ public interface SmsSendRecordService extends EntityService<SmsSendRecord, Long>
                       LocalDateTime nextRetryAt);
 
     /**
+     * Put a claimed record off to {@code nextRetryAt} without spending a retry: RETRY, {@code retryCount}
+     * unchanged. For a send held back by a window that lifts by itself (the per-minute rate limit), which is
+     * not a failure of the send.
+     */
+    boolean markDeferred(Long id, long expectedVersion, String errorCode, String errorMessage,
+                         LocalDateTime nextRetryAt);
+
+    /**
      * Manually requeue one record for delivery — the SMS mirror of
      * {@code MailSendRecordService#retry}: PENDING / RETRY / FAILED / DEAD_LETTER →
      * RETRY, due now; SENT / SENDING rejected.

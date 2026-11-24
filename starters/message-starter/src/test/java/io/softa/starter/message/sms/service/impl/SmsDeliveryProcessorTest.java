@@ -1,5 +1,6 @@
 package io.softa.starter.message.sms.service.impl;
 
+import java.time.LocalDateTime;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -130,14 +131,34 @@ class SmsDeliveryProcessorTest {
     }
 
     @Test
-    void rateLimitExceeded_isHandledWithoutSending() {
+    void thePerMinuteLimit_defersTheRecordWithoutSpendingARetry() {
+        when(dispatcher.resolveProviderById(20L)).thenReturn(config());
+        when(rateLimiter.tryAcquire(eq("sms"), eq(20L), any(), any())).thenReturn(RateLimiter.Outcome.MINUTE_EXCEEDED);
+        when(recordService.markDeferred(anyLong(), anyLong(), any(), any(), any())).thenReturn(true);
+        SmsSendRecord otp = prepared();
+        // Even a one-time code waits for the window: a minute is well inside its five.
+        otp.setCategory(MessageCategory.OTP);
+        LocalDateTime before = LocalDateTime.now();
+
+        processor.deliver(otp, 3L);
+
+        verify(recordService).markDeferred(eq(7L), eq(3L), eq("SEND_LIMIT_MINUTE_EXCEEDED"), contains("per-minute"),
+                argThat(at -> at.isAfter(before) && at.isBefore(before.plusSeconds(75))));
+        verifyNoInteractions(sendFailureHandler);
+        verify(adapter, never()).send(any(), any());
+    }
+
+    @Test
+    void theDailyLimit_failsTheRecordThroughTheFailureHandler() {
         when(dispatcher.resolveProviderById(20L)).thenReturn(config());
         when(rateLimiter.tryAcquire(eq("sms"), eq(20L), any(), any())).thenReturn(RateLimiter.Outcome.DAILY_EXCEEDED);
 
         processor.deliver(prepared(), 3L);
 
         verify(sendFailureHandler).handle(eq("sms"), eq("twilio"), eq(7L), eq(3L), eq(0),
-                eq("QUOTA_EXCEEDED"), contains("Rate limit"), eq(true), any(SendFailureHandler.RecordTransitions.class));
+                eq("SEND_LIMIT_DAILY_EXCEEDED"), contains("daily send limit"), eq(true),
+                any(SendFailureHandler.RecordTransitions.class));
+        verify(recordService, never()).markDeferred(anyLong(), anyLong(), any(), any(), any());
         verify(adapter, never()).send(any(), any());
     }
 

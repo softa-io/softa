@@ -28,6 +28,19 @@ public class ErrorClassifier {
     /** The bucket the send is charged to has reached today's cap; it starts again tomorrow. */
     public static final String DAILY_QUOTA_EXCEEDED = "DAILY_QUOTA_EXCEEDED";
 
+    /**
+     * The mail server or SMS provider config has reached its own {@code dailySendLimit} ({@link RateLimiter});
+     * the window is the calendar day, so it is not retried.
+     */
+    public static final String SEND_LIMIT_DAILY_EXCEEDED = "SEND_LIMIT_DAILY_EXCEEDED";
+
+    /**
+     * The mail server or SMS provider config has reached its own {@code rateLimitPerMinute}
+     * ({@link RateLimiter}). Not a failure: the record is put off to the next minute without spending a
+     * retry ({@code markDeferred}). Classified QUOTA should it ever reach the failure handler.
+     */
+    public static final String SEND_LIMIT_MINUTE_EXCEEDED = "SEND_LIMIT_MINUTE_EXCEEDED";
+
     /** The prepared content cannot go out: empty, over the size cap, or a malformed Reply-To. */
     public static final String CONTENT_INVALID = "CONTENT_INVALID";
 
@@ -121,11 +134,13 @@ public class ErrorClassifier {
             Map.entry("isv.SMS_TEST_NUMBER_LIMIT", ErrorCategory.CONFIG),
             Map.entry("isv.SMS_TEST_SIGN_TEMPLATE_LIMIT", ErrorCategory.CONFIG),
             Map.entry("isv.SMS_TEST_TEMPLATE_PARAMS_ILLEGAL", ErrorCategory.CONFIG),
-            // Rate limits: per number (BUSINESS_LIMIT_CONTROL), per day, per second.
+            // Rate limits that lift within minutes: per number (BUSINESS_LIMIT_CONTROL, its minute level at
+            // least) and per second (Throttling.User) — retried, at least five minutes apart.
             Map.entry("isv.BUSINESS_LIMIT_CONTROL", ErrorCategory.QUOTA),
-            Map.entry("isv.DAY_LIMIT_CONTROL", ErrorCategory.QUOTA),
-            Map.entry("DayLimitControl", ErrorCategory.QUOTA),
             Map.entry("Throttling.User", ErrorCategory.QUOTA),
+            // The account's daily limit: it lifts tomorrow, so retrying within the quarter hour is no use.
+            Map.entry("isv.DAY_LIMIT_CONTROL", ErrorCategory.CONFIG),
+            Map.entry("DayLimitControl", ErrorCategory.CONFIG),
             // The number or the content.
             Map.entry("InvalidParameter.To", ErrorCategory.INVALID_INPUT),
             Map.entry("InvalidParam.PhoneNumber", ErrorCategory.INVALID_INPUT),
@@ -181,8 +196,12 @@ public class ErrorClassifier {
         if (code.equals(CONFIG_NOT_RESOLVABLE)
                 || code.equals(TEMPLATE_NOT_RESOLVABLE)
                 || code.equals(MONTHLY_QUOTA_EXCEEDED)
-                || code.equals(DAILY_QUOTA_EXCEEDED)) {
+                || code.equals(DAILY_QUOTA_EXCEEDED)
+                || code.equals(SEND_LIMIT_DAILY_EXCEEDED)) {
             return ErrorCategory.CONFIG;
+        }
+        if (code.equals(SEND_LIMIT_MINUTE_EXCEEDED)) {
+            return ErrorCategory.QUOTA;
         }
         if (code.equals(CONTENT_INVALID)) {
             return ErrorCategory.INVALID_INPUT;

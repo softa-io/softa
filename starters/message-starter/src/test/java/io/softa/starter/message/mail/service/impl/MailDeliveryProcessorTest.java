@@ -1,5 +1,6 @@
 package io.softa.starter.message.mail.service.impl;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -46,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
@@ -177,14 +179,30 @@ class MailDeliveryProcessorTest {
     }
 
     @Test
-    void rateLimitExceeded_isHandledWithoutSending() {
+    void thePerMinuteLimit_defersTheRecordWithoutSpendingARetry() {
         when(dispatcher.resolveSendById(MailServerOwner.TENANT, 10L)).thenReturn(tenant(10L));
         when(rateLimiter.tryAcquire(eq("mail"), eq(10L), any(), any())).thenReturn(RateLimiter.Outcome.MINUTE_EXCEEDED);
+        when(recordService.markDeferred(anyLong(), anyLong(), any(), any(), any())).thenReturn(true);
+        LocalDateTime before = LocalDateTime.now();
+
+        processor.deliver(prepared(), 4L);
+
+        verify(recordService).markDeferred(eq(5L), eq(4L), eq("SEND_LIMIT_MINUTE_EXCEEDED"), contains("per-minute"),
+                argThat(at -> at.isAfter(before) && at.isBefore(before.plusSeconds(75))));
+        verifyNoInteractions(sendFailureHandler);
+        verify(smtpMailTransport, never()).send(any(), any());
+    }
+
+    @Test
+    void theDailyLimit_failsTheRecordThroughTheFailureHandler() {
+        when(dispatcher.resolveSendById(MailServerOwner.TENANT, 10L)).thenReturn(tenant(10L));
+        when(rateLimiter.tryAcquire(eq("mail"), eq(10L), any(), any())).thenReturn(RateLimiter.Outcome.DAILY_EXCEEDED);
 
         processor.deliver(prepared(), 4L);
 
         verify(sendFailureHandler).handle(eq("mail"), eq(SmtpMailTransport.NAME), eq(5L), eq(4L), eq(0),
-                eq("QUOTA_EXCEEDED"), contains("Rate limit"), any(SendFailureHandler.RecordTransitions.class));
+                eq("SEND_LIMIT_DAILY_EXCEEDED"), contains("daily send limit"), any(SendFailureHandler.RecordTransitions.class));
+        verify(recordService, never()).markDeferred(anyLong(), anyLong(), any(), any(), any());
         verify(smtpMailTransport, never()).send(any(), any());
     }
 
