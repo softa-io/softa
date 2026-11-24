@@ -121,6 +121,25 @@ class EndpointIndexStandardDerivationTest {
     }
 
     @Test
+    void viewDerivedThroughARelation_countsAsAViewOnTheRelatedModel() {
+        // A leave view reaches the employee picker it needs (L1 lookup). That read is a view on Employee
+        // for whoever asks "may this caller view employees" — the dynamic-role preview among them — as the
+        // endpoint gate lets the same holder read /Employee/searchName.
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            mm.when(() -> ModelManager.existModel("EmpLeave")).thenReturn(true);
+            mm.when(() -> ModelManager.existModel("Employee")).thenReturn(true);
+            mm.when(() -> ModelManager.getModelFields("EmpLeave"))
+                    .thenReturn(List.of(field("employeeId", FieldType.MANY_TO_ONE, "Employee")));
+            mm.when(() -> ModelManager.getModelFields("Employee")).thenReturn(List.of());
+
+            EndpointIndex idx = build(List.of(derivedPerm("leave.view", "EmpLeave")));
+
+            assertThat(idx.lookup("/Employee/searchName", "POST")).contains("leave.view");
+            assertThat(idx.modelActionPermissions("Employee", "view")).contains("leave.view");
+        }
+    }
+
+    @Test
     void deleteAction_noLookupDerivation() {
         // delete / export / copy actions do NOT trigger L1 lookup derivation —
         // they only register their own endpoints.

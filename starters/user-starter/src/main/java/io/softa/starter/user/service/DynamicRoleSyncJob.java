@@ -1,5 +1,12 @@
 package io.softa.starter.user.service;
 
+import java.util.List;
+import java.util.Set;
+
+import tools.jackson.databind.JsonNode;
+
+import io.softa.starter.user.dto.DynamicMembersPreview;
+
 /**
  * Re-evaluates role.dynamic_filter for every active role and synchronizes
  * the user_role table (source=DYNAMIC rows only). Runs on a Spring cron
@@ -67,4 +74,53 @@ public interface DynamicRoleSyncJob {
      * @return count of inserts + deletes performed
      */
     int syncMembershipForUser(Long tenantId, Long userId);
+
+    /**
+     * Who a dynamic rule would grant, without writing anything: the members a sync of a role with this
+     * rule would write — employees the rule matches whose account is Active — within the caller's own
+     * data scope, counted, and a page of them listed in employee id order, each read with
+     * {@code fields}.
+     *
+     * <p>Lets an editor show the result of a rule before it is saved, worked out by the same code that
+     * writes the grants, so the two cannot disagree on the people the caller can see. Runs under the
+     * caller's {@code Context.tenantId}. Members outside the caller's data scope are neither listed nor
+     * counted: a count over people the caller cannot see answers, one question at a time, what the rule
+     * tests about them. A caller who may not read employees at all is refused.
+     *
+     * <p>A rule testing a field the caller cannot see on every employee is refused, as by
+     * {@link #assertRuleSeenByCaller}.
+     *
+     * @param dynamicFilter the rule, in the form {@code Role.dynamicFilter} stores it; null or not an
+     *                      array matches nobody
+     * @param fields        the Employee fields to read for each member; the id is always read
+     */
+    DynamicMembersPreview previewMembers(JsonNode dynamicFilter, List<String> fields,
+                                         Integer pageNumber, Integer pageSize);
+
+    /**
+     * Refuse a membership rule that tests a field the caller cannot see on every employee — a
+     * sensitive field no role of theirs grants, or one granted on only some employees.
+     *
+     * <p>A rule is matched across the whole tenant, past the caller's range, so the guard that keeps
+     * such a condition to the rows the caller sees the field on cannot apply: run as written, it
+     * would sort every employee by a value the caller is never shown, and the member count would say
+     * how many lie on each side. Nothing for an admin, a system context, or an application without
+     * field guards.
+     *
+     * @param dynamicFilter the rule, in the form {@code Role.dynamicFilter} stores it
+     * @throws io.softa.framework.orm.service.validation.WriteValidationException one sentence per field,
+     *         each naming the field by its label
+     */
+    void assertRuleSeenByCaller(JsonNode dynamicFilter);
+
+    /**
+     * The Employee fields {@code dynamicFilter} tests that the caller cannot see on every employee — what
+     * {@link #assertRuleSeenByCaller} refuses — in the order they are met; empty when there are none,
+     * when the rule is empty, and for an admin, a system context or an application without field guards.
+     * For a check that reports the refusal its own way, such as a write validator on {@code Role}.
+     *
+     * @param dynamicFilter the rule, in the form {@code Role.dynamicFilter} stores it
+     * @return the fields, by name
+     */
+    Set<String> ruleFieldsNotSeenByCaller(JsonNode dynamicFilter);
 }

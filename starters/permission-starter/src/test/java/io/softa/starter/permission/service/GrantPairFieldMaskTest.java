@@ -332,6 +332,98 @@ class GrantPairFieldMaskTest {
     }
 
     @Test
+    @DisplayName("a condition on pay, seen on some rows only, is named as not seen everywhere")
+    void aConditionOnAPerRowFieldIsNotSeenEverywhere() {
+        holdTheExampleRoles();
+        Filters condition = Filters.and(
+                Filters.of("name", Operator.EQUAL, "E1"),
+                Filters.of("basePay", Operator.GREATER_THAN, 5000));
+
+        assertThat(as(() -> service.conditionFieldsNotSeenEverywhere("Employee", condition)))
+                .containsExactly("basePay");
+    }
+
+    @Test
+    @DisplayName("a condition on a field no role grants is named as not seen everywhere")
+    void aConditionOnAnUngrantedFieldIsNotSeenEverywhere() {
+        pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
+
+        assertThat(as(() -> service.conditionFieldsNotSeenEverywhere("Employee",
+                Filters.of("basePay", Operator.GREATER_THAN, 5000)))).containsExactly("basePay");
+    }
+
+    @Test
+    @DisplayName("conditions on pay granted on every row, and on ordinary fields, are seen everywhere")
+    void conditionsSeenOnEveryRowAreNotNamed() {
+        pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, true)));
+        Filters condition = Filters.and(
+                Filters.of("name", Operator.EQUAL, "E1"),
+                Filters.of("basePay", Operator.GREATER_THAN, 5000));
+
+        assertThat(as(() -> service.conditionFieldsNotSeenEverywhere("Employee", condition))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a membership rule read in the caller's scope cannot reach someone outside it, even on a field the role grants")
+    void aRuleReadInTheCallersScopeLeavesOutsidersOut() {
+        // One role: its own department (10), pay granted. The dynamic-role preview sends the rule as it
+        // is, read with the caller's permissions; nothing but the row scope stands between it and the
+        // people outside department 10.
+        pi.setRoleGrants(List.of(role(2, Set.of(VIEW), ScopeType.MANAGED_DEPARTMENTS, null, true)));
+        Map<String, Object> outsider = Map.of("id", 906L, "departmentId", 20L, "basePay", 9000, "userId", 96L);
+        Map<String, Object> insider = Map.of("id", 101L, "departmentId", 10L, "basePay", 9000, "userId", 1L);
+
+        // The field check lets the probe through: pay is granted on every row this role reads.
+        assertThat(as(() -> service.conditionFieldsNotSeenEverywhere("Employee", probe(906L)))).isEmpty();
+
+        Filters aboutTheOutsider = as(() -> service.appendScopeAccessFilters("Employee", probe(906L)));
+        Filters aboutTheInsider = as(() -> service.appendScopeAccessFilters("Employee", probe(101L)));
+
+        assertThat(holds(aboutTheOutsider, outsider)).isFalse();
+        // Narrowed, not blanked: the same question about someone in scope is still answered.
+        assertThat(holds(aboutTheInsider, insider)).isTrue();
+    }
+
+    @Test
+    @DisplayName("a caller whose roles hold no employee view may not read employees; a narrow view may")
+    void employeeViewIsAskedOfTheGrantsAsTheEndpointGateAsks() {
+        // Roles only: the dynamic-role preview refuses this caller rather than show them "0".
+        // The snapshot carries the union of the roles' permissions beside the roles themselves.
+        pi.setRoleGrants(List.of(role(7, Set.of("permission.users.roles.view"), ScopeType.ALL, null, false)));
+        pi.setPermissions(new HashSet<>(Set.of("permission.users.roles.view")));
+        assertThat(as(() -> service.hasModelActionGrant("Employee", io.softa.framework.orm.enums.AccessType.READ)))
+                .isFalse();
+
+        // A view on one department is a view: the preview runs, counting within that department
+        // (aRuleReadInTheCallersScopeLeavesOutsidersOut).
+        pi.setRoleGrants(List.of(role(2, Set.of(VIEW), ScopeType.MANAGED_DEPARTMENTS, null, true)));
+        pi.setPermissions(new HashSet<>(Set.of(VIEW)));
+        assertThat(as(() -> service.hasModelActionGrant("Employee", io.softa.framework.orm.enums.AccessType.READ)))
+                .isTrue();
+
+        // A tenant admin holds no permission rows and is let through, as the endpoint gate lets them.
+        pi.setRoleGrants(List.of());
+        pi.setPermissions(new HashSet<>());
+        pi.setRoleCodes(new HashSet<>(Set.of(PermissionInfo.CODE_TENANT_ADMIN)));
+        assertThat(as(() -> service.hasModelActionGrant("Employee", io.softa.framework.orm.enums.AccessType.READ)))
+                .isTrue();
+    }
+
+    /** The preview's query for a probing rule: {@code id = <who> AND basePay > 5000}, with an account. */
+    private static Filters probe(long who) {
+        return Filters.and(
+                Filters.of("id", Operator.EQUAL, who),
+                Filters.of("basePay", Operator.GREATER_THAN, 5000),
+                Filters.of("userId", Operator.IS_SET, null));
+    }
+
+    private static boolean holds(Filters filters, Map<String, Object> row) {
+        return io.softa.framework.orm.domain.FilterEvaluator.matches(filters, row,
+                io.softa.framework.orm.domain.FilterEvaluator.EvalContext.of(
+                        io.softa.framework.orm.enums.AccessType.READ), field -> null);
+    }
+
+    @Test
     @DisplayName("rows read elsewhere — a change log's values — are masked the same way")
     void rowsFromElsewhereAreMaskedByTheirId() {
         holdTheExampleRoles();
@@ -665,6 +757,21 @@ class GrantPairFieldMaskTest {
 
         assertThat(guardedOn("EmpLeave", Filters.of("employeePay", Operator.GREATER_THAN, 5000)))
                 .isEqualTo(ScopeRuleCompiler.matchNone());
+    }
+
+    @Test
+    @DisplayName("a refused condition names the field as the caller wrote it, not the path it stands for")
+    void aRefusedAliasIsNamedAsWritten() {
+        relationsLeadToEmployee();
+        io.softa.framework.orm.meta.MetaField alias = new io.softa.framework.orm.meta.MetaField();
+        org.springframework.test.util.ReflectionTestUtils.setField(alias, "fieldName", "employeePay");
+        org.springframework.test.util.ReflectionTestUtils.setField(alias, "cascadedField", "employeeId.basePay");
+        models.when(() -> ModelManager.existField("EmpLeave", "employeePay")).thenReturn(true);
+        models.when(() -> ModelManager.getModelField("EmpLeave", "employeePay")).thenReturn(alias);
+        pi.setRoleGrants(List.of(role(3, Set.of(VIEW), ScopeType.ALL, null, false)));
+
+        assertThat(as(() -> service.conditionFieldsNotSeenEverywhere("EmpLeave",
+                Filters.of("employeePay", Operator.GREATER_THAN, 5000)))).containsExactly("employeePay");
     }
 
     @Test

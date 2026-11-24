@@ -34,6 +34,7 @@ class DynamicRoleSyncJobImplTest {
     @SuppressWarnings({"rawtypes", "unchecked"})
     private ModelService modelService;
     private PlatformTransactionManager tm;
+    private io.softa.framework.orm.service.PermissionService permissionService;
     private DynamicRoleSyncJobImpl job;
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -43,13 +44,32 @@ class DynamicRoleSyncJobImplTest {
         userRoleRelService = mock(UserRoleRelService.class);
         modelService = mock(ModelService.class);
         tm = mock(PlatformTransactionManager.class);
-        job = new DynamicRoleSyncJobImpl(roleService, userRoleRelService, modelService, tm) {
+        permissionService = mock(io.softa.framework.orm.service.PermissionService.class);
+        when(permissionService.conditionFieldsNotSeenEverywhere(any(), any())).thenReturn(java.util.Set.of());
+        // The caller may view employees unless a test says otherwise.
+        when(permissionService.hasModelActionGrant(org.mockito.ArgumentMatchers.eq("Employee"),
+                org.mockito.ArgumentMatchers.eq(io.softa.framework.orm.enums.AccessType.READ))).thenReturn(true);
+        org.springframework.beans.factory.ObjectProvider<io.softa.framework.orm.service.PermissionService> provider =
+                mock(org.springframework.beans.factory.ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(permissionService);
+        job = new DynamicRoleSyncJobImpl(roleService, userRoleRelService, modelService, provider, tm) {
             // Force the TransactionTemplate to inline-execute (no real tx manager).
             {
                 org.springframework.test.util.ReflectionTestUtils.setField(
                         this, "transactionTemplate", inlineTemplate(tm));
             }
         };
+        // Every account the tests name is Active unless a test says otherwise.
+        activeAccounts(1L, 2L, 5L);
+    }
+
+    /** The accounts the UserAccount lookup reports as Active. */
+    @SuppressWarnings("unchecked")
+    private void activeAccounts(Long... ids) {
+        List<java.util.Map<String, Object>> rows = java.util.Arrays.stream(ids)
+                .map(id -> java.util.Map.<String, Object>of("id", id)).toList();
+        when(modelService.searchList(org.mockito.ArgumentMatchers.eq("UserAccount"),
+                any(io.softa.framework.orm.domain.FlexQuery.class))).thenReturn(rows);
     }
 
     private static TransactionTemplate inlineTemplate(PlatformTransactionManager tm) {
@@ -169,8 +189,8 @@ class DynamicRoleSyncJobImplTest {
         when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
                 any(io.softa.framework.orm.domain.FlexQuery.class)))
                 .thenReturn(List.of(
-                        java.util.Map.of("userId", 1L),
-                        java.util.Map.of("userId", 2L)));
+                        java.util.Map.of("id", 101L, "userId", 1L),
+                        java.util.Map.of("id", 102L, "userId", 2L)));
 
         int count = ContextHolder.callWith(ctx(10L), () -> job.syncRole(500L));
 
@@ -188,19 +208,21 @@ class DynamicRoleSyncJobImplTest {
     }
 
     @Test
-    void syncRole_writesTheMembershipAsASystemWrite_butLooksEmployeesUpAsBefore() {
-        // The rule was checked when the role was saved; the cron or consumer running it has nobody
-        // for "may this caller assign the role" to ask about. Only the write is lifted.
+    void syncRole_matchesTheRuleTenantWide_andWritesAsASystemWrite() {
+        // Who the rule grants is not the saver's data scope to narrow: an HR scoped to a few
+        // departments must not take the role away from everyone outside them. The tenant stays.
         Role role = roleWithDynamic(500L, "OnCall");
         when(roleService.getById(500L)).thenReturn(Optional.of(role));
         when(userRoleRelService.searchList(any(Filters.class))).thenReturn(List.of());
         when(userRoleRelService.deleteByFilters(any())).thenReturn(true);
-        boolean[] skippedAtLookup = {true};
+        boolean[] skippedAtLookup = {false};
+        Long[] tenantAtLookup = {null};
         when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
                 any(io.softa.framework.orm.domain.FlexQuery.class)))
                 .thenAnswer(inv -> {
                     skippedAtLookup[0] = ContextHolder.getContext().isSkipPermissionCheck();
-                    return List.of(java.util.Map.of("userId", 1L));
+                    tenantAtLookup[0] = ContextHolder.getContext().getTenantId();
+                    return List.of(java.util.Map.of("id", 101L, "userId", 1L));
                 });
         boolean[] skippedAtWrite = {false};
         when(userRoleRelService.createList(any())).thenAnswer(inv -> {
@@ -210,7 +232,8 @@ class DynamicRoleSyncJobImplTest {
 
         ContextHolder.callWith(ctx(10L), () -> job.syncRole(500L));
 
-        assertThat(skippedAtLookup[0]).isFalse();
+        assertThat(skippedAtLookup[0]).isTrue();
+        assertThat(tenantAtLookup[0]).isEqualTo(10L);
         assertThat(skippedAtWrite[0]).isTrue();
     }
 
@@ -228,8 +251,8 @@ class DynamicRoleSyncJobImplTest {
         when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
                 any(io.softa.framework.orm.domain.FlexQuery.class)))
                 .thenReturn(List.of(
-                        java.util.Map.of("userId", 1L),
-                        java.util.Map.of("userId", 2L)));
+                        java.util.Map.of("id", 101L, "userId", 1L),
+                        java.util.Map.of("id", 102L, "userId", 2L)));
 
         int count = ContextHolder.callWith(ctx(10L), () -> job.syncRole(500L));
 
@@ -267,17 +290,239 @@ class DynamicRoleSyncJobImplTest {
         when(userRoleRelService.deleteByFilters(any())).thenReturn(true);
         // Pure-employee row has userId == null.
         java.util.Map<String, Object> pureEmployee = new java.util.HashMap<>();
+        pureEmployee.put("id", 199L);
         pureEmployee.put("userId", null);
         when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
                 any(io.softa.framework.orm.domain.FlexQuery.class)))
-                .thenReturn(List.of(pureEmployee, java.util.Map.of("userId", 5L)));
+                .thenReturn(List.of(pureEmployee, java.util.Map.of("id", 105L, "userId", 5L)));
 
         int count = ContextHolder.callWith(ctx(10L), () -> job.syncRole(500L));
 
         assertThat(count).isEqualTo(1);   // pure-employee dropped, active one kept
     }
 
+    @Test
+    void syncRoleInternal_inactiveAccount_getsNoDynamicRow() {
+        Role role = roleWithDynamic(500L, "OnCall");
+        when(roleService.getById(500L)).thenReturn(Optional.of(role));
+        when(userRoleRelService.searchList(any(Filters.class))).thenReturn(List.of());
+        when(userRoleRelService.deleteByFilters(any())).thenReturn(true);
+        when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
+                any(io.softa.framework.orm.domain.FlexQuery.class)))
+                .thenReturn(List.of(
+                        java.util.Map.of("id", 101L, "userId", 1L),
+                        java.util.Map.of("id", 102L, "userId", 2L)));
+        activeAccounts(2L);   // account 1 is Locked, Frozen or not yet verified
+
+        int count = ContextHolder.callWith(ctx(10L), () -> job.syncRole(500L));
+
+        assertThat(count).isEqualTo(1);
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<java.util.List<io.softa.starter.user.entity.UserRoleRel>> cap =
+                org.mockito.ArgumentCaptor.forClass(java.util.List.class);
+        verify(userRoleRelService).createList(cap.capture());
+        assertThat(cap.getValue()).extracting(io.softa.starter.user.entity.UserRoleRel::getUserId)
+                .containsExactly(2L);
+    }
+
+    @Test
+    void syncRoleInternal_asksTheAccountForItsStatus_withoutPathingThroughTheEmployee() {
+        // Employee.userId is a plain id: a "userId.status" filter on Employee cannot resolve. The
+        // account's status is read from the account, past the caller's permissions — whoever saved
+        // the role need not hold the account read.
+        Role role = roleWithDynamic(500L, "OnCall");
+        when(roleService.getById(500L)).thenReturn(Optional.of(role));
+        when(userRoleRelService.searchList(any(Filters.class))).thenReturn(List.of());
+        when(userRoleRelService.deleteByFilters(any())).thenReturn(true);
+        org.mockito.ArgumentCaptor<io.softa.framework.orm.domain.FlexQuery> employeeQuery =
+                org.mockito.ArgumentCaptor.forClass(io.softa.framework.orm.domain.FlexQuery.class);
+        when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"), employeeQuery.capture()))
+                .thenReturn(List.of(java.util.Map.of("id", 101L, "userId", 1L)));
+        boolean[] skippedAtAccount = {false};
+        when(modelService.searchList(org.mockito.ArgumentMatchers.eq("UserAccount"),
+                any(io.softa.framework.orm.domain.FlexQuery.class)))
+                .thenAnswer(inv -> {
+                    skippedAtAccount[0] = ContextHolder.getContext().isSkipPermissionCheck();
+                    return List.of(java.util.Map.of("id", 1L));
+                });
+
+        ContextHolder.callWith(ctx(10L), () -> job.syncRole(500L));
+
+        assertThat(employeeQuery.getValue().getFilters().toString()).doesNotContain("userId.status");
+        assertThat(skippedAtAccount[0]).isTrue();
+    }
+
+    @Test
+    void syncMembershipForUser_inactiveAccount_isNotGranted() {
+        Role role = roleWithDynamic(500L, "OnCall");
+        when(roleService.searchList(any(Filters.class))).thenReturn(List.of(role));
+        when(modelService.count(org.mockito.ArgumentMatchers.eq("Employee"), any(Filters.class))).thenReturn(1L);
+        activeAccounts();   // the account matched the rule but is not Active
+
+        ContextHolder.runWith(ctx(10L), () -> job.syncMembershipForUser(10L, 7L));
+
+        verify(userRoleRelService, never()).createOne(any());
+    }
+
+    // ─── previewMembers ───
+
+    @Test
+    void previewMembers_countsAndListsOnlyMembersWithinTheCallersScope() {
+        // The rule matches 101, 102, 105 and 106 tenant-wide; the caller's scope reaches 101, 102 and 105.
+        // Account 2 is not Active, so 102 is not a member: 101 and 105 are counted, 106 is not.
+        boolean[] tenantWide = {false};
+        when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
+                any(io.softa.framework.orm.domain.FlexQuery.class)))
+                .thenAnswer(inv -> {
+                    io.softa.framework.orm.domain.FlexQuery q = inv.getArgument(1);
+                    if (ContextHolder.getContext().isSkipPermissionCheck()) {
+                        tenantWide[0] = true;
+                        return List.of(java.util.Map.of("id", 106L, "userId", 6L));
+                    }
+                    if (q.getFields().contains("code")) {
+                        return List.of(java.util.Map.of("id", 105L, "code", "E5"));
+                    }
+                    return List.of(
+                            java.util.Map.of("id", 101L, "userId", 1L),
+                            java.util.Map.of("id", 102L, "userId", 2L),
+                            java.util.Map.of("id", 105L, "userId", 5L));
+                });
+        activeAccounts(1L, 5L);
+
+        io.softa.starter.user.dto.DynamicMembersPreview preview = ContextHolder.callWith(ctx(10L),
+                () -> job.previewMembers(roleWithDynamic(500L, "OnCall").getDynamicFilter(), List.of("code"), 2, 1));
+
+        assertThat(preview.memberCount()).isEqualTo(2);
+        assertThat(preview.visible().getTotalCount()).isEqualTo(2);
+        assertThat(preview.visible().getRows()).extracting(row -> row.get("id")).containsExactly(105L);
+        // Never matched past the caller's scope.
+        assertThat(tenantWide[0]).isFalse();
+        verify(userRoleRelService, never()).createList(any());
+        verify(userRoleRelService, never()).deleteByFilters(any());
+    }
+
+    @Test
+    void previewMembers_hasThePermissionLayerScopeTheRuleAsWritten() {
+        // The preview's half of "outsiders are neither counted nor listed": the rule goes to the
+        // employee read as it is, with the caller's permissions on, so the permission layer applies the
+        // caller's row scope to it. That the scope keeps an outsider out of such a read is shown in
+        // permission-starter (GrantPairFieldMaskTest.aRuleReadInTheCallersScopeLeavesOutsidersOut).
+        java.util.List<Boolean> skipped = new java.util.ArrayList<>();
+        java.util.List<io.softa.framework.orm.domain.FlexQuery> sent = new java.util.ArrayList<>();
+        when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
+                any(io.softa.framework.orm.domain.FlexQuery.class)))
+                .thenAnswer(inv -> {
+                    skipped.add(ContextHolder.getContext().isSkipPermissionCheck());
+                    sent.add(inv.getArgument(1));
+                    return List.of();
+                });
+
+        ContextHolder.callWith(ctx(10L), () -> job.previewMembers(probeRule(), List.of("code"), 1, 20));
+
+        assertThat(skipped).containsExactly(false);
+        assertThat(sent.getFirst().getFilters().toString()).contains("906", "basePay", "5000", "userId");
+    }
+
+    @Test
+    void previewMembers_ruleOnAFieldTheCallerCannotSeeEverywhere_isRefused() {
+        when(permissionService.conditionFieldsNotSeenEverywhere(org.mockito.ArgumentMatchers.eq("Employee"), any()))
+                .thenReturn(java.util.Set.of("basePay"));
+
+        assertThatThrownBy(() -> ContextHolder.callWith(ctx(10L),
+                () -> job.previewMembers(roleWithDynamic(500L, "OnCall").getDynamicFilter(), List.of("code"), 1, 20)))
+                .isInstanceOf(io.softa.framework.orm.service.validation.WriteValidationException.class)
+                .satisfies(e -> assertThat(((io.softa.framework.orm.service.validation.WriteValidationException) e)
+                        .fieldErrors()).containsKey("basePay"));
+        // Refused before any employee is matched: the refusal says nothing about the data.
+        verify(modelService, never()).searchList(org.mockito.ArgumentMatchers.eq("Employee"),
+                any(io.softa.framework.orm.domain.FlexQuery.class));
+    }
+
+    @Test
+    void previewMembers_callerWhoMayNotViewEmployees_isRefused_beforeAnythingIsMatched() {
+        // Asked of the grants the way the endpoint gate asks it — whether such a caller holds an employee
+        // view is decided in permission-starter (GrantPairFieldMaskTest). Without the question, the read
+        // inside the service would match nobody and the caller would be shown "0".
+        when(permissionService.hasModelActionGrant(org.mockito.ArgumentMatchers.eq("Employee"),
+                org.mockito.ArgumentMatchers.eq(io.softa.framework.orm.enums.AccessType.READ))).thenReturn(false);
+
+        assertThatThrownBy(() -> ContextHolder.callWith(ctx(10L),
+                () -> job.previewMembers(roleWithDynamic(500L, "OnCall").getDynamicFilter(), List.of("code"), 1, 20)))
+                .isInstanceOf(io.softa.framework.base.exception.PermissionException.class);
+        verify(modelService, never()).searchList(org.mockito.ArgumentMatchers.eq("Employee"),
+                any(io.softa.framework.orm.domain.FlexQuery.class));
+    }
+
+    @Test
+    void previewMembers_matchesInEmployeeIdOrder_notByAnAppField() {
+        java.util.List<io.softa.framework.orm.domain.FlexQuery> matched = new java.util.ArrayList<>();
+        when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
+                any(io.softa.framework.orm.domain.FlexQuery.class)))
+                .thenAnswer(inv -> {
+                    matched.add(inv.getArgument(1));
+                    return List.of();
+                });
+
+        ContextHolder.callWith(ctx(10L),
+                () -> job.previewMembers(roleWithDynamic(500L, "OnCall").getDynamicFilter(), List.of("code"), 1, 20));
+
+        assertThat(matched).hasSize(1);
+        assertThat(matched.getFirst().getOrders().toString()).contains("id").doesNotContain("code");
+    }
+
+    @Test
+    void previewMembers_noRule_matchesNobody() {
+        io.softa.starter.user.dto.DynamicMembersPreview preview = ContextHolder.callWith(ctx(10L),
+                () -> job.previewMembers(null, List.of("code"), 1, 20));
+
+        assertThat(preview.memberCount()).isZero();
+        assertThat(preview.visible().getRows()).isEmpty();
+        verify(modelService, never()).searchList(org.mockito.ArgumentMatchers.eq("Employee"),
+                any(io.softa.framework.orm.domain.FlexQuery.class));
+    }
+
+    @Test
+    void syncRole_readsAccountStatusInBatchesOfAThousand() {
+        assertThat(accountStatusStatements(1000, 1000)).isEqualTo(1);
+        assertThat(accountStatusStatements(1001, 1001)).isEqualTo(2);
+        assertThat(accountStatusStatements(2500, 2500)).isEqualTo(3);
+    }
+
+    @Test
+    void syncRole_asksEachAccountOnce() {
+        // 2,400 employees on 900 accounts: one statement, not three.
+        assertThat(accountStatusStatements(2400, 900)).isEqualTo(1);
+    }
+
+    /** Statements reading account status when a rule matches {@code employees} people on {@code accounts} accounts. */
+    private int accountStatusStatements(int employees, int accounts) {
+        org.mockito.Mockito.reset(modelService, roleService);
+        Role role = roleWithDynamic(500L, "OnCall");
+        when(roleService.getById(500L)).thenReturn(Optional.of(role));
+        List<java.util.Map<String, Object>> rows = new java.util.ArrayList<>();
+        for (long i = 0; i < employees; i++) rows.add(java.util.Map.of("id", 10_000L + i, "userId", 1 + i % accounts));
+        when(modelService.searchList(org.mockito.ArgumentMatchers.eq("Employee"),
+                any(io.softa.framework.orm.domain.FlexQuery.class))).thenReturn(rows);
+        int[] statements = {0};
+        when(modelService.searchList(org.mockito.ArgumentMatchers.eq("UserAccount"),
+                any(io.softa.framework.orm.domain.FlexQuery.class)))
+                .thenAnswer(inv -> {
+                    statements[0]++;
+                    return List.of();
+                });
+
+        ContextHolder.callWith(ctx(10L), () -> job.syncRole(500L));
+        return statements[0];
+    }
+
     // ─── helpers ───
+
+    /** {@code id = 906 AND basePay > 5000}. */
+    private static tools.jackson.databind.JsonNode probeRule() {
+        return io.softa.framework.base.utils.JsonUtils.stringToObject(
+                "[[\"id\",\"=\",906],\"AND\",[\"basePay\",\">\",5000]]", tools.jackson.databind.JsonNode.class);
+    }
+
 
     private static Context ctx(Long tenantId) {
         Context c = new Context();
