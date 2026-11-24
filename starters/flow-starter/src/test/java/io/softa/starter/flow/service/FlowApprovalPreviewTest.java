@@ -38,6 +38,7 @@ import io.softa.starter.flow.dto.FlowApprovalPreview.StepOutcome;
 import io.softa.starter.flow.dto.FlowApprovalPreview.Stop;
 import io.softa.starter.flow.dto.FlowDesignPreview;
 import io.softa.starter.flow.dto.FlowRecordApprovalsView.Actor;
+import io.softa.starter.flow.entity.FlowApprovalTask;
 import io.softa.starter.flow.entity.FlowDelegation;
 import io.softa.starter.flow.entity.FlowDesign;
 import io.softa.starter.flow.entity.FlowInstance;
@@ -213,6 +214,112 @@ class FlowApprovalPreviewTest {
         assertNull(preview.getFlow());
         assertNull(preview.getSteps());
         verify(handler, never()).validate(any());
+    }
+
+    @Test
+    void anApproverWhoCannotReadTheRecordIsToldTheApprovalIsInProgress_withoutTheRecordBeingRead() {
+        startApprovalWaitingOn(MANAGER);
+        when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.empty());
+
+        FlowApprovalPreview preview = launchService.previewRecord(MODEL, ROW, MANAGER);
+
+        // Pointed at the approval they take part in, whose steps — those ahead included — it shows them (by-record).
+        assertEquals(Status.IN_PROGRESS, preview.getStatus());
+        assertEquals("run-1", preview.getInstanceId());
+        assertEquals(Status.IN_PROGRESS, launchService.previewRecord(MODEL, ROW, SUBMITTER).getStatus());
+        verify(modelService, never()).getById(eq(MODEL), any());
+        verify(handler, never()).validate(any());
+    }
+
+    @Test
+    void aCcRecipientWhoCannotReadTheRecordIsToldTheApprovalIsInProgress() {
+        startApprovalWaitingOn(MANAGER);
+        when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.empty());
+        // DEPUTY holds a CC task of the approval; nobody else holds one.
+        when(modelService.count(eq("FlowApprovalTask"), argThat(filters -> new Filters()
+                .in(FlowApprovalTask::getInstanceId, List.of("run-1"))
+                .eq(FlowApprovalTask::getActorId, DEPUTY).equals(filters))))
+                .thenReturn(1L);
+
+        assertEquals(Status.IN_PROGRESS, launchService.previewRecord(MODEL, ROW, DEPUTY).getStatus());
+        assertThrows(FlowAuthorizationException.class, () -> launchService.previewRecord(MODEL, ROW, "outsider"));
+    }
+
+    @Test
+    void anApprovalWithdrawnRightAfterItWasFoundInProgressLetsNoParticipantIn() {
+        startApprovalWaitingOn(MANAGER);
+        when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.empty());
+        // The instance row still said in progress; by the time its state is read the submitter has withdrawn it.
+        FlowExecutionState withdrawn = engine.getInstance("run-1").orElseThrow();
+        withdrawn.setStatus(FlowExecutionStatus.WITHDRAWN);
+        when(engine.getInstance("run-1")).thenReturn(Optional.of(withdrawn));
+
+        assertThrows(FlowAuthorizationException.class, () -> launchService.previewRecord(MODEL, ROW, MANAGER));
+
+        verify(handler, never()).validate(any());
+        verify(modelService, never()).getById(eq(MODEL), any());
+    }
+
+    @Test
+    void anOutsiderWhoCannotReadTheRecordIsRefused() {
+        startApprovalWaitingOn(MANAGER);
+        when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.empty());
+
+        assertThrows(FlowAuthorizationException.class, () -> launchService.previewRecord(MODEL, ROW, DEPUTY));
+    }
+
+    @Test
+    void takingPartInAnEarlierApprovalDoesNotPreviewTheNextOne() {
+        startApprovalWaitingOn(MANAGER);
+        instances.getFirst().setStatus(FlowExecutionStatus.COMPLETED);
+        when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.empty());
+
+        assertThrows(FlowAuthorizationException.class, () -> launchService.previewRecord(MODEL, ROW, MANAGER));
+    }
+
+    @Test
+    void anApprovalWhoseStateCannotBeLoadedLetsInNoOneWhoCannotReadTheRecord() {
+        startApprovalWaitingOn(MANAGER);
+        when(engine.getInstance("run-1")).thenReturn(Optional.empty());
+
+        // A reader is told it is in progress, as ever.
+        assertEquals(Status.IN_PROGRESS, launchService.previewRecord(MODEL, ROW, DEPUTY).getStatus());
+
+        when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.empty());
+        assertThrows(FlowAuthorizationException.class, () -> launchService.previewRecord(MODEL, ROW, MANAGER));
+    }
+
+    @Test
+    void aBlankRequesterIsRefusedBeforeAnyApprovalIsRead() {
+        startApprovalWaitingOn(MANAGER);
+
+        assertThrows(FlowAuthorizationException.class, () -> launchService.previewRecord(MODEL, ROW, " "));
+
+        verify(instanceService, never()).findLatestRecordApproval(MODEL, ROW);
+        verify(engine, never()).getInstance("run-1");
+    }
+
+    private void startApprovalWaitingOn(String approver) {
+        CompiledFlowDefinition flow = publishService.publish("annual", chain("Annual leave",
+                approval("manager", "Manager", Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(approver)))))));
+        FlowInstance running = new FlowInstance();
+        running.setInstanceId("run-1");
+        running.setStatus(FlowExecutionStatus.WAITING);
+        running.setRecordApproval(true);
+        instances.add(running);
+        when(engine.getInstance("run-1")).thenReturn(Optional.of(FlowExecutionState.builder()
+                .instanceId("run-1").bundleId(flow.getBundleId()).flowId("annual")
+                .initiatorId(SUBMITTER).recordApproval(true).modelName(MODEL).rowId(ROW)
+                .status(FlowExecutionStatus.WAITING)
+                .variables(new LinkedHashMap<>(Map.of("days", 3, "_subjectId", 5001L)))
+                .completedNodeIds(new ArrayList<>(List.of("start")))
+                .pendingApprovals(new ArrayList<>(List.of(PendingApproval.builder()
+                        .nodeId("manager").approvers(new ArrayList<>(List.of(approver)))
+                        .approvedActors(new ArrayList<>())
+                        .requiredApprovalCount(1).build())))
+                .approvalAuditDelta(new ArrayList<>())
+                .joinArrivalCounts(new HashMap<>())
+                .build()));
     }
 
     @Test
