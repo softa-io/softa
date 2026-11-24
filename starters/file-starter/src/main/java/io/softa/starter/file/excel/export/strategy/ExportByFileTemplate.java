@@ -18,6 +18,7 @@ import org.apache.fesod.sheet.ExcelWriter;
 import org.apache.fesod.sheet.FesodSheet;
 import org.apache.fesod.sheet.write.metadata.WriteSheet;
 import org.apache.fesod.sheet.write.metadata.fill.FillConfig;
+import org.apache.poi.EmptyFileException;
 import org.apache.poi.UnsupportedFileFormatException;
 import org.apache.poi.ooxml.POIXMLException;
 import org.apache.poi.ss.usermodel.*;
@@ -55,9 +56,6 @@ public class ExportByFileTemplate implements ExportStrategy {
     // {{ variable }} or {{ object.field }} in the uploaded template: dot-separated names, no empty segment.
     private static final Pattern VARIABLE_PATTERN =
             Pattern.compile("(?<!\\\\)\\{\\{\\s*([A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)*)\\s*}}");
-
-    // Fesod's list placeholder, as normalizeCellValue writes it; any other brace in the sheet Fesod would read too.
-    private static final Pattern FESOD_LIST_PLACEHOLDER = Pattern.compile("\\{\\.[A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)*}");
 
     @Autowired
     private FileService fileService;
@@ -161,8 +159,10 @@ public class ExportByFileTemplate implements ExportStrategy {
      * here, with the rows named, rather than producing a workbook that looks filled but is not.
      *
      * <p>Fesod reads every brace of the sheet it fills, not only the placeholders: {@code {unit}} is a single-value
-     * placeholder it blanks, and a mistyped {@code {{ dept-name }}} would vanish with its field never queried. So a
-     * brace left in the sheet once the placeholders are rewritten is refused, with the cell named.
+     * placeholder it blanks, {@code {.title}} is a list placeholder it repeats per record, and a mistyped
+     * {@code {{ dept-name }}} would vanish with its field never queried. So any brace in the sheet that is not part
+     * of a {@code {{ … }}} placeholder is refused, with the cell named — checked on the template as uploaded, before
+     * the placeholders are rewritten into braces of Fesod's own.
      *
      * @throws BusinessException when the file is not an .xlsx workbook, the configured sheet does not exist, the
      *                           sheet has no placeholder, the placeholders span several rows, or a cell holds a brace
@@ -178,8 +178,8 @@ public class ExportByFileTemplate implements ExportStrategy {
                 throw new BusinessException("Sheet {0} of the file template has no placeholder such as '{{ name }}'"
                         + " to fill.", sheet.getSheetName());
             }
-            normalizeSheetPlaceholders(sheet);
             refuseStrayBraces(sheet);
+            normalizeSheetPlaceholders(sheet);
             workbook.write(normalizedOutput);
             return new PreparedTemplate(normalizedOutput.toByteArray(), sheetNo, variables);
         }
@@ -188,14 +188,14 @@ public class ExportByFileTemplate implements ExportStrategy {
     private static Workbook openWorkbook(InputStream inputStream) throws IOException {
         try {
             return new XSSFWorkbook(inputStream);
-        } catch (POIXMLException | UnsupportedFileFormatException e) {
+        } catch (POIXMLException | UnsupportedFileFormatException | EmptyFileException e) {
             throw new BusinessException("The file template is not an Excel .xlsx workbook, or the file is damaged.", e);
         }
     }
 
     private static void refuseStrayBraces(Sheet sheet) {
         forEachText(sheet, cell -> {
-            String rest = FESOD_LIST_PLACEHOLDER.matcher(cell.getStringCellValue()).replaceAll("");
+            String rest = VARIABLE_PATTERN.matcher(cell.getStringCellValue()).replaceAll("");
             if (rest.indexOf('{') >= 0 || rest.indexOf('}') >= 0) {
                 throw new BusinessException("Cell {0} of sheet {1} in the file template has braces that are not a"
                         + " placeholder: {2}. Write placeholders as '{{ fieldName }}' or '{{ field.subField }}'; other"
@@ -207,9 +207,10 @@ public class ExportByFileTemplate implements ExportStrategy {
 
     /**
      * The configured sheet, refused when the template has none of that name — falling back to another sheet would
-     * fill the wrong one without a word. With none configured, the first visible sheet holding a placeholder, so a
-     * leading instructions sheet is not mistaken for the data; failing that, the first sheet, which is then refused
-     * for having nothing to fill.
+     * fill the wrong one without a word; a configured sheet may be hidden. With none configured, the first visible
+     * sheet holding a placeholder, so a leading instructions sheet is not mistaken for the data. When no visible
+     * sheet has one, the template is refused, naming a hidden sheet that does, since that one is filled only when
+     * configured by name.
      */
     private static int targetSheet(Workbook workbook, String sheetName) {
         if (StringUtils.isNotBlank(sheetName)) {
@@ -219,13 +220,26 @@ public class ExportByFileTemplate implements ExportStrategy {
             }
             return index;
         }
+        String hiddenWithPlaceholders = null;
         for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
-            if (!workbook.isSheetHidden(i) && !workbook.isSheetVeryHidden(i)
-                    && !placeholderRows(workbook.getSheetAt(i)).isEmpty()) {
+            if (placeholderRows(workbook.getSheetAt(i)).isEmpty()) {
+                continue;
+            }
+            if (!workbook.isSheetHidden(i) && !workbook.isSheetVeryHidden(i)) {
                 return i;
             }
+            if (hiddenWithPlaceholders == null) {
+                hiddenWithPlaceholders = workbook.getSheetName(i);
+            }
         }
-        return 0;
+        if (hiddenWithPlaceholders != null) {
+            throw new BusinessException("No visible sheet of the file template has a placeholder such as '{{ name }}'."
+                    + " Sheet {0} has placeholders but is hidden: set the sheet name to {0} to fill it.",
+                    hiddenWithPlaceholders);
+        }
+        // No arguments, so the message is not run through MessageFormat and its braces need no quoting.
+        throw new BusinessException(
+                "No visible sheet of the file template has a placeholder such as {{ name }} to fill.");
     }
 
     /**
@@ -239,8 +253,8 @@ public class ExportByFileTemplate implements ExportStrategy {
      *      - `{{ deptId.name }}` -> `deptId.name`
      *      - `Hello, {{ name }}, {{}}` -> `name`
      *      - `Hello, {{ name }}, \{{ id }}` -> `name`
-     * The leftovers of the last two (`{{}}`, `\{{ id }}`) are braces Fesod would read, and the sheet is refused for them
-     * once its placeholders are rewritten.
+     * The leftovers of the last two (`{{}}`, `\{{ id }}`) are braces Fesod would read, and the sheet is refused for
+     * them before its placeholders are rewritten.
      *
      * @param sheet the sheet to fill
      * @return all variables in the sheet

@@ -15,6 +15,7 @@ import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.SheetVisibility;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -171,6 +172,9 @@ class ExportByFileTemplateFillTest {
                 {"B2", "\\{{ code }}"},
                 {"B2", "{{ }}"},
                 {"B2", "{{ .x }}"},
+                // Fesod's own list syntax written by hand: repeated per record and left empty.
+                {"A1", "{.title}"},
+                {"B2", "{{ code }} {.other}"},
         };
         for (String[] c : cases) {
             byte[] template = template(wb -> {
@@ -195,8 +199,27 @@ class ExportByFileTemplateFillTest {
         assertTrue(e.getMessage().contains("Sheet Notes"), e.getMessage());
 
         byte[] noPlaceholderAnywhere = template(wb -> wb.createSheet("Data").createRow(0).createCell(0).setCellValue("Name"));
-        assertThrows(BusinessException.class,
+        e = assertThrows(BusinessException.class,
                 () -> ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(noPlaceholderAnywhere), null));
+        assertTrue(e.getMessage().contains("No visible sheet"), e.getMessage());
+    }
+
+    @Test
+    void placeholdersOnlyOnAHiddenSheetAreRefusedNamingThatSheet() throws Exception {
+        // The hidden sheet is the first one, the visible one has nothing to fill; very hidden counts as hidden too.
+        for (boolean veryHidden : new boolean[] {false, true}) {
+            byte[] template = template(wb -> {
+                dataSheet(wb, "Old", "{{ name }}", "{{ deptId.name }}", "{{ code }}");
+                wb.createSheet("Notes").createRow(0).createCell(0).setCellValue("Read me");
+                wb.setSheetVisibility(0, veryHidden ? SheetVisibility.VERY_HIDDEN : SheetVisibility.HIDDEN);
+                wb.setActiveSheet(1);
+            });
+            BusinessException e = assertThrows(BusinessException.class,
+                    () -> ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(template), null));
+            assertTrue(e.getMessage().contains("Sheet Old has placeholders but is hidden"), e.getMessage());
+            // Configured by name, the hidden sheet is filled.
+            assertEquals(0, ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(template), "Old").sheetNo());
+        }
     }
 
     @Test
@@ -204,7 +227,8 @@ class ExportByFileTemplateFillTest {
         byte[] template = template(wb -> {
             dataSheet(wb, "Old", "{{ name }}", "{{ deptId.name }}", "{{ code }}");
             dataSheet(wb, "Data", "{{ name }}", "{{ deptId.name }}", "{{ code }}");
-            wb.setSheetHidden(0, true);
+            wb.setActiveSheet(1);
+            wb.setSheetVisibility(0, SheetVisibility.VERY_HIDDEN);
         });
         assertEquals(1, ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(template), null).sheetNo());
     }
@@ -217,7 +241,7 @@ class ExportByFileTemplateFillTest {
             workbook.write(out);
             xls = out.toByteArray();
         }
-        for (byte[] file : List.of(xls, "not a workbook".getBytes())) {
+        for (byte[] file : List.of(xls, "not a workbook".getBytes(), new byte[0])) {
             BusinessException e = assertThrows(BusinessException.class,
                     () -> ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(file), null));
             assertTrue(e.getMessage().contains(".xlsx"), e.getMessage());
