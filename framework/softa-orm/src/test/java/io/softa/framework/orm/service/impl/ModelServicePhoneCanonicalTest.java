@@ -8,6 +8,10 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.domain.CreateOrUpdateResult;
+
 import io.softa.framework.orm.enums.WidgetType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
@@ -57,5 +61,36 @@ class ModelServicePhoneCanonicalTest {
     void otherFieldsAreUntouched() {
         assertThat(canonicalize(new HashMap<>(Map.of("remarks", "+640211234678"))))
                 .containsEntry("remarks", "+640211234678");
+    }
+
+    @Test
+    void aRowMatchedByAPhoneKey_isLookedUpInItsStoredSpelling_andUpdatesTheRowItNames() {
+        // createOrUpdate keyed on a phone: typed with its trunk prefix, the number must still find the
+        // row stored without it, or it is created a second time beside it.
+        MetaField phone = field("workPhone", WidgetType.PHONE);
+        Mockito.when(phone.getFieldType()).thenReturn(FieldType.STRING);
+        List<MetaField> fields = List.of(phone);
+        ModelServiceImpl<Long> service = Mockito.spy(new ModelServiceImpl<Long>());
+        List<Object> lookedUp = new java.util.ArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            FlexQuery query = invocation.getArgument(1);
+            lookedUp.add(query.getFilters().toString());
+            return List.of(new HashMap<>(Map.of("id", 5L, "workPhone", "+64211234678")));
+        }).when(service).searchList(Mockito.eq("Employee"), Mockito.any(FlexQuery.class));
+        Map<String, Object> row = new HashMap<>(Map.of("workPhone", "+640211234678"));
+
+        CreateOrUpdateResult split;
+        try (MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class)) {
+            mm.when(() -> ModelManager.getModelFields("Employee")).thenReturn(fields);
+            mm.when(() -> ModelManager.getModelField("Employee", "workPhone")).thenReturn(phone);
+            split = service.splitByExistence("Employee", List.of(row), List.of("workPhone"));
+        }
+
+        assertThat(lookedUp).singleElement().asString().contains("+64211234678").doesNotContain("+640211234678");
+        assertThat(split.created()).isEmpty();
+        assertThat(split.updated()).singleElement().satisfies(updated -> {
+            assertThat(updated).containsEntry("id", 5L);
+            assertThat(updated).containsEntry("workPhone", "+64211234678");
+        });
     }
 }

@@ -79,9 +79,10 @@ public final class LoginIdentifiers {
      */
     public static List<String> loginSpellings(String identifier) {
         String typed = typedForm(identifier);
-        // The collapsed form too: a row written before numbers were stored in one spelling may hold the trunk
-        // prefix ("+640211234678"), and is found when the person types it as it was stored.
-        return spellings(normalize(identifier), collapseMobile(typed), typed);
+        String canonical = normalize(identifier);
+        // A row written before numbers were stored in one spelling may hold the trunk prefix ("+640211234678"):
+        // it is asked for by that spelling too, whether the person typed the 0 or not.
+        return spellings(canonical, trunkPrefixed(canonical), collapseMobile(typed), typed);
     }
 
     /**
@@ -91,7 +92,13 @@ public final class LoginIdentifiers {
     public static List<String> workContactSpellings(String contact) {
         String trimmed = StringUtils.trimToNull(contact);
         String collapsed = collapseMobile(trimmed);
-        return spellings(PhoneUtils.canonical(collapsed), collapsed, trimmed);
+        String canonical = PhoneUtils.canonical(collapsed);
+        return spellings(canonical, trunkPrefixed(canonical), collapsed, trimmed);
+    }
+
+    /** The trunk-prefixed spelling of a mobile ({@link PhoneUtils#withTrunkPrefix}), or null. */
+    private static String trunkPrefixed(String canonical) {
+        return canonical == null ? null : PhoneUtils.withTrunkPrefix(canonical).orElse(null);
     }
 
     private static List<String> spellings(String... forms) {

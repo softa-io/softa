@@ -103,6 +103,17 @@ class LoginIdentifiersTest {
     }
 
     @Test
+    void theStandardNumber_alsoFindsARowStillStoredWithTheTrunkPrefix() {
+        // Typed without the 0, a row written before the one-spelling rule ("+640211234678") is asked for too, so
+        // sign-in finds it and a claim or a work contact on the same number sees it as taken.
+        assertThat(LoginIdentifiers.loginSpellings("+64211234678")).containsExactly("+64211234678", "+640211234678");
+        assertThat(LoginIdentifiers.workContactSpellings("+64 21 123 4678"))
+                .containsExactly("+64211234678", "+640211234678", "+64 21 123 4678");
+        // No trunk prefix in Singapore: nothing extra to ask for.
+        assertThat(LoginIdentifiers.loginSpellings("+6591234567")).containsExactly("+6591234567");
+    }
+
+    @Test
     void aRowSeededBeforeTheFold_isStillFound_byTheSpellingItWasSeededWith() {
         // Load-bearing for the pre-fold rows: user_identity.login_mobile still holds "+65 9123-4567"
         // and nothing rewrites it. A lookup asking only for "+6591234567" misses it — the person

@@ -45,6 +45,21 @@ class PhoneUtilsTest {
     }
 
     @Test
+    void withTrunkPrefix_givesTheSpellingANumberHadWithItsNationalPrefix_whereTheCountryHasOne() {
+        // Typed with or without the 0, the legacy spelling is the same one.
+        Assertions.assertEquals(Optional.of("+640211234678"), PhoneUtils.withTrunkPrefix("+64211234678"));
+        Assertions.assertEquals(Optional.of("+640211234678"), PhoneUtils.withTrunkPrefix("+64 021 123 4678"));
+        Assertions.assertEquals(Optional.of("+4407700900123"), PhoneUtils.withTrunkPrefix("+447700900123"));
+        // Singapore has no trunk prefix; Italy keeps its 0 inside the number.
+        Assertions.assertEquals(Optional.empty(), PhoneUtils.withTrunkPrefix("+6591234567"));
+        Assertions.assertEquals(Optional.empty(), PhoneUtils.withTrunkPrefix("+390212345678"));
+        // Not a number: nothing to spell.
+        Assertions.assertEquals(Optional.empty(), PhoneUtils.withTrunkPrefix("ada@acme.com"));
+        Assertions.assertEquals(Optional.empty(), PhoneUtils.withTrunkPrefix("+65 12"));
+        Assertions.assertEquals(Optional.empty(), PhoneUtils.withTrunkPrefix(null));
+    }
+
+    @Test
     void toE164KeepsANumberInARangeTheBundledMetadataDoesNotKnow() {
         // Singapore has not opened 4xxx: a range it opens later must not be refused before an upgrade.
         Assertions.assertEquals("+6541234567", PhoneUtils.toE164("+65 4123 4567"));

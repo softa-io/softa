@@ -258,6 +258,9 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
             return CreateOrUpdateResult.empty();
         }
         Assert.notEmpty(uniqueConstraints, "The unique constraints of model {0} cannot be empty.", modelName);
+        // Matched against the stored rows in the stored spelling: a phone typed with its trunk prefix
+        // would otherwise find nothing, and be created again beside the row it names.
+        this.canonicalizePhones(modelName, rows);
         List<Map<String, Object>> createDataList = new ArrayList<>();
         List<Map<String, Object>> updateDataList = new ArrayList<>();
 

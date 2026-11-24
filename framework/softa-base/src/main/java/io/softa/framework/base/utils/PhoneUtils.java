@@ -104,6 +104,29 @@ public final class PhoneUtils {
     }
 
     /**
+     * The spelling a number had when its national trunk prefix was kept after the calling code — "+640211234678"
+     * for "+64 21 123 4678" — or empty when its country has no trunk prefix (Singapore) or keeps it as part of the
+     * number (Italy). For finding rows written before numbers were stored in {@link #canonical} form; never a form
+     * to store. The prefix is libphonenumber's metadata for the country, and the result is only given when
+     * {@link #canonical} reads it back as the same number, so it never names a different one.
+     */
+    public static Optional<String> withTrunkPrefix(String input) {
+        String e164 = canonical(input);
+        if (!isE164(e164)) {
+            return Optional.empty();
+        }
+        return parse(e164).flatMap(number -> {
+            String region = UTIL.getRegionCodeForCountryCode(number.getCountryCode());
+            String prefix = StringUtils.trimToNull(UTIL.getNddPrefixForRegion(region, true));
+            if (prefix == null) {
+                return Optional.empty();
+            }
+            String legacy = "+" + number.getCountryCode() + prefix + UTIL.getNationalSignificantNumber(number);
+            return e164.equals(canonical(legacy)) ? Optional.of(legacy) : Optional.empty();
+        });
+    }
+
+    /**
      * The ISO 3166-1 alpha-2 country of a number with its calling code. Longest match on the number
      * ranges, so +886 is TW and not CN, and +1 787 is PR and not US.
      *
