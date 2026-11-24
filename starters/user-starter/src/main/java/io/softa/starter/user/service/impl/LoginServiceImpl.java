@@ -521,9 +521,13 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
                 throw incorrectCode();
             }
         } catch (BusinessException e) {
-            history.record(LoginEvent.LOGIN_FAILED, profileId, null, null, channel, method,
-                    identity == null ? AccountErrorCodes.ACCOUNT_NOT_FOUND
-                            : StringUtils.defaultString(e.getErrorCode(), e.getMessage()));
+            String reason = identity == null ? AccountErrorCodes.ACCOUNT_NOT_FOUND
+                    : StringUtils.defaultString(e.getErrorCode(), e.getMessage());
+            if (VerificationCodeGuard.refusedUntried(e)) {
+                history.recordUntried(profileId, channel, method, reason);
+            } else {
+                history.record(LoginEvent.LOGIN_FAILED, profileId, null, null, channel, method, reason);
+            }
             throw e;
         }
         // A lock refuses the PASSWORD only; a code still signs the person in, and into every
@@ -720,7 +724,11 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     /** @param authenticatedAtMillis when the person proved who they are — what a credential change voids it from */
     private String issuePreAuthToken(Long profileId, long authenticatedAtMillis) {
         String token = RandomUtils.randomString(PREAUTH_TOKEN_BYTES);
-        cacheService.save(preAuthKey(token), profileId + ":" + authenticatedAtMillis, PREAUTH_TTL_SECONDS);
+        // Two times, for two questions: a credential change voids the token from when the person authenticated;
+        // its lifetime runs from when it was minted. A re-entry token is authenticated at its session's issue,
+        // hours or days before it is minted.
+        cacheService.save(preAuthKey(token),
+                profileId + ":" + authenticatedAtMillis + ":" + System.currentTimeMillis(), PREAUTH_TTL_SECONDS);
         return token;
     }
 
@@ -764,7 +772,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         try {
             return step.apply(profileId);
         } catch (RuntimeException e) {
-            long left = PREAUTH_TTL_SECONDS - (System.currentTimeMillis() - issuedAtOf(value)) / 1000;
+            long left = PREAUTH_TTL_SECONDS - (System.currentTimeMillis() - mintedAtOf(value)) / 1000;
             if (left > 0) {
                 cacheService.save(preAuthKey(authToken), value, (int) left);
             }
@@ -778,12 +786,22 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
             return null;
         }
         Long profileId = Long.valueOf(value.split(":", 2)[0]);
-        return sessionService.credentialsChangedSince(profileId, issuedAtOf(value)) ? null : profileId;
+        return sessionService.credentialsChangedSince(profileId, authenticatedAtOf(value)) ? null : profileId;
     }
 
-    private static long issuedAtOf(String value) {
-        String[] parts = value.split(":", 2);
+    /** When the person behind a token value authenticated: what a credential change voids it from. */
+    static long authenticatedAtOf(String value) {
+        String[] parts = value.split(":", 3);
         return parts.length > 1 ? Long.parseLong(parts[1]) : 0L;
+    }
+
+    /**
+     * When a token value was minted: what its lifetime runs from. A value written before the two times were kept
+     * apart ("profileId:authenticatedAt") was minted when its person authenticated.
+     */
+    static long mintedAtOf(String value) {
+        String[] parts = value.split(":", 3);
+        return parts.length > 2 ? Long.parseLong(parts[2]) : authenticatedAtOf(value);
     }
 
     private static BusinessException preAuthExpired() {

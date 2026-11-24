@@ -380,9 +380,39 @@ class MembershipSelectionTest {
 
         ArgumentCaptor<Object> values = ArgumentCaptor.forClass(Object.class);
         verify(cacheService, org.mockito.Mockito.times(2)).save(startsWith("login:preauth:"), values.capture(), anyInt());
-        assertThat(values.getAllValues()).containsExactly(
-                PROFILE + ":" + signedIn.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
-                // Unknown: dated at the epoch, which every recorded credential change is after.
-                PROFILE + ":0");
+        assertThat(values.getAllValues()).hasSize(2);
+        // profileId:authenticatedAt:mintedAt — authenticated at the sign-in, minted now.
+        String dated = (String) values.getAllValues().get(0);
+        assertThat(dated).startsWith(
+                PROFILE + ":" + signedIn.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli() + ":");
+        assertThat(LoginServiceImpl.mintedAtOf(dated)).isCloseTo(System.currentTimeMillis(),
+                org.assertj.core.data.Offset.offset(60_000L));
+        // Unknown: dated at the epoch, which every recorded credential change is after.
+        assertThat((String) values.getAllValues().get(1)).startsWith(PROFILE + ":0:");
+    }
+
+    @Test
+    void aReentryTokenFromASessionIssuedDaysAgo_isPutBackForItsOwnLifetime_whenTheStepFails() {
+        // Authenticated days ago, minted a moment ago: the lifetime runs from the mint. Reckoned from the
+        // sign-in, what was left came out negative and a failed step ate the token.
+        long daysAgo = System.currentTimeMillis() - 3L * 24 * 3600 * 1000;
+        String value = PROFILE + ":" + daysAgo + ":" + System.currentTimeMillis();
+        when(cacheService.getAndClear("login:preauth:" + TOKEN)).thenReturn(value);
+        givenMemberships(membership(100L, 1L, AccountStatus.ACTIVE));
+        when(profileService.getUserInfo(100L)).thenThrow(new BusinessException("boom"));
+
+        assertThatThrownBy(() -> loginService.selectTenant(TOKEN, 100L)).isInstanceOf(BusinessException.class);
+
+        ArgumentCaptor<Integer> ttl = ArgumentCaptor.forClass(Integer.class);
+        verify(cacheService).save(eq("login:preauth:" + TOKEN), eq(value), ttl.capture());
+        assertThat(ttl.getValue()).isPositive();
+    }
+
+    @Test
+    void aTokenValueWrittenBeforeTheTwoTimesWereKeptApart_isMintedWhenItsPersonAuthenticated() {
+        assertThat(LoginServiceImpl.authenticatedAtOf(PROFILE + ":1000")).isEqualTo(1000L);
+        assertThat(LoginServiceImpl.mintedAtOf(PROFILE + ":1000")).isEqualTo(1000L);
+        assertThat(LoginServiceImpl.authenticatedAtOf(PROFILE + ":1000:2000")).isEqualTo(1000L);
+        assertThat(LoginServiceImpl.mintedAtOf(PROFILE + ":1000:2000")).isEqualTo(2000L);
     }
 }

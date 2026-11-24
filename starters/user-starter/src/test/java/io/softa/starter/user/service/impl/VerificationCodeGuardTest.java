@@ -248,4 +248,46 @@ class VerificationCodeGuardTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("expired");
     }
+
+    @Test
+    void theGuessThatBringsOnABan_triedTheCode_theRefusalsAfterItDidNot() {
+        issueIgnoringCooldown("123456");
+        BusinessException banning = null;
+        for (int i = 0; i < 50 && banning == null; i++) {
+            if (i % 2 == 0) {
+                // A fresh code now and then, so the per-code budget never ends the run before the ban.
+                issueIgnoringCooldown("123456");
+            }
+            try {
+                guard.verify(ID, "000000");
+            } catch (BusinessException e) {
+                if (io.softa.starter.user.constant.AccountErrorCodes.CODE_BLOCKED.equals(e.getErrorCode())) {
+                    banning = e;
+                } else {
+                    org.assertj.core.api.Assertions.assertThat(VerificationCodeGuard.refusedUntried(e)).isFalse();
+                }
+            }
+        }
+        org.assertj.core.api.Assertions.assertThat(banning).isNotNull();
+        org.assertj.core.api.Assertions.assertThat(VerificationCodeGuard.refusedUntried(banning)).isFalse();
+
+        BusinessException whileBanned = org.junit.jupiter.api.Assertions.assertThrows(BusinessException.class,
+                () -> guard.verify(ID, "000000"));
+        org.assertj.core.api.Assertions.assertThat(whileBanned.getErrorCode())
+                .isEqualTo(io.softa.starter.user.constant.AccountErrorCodes.CODE_BLOCKED);
+        org.assertj.core.api.Assertions.assertThat(VerificationCodeGuard.refusedUntried(whileBanned)).isTrue();
+    }
+
+    @Test
+    void noCodeSent_orNoneThereToMatch_triedNothing() {
+        BusinessException blank = org.junit.jupiter.api.Assertions.assertThrows(BusinessException.class,
+                () -> guard.verify(ID, " "));
+        BusinessException expired = org.junit.jupiter.api.Assertions.assertThrows(BusinessException.class,
+                () -> guard.verify(ID, "123456"));
+
+        org.assertj.core.api.Assertions.assertThat(VerificationCodeGuard.refusedUntried(blank)).isTrue();
+        org.assertj.core.api.Assertions.assertThat(VerificationCodeGuard.refusedUntried(expired)).isTrue();
+        org.assertj.core.api.Assertions.assertThat(expired.getErrorCode())
+                .isEqualTo(io.softa.starter.user.constant.AccountErrorCodes.CODE_EXPIRED);
+    }
 }

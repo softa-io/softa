@@ -67,6 +67,15 @@ public class SessionStore {
      */
     static final int ORG_UNAVAILABLE_MARK_MIN_SECONDS = RedisConstant.ONE_MINUTES;
 
+    /**
+     * The ids of one person's sessions that carry an {@link #ORG_UNAVAILABLE_SESSIONS} mark, so a credential change
+     * can take them all back ({@link #clearOrgUnavailableMarks}): a mark offers a sign-in token for the person's
+     * other companies whenever the ended session is presented, and the person who proved who they are by the old
+     * password or number is not who may still be holding that session id. Kept as long as a session lives, which
+     * no mark outlives; a member whose mark has expired names nothing and is harmless.
+     */
+    public static final String ORG_UNAVAILABLE_BY_PERSON = "session-org-unavailable-person:";
+
     private final CacheService cacheService;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -213,6 +222,10 @@ public class SessionStore {
             int seconds = this.markSeconds(sessionId);
             if (seconds > 0) {
                 cacheService.save(ORG_UNAVAILABLE_SESSIONS + sessionId, session.get(), seconds);
+                if (session.get().profileId() != null) {
+                    cacheService.addToSet(ORG_UNAVAILABLE_BY_PERSON + session.get().profileId(), sessionId,
+                            TTL_SECONDS);
+                }
             }
         }
         // Two requests can both read the session before either removes it; only the one whose delete
@@ -223,8 +236,35 @@ public class SessionStore {
             SessionRecord s = session.get();
             cacheService.removeFromSet(accountKey(s.accountId()), sessionId);
             eventPublisher.publishEvent(new SessionRevokedEvent(sessionId, s, reason));
+            if (reason != SessionRevokeReason.ORG_UNAVAILABLE) {
+                // Ended for another reason — a sign-out, most often — while an org-unavailable revoke was
+                // between reading the session and removing it: that one may have marked it already, and the
+                // session ended for this reason, not that one.
+                cacheService.clear(ORG_UNAVAILABLE_SESSIONS + sessionId);
+            }
         }
         return removed;
+    }
+
+    /**
+     * Take back every {@link #ORG_UNAVAILABLE_SESSIONS} mark of one person: their ended sessions then read as
+     * expired, and offer no sign-in token for their other companies. For a credential change — a new password, a
+     * Reset User, a new login mobile: whoever holds one of those session ids proved who they were by what has just
+     * been replaced.
+     *
+     * @return how many marks were taken back
+     */
+    public int clearOrgUnavailableMarks(Long profileId) {
+        if (profileId == null) {
+            return 0;
+        }
+        String personKey = ORG_UNAVAILABLE_BY_PERSON + profileId;
+        List<String> marks = cacheService.getSetMembers(personKey).stream()
+                .map(sessionId -> ORG_UNAVAILABLE_SESSIONS + sessionId)
+                .toList();
+        Long cleared = marks.isEmpty() ? 0L : cacheService.clear(marks);
+        cacheService.clear(personKey);
+        return cleared == null ? 0 : cleared.intValue();
     }
 
     /**

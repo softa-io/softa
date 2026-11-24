@@ -76,6 +76,16 @@ class UserSessionServiceAfterCommitTest {
         verify(store).revokeAccount(100L, null, SessionRevokeReason.UNBOUND);
         verify(store).revokeAccounts(List.of(100L), "keep", SessionRevokeReason.PASSWORD_RESET);
         verify(cache, times(2)).save(eq("login:credentials-changed:7"), anyString(), anyInt());
+        // The ended sessions' offers into the other companies are taken back at commit, with the sessions.
+        verify(store).clearOrgUnavailableMarks(7L);
+    }
+
+    @Test
+    void theCredentialMark_outlivesAnySession() {
+        // A re-entry token is dated at the sign-in behind a session that lived up to a week; a mark gone sooner
+        // would let a token dated before the change through.
+        org.assertj.core.api.Assertions.assertThat(UserSessionServiceImpl.CREDENTIAL_MARK_TTL_SECONDS)
+                .isGreaterThan(SessionStore.TTL_SECONDS);
     }
 
     @Test

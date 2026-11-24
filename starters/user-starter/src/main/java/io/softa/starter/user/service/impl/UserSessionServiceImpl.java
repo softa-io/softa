@@ -11,6 +11,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import org.apache.commons.lang3.math.NumberUtils;
 
+import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.web.session.SessionRevokeReason;
 import io.softa.framework.web.session.SessionStore;
@@ -28,9 +29,11 @@ public class UserSessionServiceImpl implements UserSessionService {
 
     /**
      * How long a person-wide revocation is remembered for the sign-in tokens it voids: longer than
-     * any such token lives, so none issued before it can outlast the mark.
+     * any such token can be dated before it — a re-entry token is dated at the sign-in behind a
+     * session, which lives up to {@link SessionStore#TTL_SECONDS} — so none authenticated before the
+     * change can outlast the mark.
      */
-    static final int CREDENTIAL_MARK_TTL_SECONDS = 15 * 60;
+    static final int CREDENTIAL_MARK_TTL_SECONDS = SessionStore.TTL_SECONDS + RedisConstant.ONE_DAY;
 
     @Autowired
     private SessionStore sessionStore;
@@ -65,6 +68,9 @@ public class UserSessionServiceImpl implements UserSessionService {
         this.markCredentialsChanged(profileId);
         return afterCommit(() -> {
             this.markCredentialsChanged(profileId);
+            // An ended session's mark offers a token into the person's other companies; the change takes that
+            // offer back too, rather than leave the token check alone to refuse it.
+            sessionStore.clearOrgUnavailableMarks(profileId);
             return sessionStore.revokeAccounts(accountService.listAccountIdsOf(profileId), keepSessionId, reason);
         });
     }

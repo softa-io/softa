@@ -254,4 +254,39 @@ class SessionStoreTest {
 
         verify(publisher).publishEvent(any(SessionRevokedEvent.class));
     }
+
+    @Test
+    void aMark_isIndexedUnderItsPerson_soACredentialChangeCanTakeThemAllBack() {
+        live("frozen", ACCOUNT, RedisConstant.ONE_WEEK);
+        store.revoke("frozen", SessionRevokeReason.ORG_UNAVAILABLE);
+        verify(cacheService).addToSet(SessionStore.ORG_UNAVAILABLE_BY_PERSON + PROFILE, "frozen", SessionStore.TTL_SECONDS);
+
+        when(cacheService.getSetMembers(SessionStore.ORG_UNAVAILABLE_BY_PERSON + PROFILE)).thenReturn(Set.of("frozen"));
+        when(cacheService.clear(List.of(SessionStore.ORG_UNAVAILABLE_SESSIONS + "frozen"))).thenReturn(1L);
+
+        assertThat(store.clearOrgUnavailableMarks(PROFILE)).isEqualTo(1);
+        verify(cacheService).clear(List.of(SessionStore.ORG_UNAVAILABLE_SESSIONS + "frozen"));
+        verify(cacheService).clear(SessionStore.ORG_UNAVAILABLE_BY_PERSON + PROFILE);
+        assertThat(store.clearOrgUnavailableMarks(null)).isZero();
+    }
+
+    @Test
+    void aSignOutThatTakesTheSession_takesAMarkARacingRevokeLeftWithIt() {
+        // An org-unavailable revoke marked the session, then a sign-out removed it first: the session ended because
+        // the person signed out, and presenting it must not offer the other companies.
+        live("signedOut", ACCOUNT, RedisConstant.ONE_WEEK);
+
+        assertThat(store.revoke("signedOut", SessionRevokeReason.LOGOUT)).isTrue();
+
+        verify(cacheService).clear(SessionStore.ORG_UNAVAILABLE_SESSIONS + "signedOut");
+    }
+
+    @Test
+    void anOrgUnavailableRevoke_keepsTheMarkItWrote() {
+        live("frozen", ACCOUNT, RedisConstant.ONE_WEEK);
+
+        store.revoke("frozen", SessionRevokeReason.ORG_UNAVAILABLE);
+
+        verify(cacheService, never()).clear(SessionStore.ORG_UNAVAILABLE_SESSIONS + "frozen");
+    }
 }

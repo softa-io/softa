@@ -50,9 +50,12 @@ public class LoginHistoryRecorder {
     private static final Set<LoginEvent> CREDENTIAL_EVENTS =
             EnumSet.of(LoginEvent.LOGIN_FAILED, LoginEvent.LOCKED, LoginEvent.UNLOCKED);
 
-    /** Failures that tried no credential, so can be repeated without limit: kept once, never fanned out. */
-    private static final Set<String> REFUSED_UNTRIED = Set.of(
-            AccountErrorCodes.PASSWORD_LOCKED, AccountErrorCodes.CODE_BLOCKED, AccountErrorCodes.CODE_EXPIRED);
+    /**
+     * Failures that tried no credential, so can be repeated without limit: kept once, never fanned out. A
+     * verification code says so itself ({@link #recordUntried}): CODE_BLOCKED is both the guess that brought a ban
+     * on, which is fanned out, and a refusal while it stands, which is not.
+     */
+    private static final Set<String> REFUSED_UNTRIED = Set.of(AccountErrorCodes.PASSWORD_LOCKED);
 
     /** Lazy: the account service writes history itself, so it is reached only when a row needs it. */
     @Lazy
@@ -74,8 +77,22 @@ public class LoginHistoryRecorder {
      */
     public void record(LoginEvent event, Long profileId, Long accountId, Long tenantId,
                        LoginChannel channel, LoginMethod method, String failureReason) {
+        this.record(event, profileId, accountId, tenantId, channel, method, failureReason, false);
+    }
+
+    /**
+     * A failed sign-in refused before its credential was tried — a code refused while verification is banned,
+     * with none sent, or with none there to match. Kept once, with the platform, like a refusal while the password
+     * is locked: see {@link #companiesOf}.
+     */
+    public void recordUntried(Long profileId, LoginChannel channel, LoginMethod method, String failureReason) {
+        this.record(LoginEvent.LOGIN_FAILED, profileId, null, null, channel, method, failureReason, true);
+    }
+
+    private void record(LoginEvent event, Long profileId, Long accountId, Long tenantId,
+                        LoginChannel channel, LoginMethod method, String failureReason, boolean untried) {
         ClientInfo client = ClientInfo.current();
-        for (UserAccount company : this.companiesOf(event, profileId, accountId, tenantId, failureReason)) {
+        for (UserAccount company : this.companiesOf(event, profileId, accountId, tenantId, failureReason, untried)) {
             UserLoginHistory row = baseRow(event, profileId, company.getId(), company.getTenantId(),
                     client.platform(), client.appVersion(), client.deviceModel(), client.osVersion());
             row.setChannel(channel);
@@ -98,9 +115,9 @@ public class LoginHistoryRecorder {
      * with the platform.
      */
     private List<UserAccount> companiesOf(LoginEvent event, Long profileId, Long accountId, Long tenantId,
-                                          String failureReason) {
-        boolean refusedUntried = event == LoginEvent.LOGIN_FAILED && failureReason != null
-                && REFUSED_UNTRIED.contains(failureReason);
+                                          String failureReason, boolean untried) {
+        boolean refusedUntried = event == LoginEvent.LOGIN_FAILED
+                && (untried || failureReason != null && REFUSED_UNTRIED.contains(failureReason));
         if (tenantId == null && profileId != null && CREDENTIAL_EVENTS.contains(event) && !refusedUntried) {
             List<UserAccount> joined = new ArrayList<>();
             try {
@@ -199,8 +216,10 @@ public class LoginHistoryRecorder {
                 // chosen, or a session ended from outside it. The write refuses a row of another tenant
                 // than the context's, so it is made as that company, past the caller's permissions —
                 // in a context of its own, carrying nothing of the caller's: not their user, roles or
-                // company grants, and no flows started by a write made on nobody's behalf.
-                Context context = new Context();
+                // company grants, and no flows started by a write made on nobody's behalf. Only the trace id,
+                // so the row can be followed back to the request it came from.
+                Context context = ContextHolder.existContext()
+                        ? new Context(ContextHolder.getContext().getTraceId()) : new Context();
                 context.setTenantId(tenantId);
                 context.setSkipPermissionCheck(true);
                 context.setTriggerFlow(false);

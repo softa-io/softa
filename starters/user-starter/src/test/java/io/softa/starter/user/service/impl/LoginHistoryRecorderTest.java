@@ -236,7 +236,22 @@ class LoginHistoryRecorderTest {
 
     @Test
     void aCodeSignInRefusedWithoutTryingTheCode_isKeptOnceWithThePlatform() {
-        // Blocked after too many wrong codes, or no code there to match: repeatable without limit.
+        // Refused while codes are banned, with no code sent, or with none there to match: repeatable without limit.
+        when(accountService.listMembershipsOf(ADA)).thenReturn(List.of(
+                membership(100L, 1L, AccountStatus.ACTIVE),
+                membership(200L, 2L, AccountStatus.ACTIVE)));
+
+        recorder.recordUntried(ADA, LoginChannel.MOBILE, LoginMethod.SMS_CODE, AccountErrorCodes.CODE_BLOCKED);
+        recorder.recordUntried(ADA, LoginChannel.MOBILE, LoginMethod.SMS_CODE, AccountErrorCodes.CODE_INCORRECT);
+        recorder.recordUntried(ADA, LoginChannel.MOBILE, LoginMethod.SMS_CODE, AccountErrorCodes.CODE_EXPIRED);
+
+        assertThat(written()).extracting(UserLoginHistory::getTenantId).containsExactly(null, null, null);
+    }
+
+    @Test
+    void theWrongCodeThatBringsOnABan_isToldToEachCompany() {
+        // CODE_BLOCKED by itself says nothing: the guess that brought the ban on was a guess at the credential,
+        // and each company sees that its person's codes are now blocked.
         when(accountService.listMembershipsOf(ADA)).thenReturn(List.of(
                 membership(100L, 1L, AccountStatus.ACTIVE),
                 membership(200L, 2L, AccountStatus.ACTIVE)));
@@ -244,11 +259,24 @@ class LoginHistoryRecorderTest {
         recorder.record(LoginEvent.LOGIN_FAILED, ADA, null, null, LoginChannel.MOBILE, LoginMethod.SMS_CODE,
                 AccountErrorCodes.CODE_BLOCKED);
         recorder.record(LoginEvent.LOGIN_FAILED, ADA, null, null, LoginChannel.MOBILE, LoginMethod.SMS_CODE,
-                AccountErrorCodes.CODE_EXPIRED);
-        // A wrong code is a guess at the credential, bounded by the block: still told to each company.
-        recorder.record(LoginEvent.LOGIN_FAILED, ADA, null, null, LoginChannel.MOBILE, LoginMethod.SMS_CODE,
                 AccountErrorCodes.CODE_INCORRECT);
 
-        assertThat(written()).extracting(UserLoginHistory::getTenantId).containsExactly(null, null, 1L, 2L);
+        assertThat(written()).extracting(UserLoginHistory::getTenantId).containsExactly(1L, 2L, 1L, 2L);
+    }
+
+    @Test
+    void aRowWrittenAsAnotherCompany_keepsTheCallersTraceId() {
+        when(accountService.listMembershipsOf(ADA)).thenReturn(List.of(membership(100L, 1L, AccountStatus.ACTIVE)));
+        List<String> traces = new ArrayList<>();
+        doAnswer(invocation -> {
+            traces.add(ContextHolder.getContext().getTraceId());
+            return null;
+        }).when(historyService).record(any());
+
+        Context signIn = new Context("sign-in-trace");
+        ContextHolder.runWith(signIn, () -> recorder.record(LoginEvent.LOGIN_FAILED, ADA, null, null,
+                LoginChannel.MOBILE, LoginMethod.PASSWORD, "PASSWORD_INCORRECT"));
+
+        assertThat(traces).containsExactly("sign-in-trace");
     }
 }
