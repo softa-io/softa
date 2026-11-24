@@ -48,10 +48,15 @@ public class ExportByFileTemplate implements ExportStrategy {
     private static final String HISTORY_MODEL = ExportHistory.class.getSimpleName();
 
     /**
-     * Each record gets a row of its own, inserted at the data row: whatever the template has below that row — a
-     * total, a signature, notes — moves down instead of being written over by the second record onwards.
+     * For a template with rows below the data row: each record gets a row of its own, inserted at the data row, so
+     * whatever is below — a total, a signature, notes — moves down instead of being written over by the second record
+     * onwards. Fesod can only insert rows into a workbook it holds in memory whole, so this costs several times the
+     * memory and time of a plain fill; a template with nothing below its data row is filled the plain, streaming way.
      */
-    static final FillConfig FILL_CONFIG = FillConfig.builder().forceNewRow(Boolean.TRUE).build();
+    static final FillConfig FILL_PUSHING_ROWS_DOWN = FillConfig.builder().forceNewRow(Boolean.TRUE).build();
+
+    /** For a template with nothing below its data row: records are written row after row, streaming. */
+    static final FillConfig FILL_STREAMING = FillConfig.builder().forceNewRow(Boolean.FALSE).build();
 
     // {{ variable }} or {{ object.field }} in the uploaded template: dot-separated names, no empty segment.
     private static final Pattern VARIABLE_PATTERN =
@@ -121,7 +126,7 @@ public class ExportByFileTemplate implements ExportStrategy {
             WriteSheet writeSheet = FesodSheet.writerSheet(template.sheetNo())
                     .registerWriteHandler(new LargeIntegerAsTextHandler())
                     .build();
-            excelWriter.fill(rows, FILL_CONFIG, writeSheet);
+            excelWriter.fill(rows, template.fillConfig(), writeSheet);
             // TODO: fill in the ENV related to current user
             excelWriter.finish();
             // Upload the Excel stream to OSS
@@ -138,13 +143,18 @@ public class ExportByFileTemplate implements ExportStrategy {
      * The template with its placeholders in Fesod's syntax, the sheet the rows go into, and the fields that
      * sheet's placeholders name.
      *
-     * @param bytes     the normalized template
-     * @param sheetNo   the index of the template's sheet to fill
-     * @param variables the fields the sheet's placeholders name, which are the fields to query
+     * @param bytes        the normalized template
+     * @param sheetNo      the index of the template's sheet to fill
+     * @param variables    the fields the sheet's placeholders name, which are the fields to query
+     * @param rowsBelowData whether the sheet has any row below its data row, which the fill must push down
      */
-    record PreparedTemplate(byte[] bytes, int sheetNo, Set<String> variables) {
+    record PreparedTemplate(byte[] bytes, int sheetNo, Set<String> variables, boolean rowsBelowData) {
         InputStream stream() {
             return new ByteArrayInputStream(bytes);
+        }
+
+        FillConfig fillConfig() {
+            return rowsBelowData ? FILL_PUSHING_ROWS_DOWN : FILL_STREAMING;
         }
     }
 
@@ -179,9 +189,11 @@ public class ExportByFileTemplate implements ExportStrategy {
                         + " to fill.", sheet.getSheetName());
             }
             refuseStrayBraces(sheet);
+            // Any row below the data row, content or only formatting, is one the fill would otherwise write over.
+            boolean rowsBelowData = sheet.getLastRowNum() > placeholderRows(sheet).iterator().next();
             normalizeSheetPlaceholders(sheet);
             workbook.write(normalizedOutput);
-            return new PreparedTemplate(normalizedOutput.toByteArray(), sheetNo, variables);
+            return new PreparedTemplate(normalizedOutput.toByteArray(), sheetNo, variables, rowsBelowData);
         }
     }
 

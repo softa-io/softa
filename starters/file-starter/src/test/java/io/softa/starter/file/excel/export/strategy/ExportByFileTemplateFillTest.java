@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import io.softa.framework.base.exception.BusinessException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -74,6 +75,38 @@ class ExportByFileTemplateFillTest {
             assertEquals("Total", sheet.getRow(5).getCell(0).getStringCellValue());
             assertEquals("Signed by", sheet.getRow(6).getCell(0).getStringCellValue());
         }
+    }
+
+    @Test
+    void rowsArePushedDownOnlyWhenTheTemplateHasRowsBelowTheDataRow() throws Exception {
+        // Nothing below the data row: the plain, streaming fill.
+        byte[] plain = template(wb -> dataSheet(wb, "Data", "{{ name }}", "{{ deptId.name }}", "{{ code }}"));
+        ExportByFileTemplate.PreparedTemplate prepared =
+                ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(plain), null);
+        assertFalse(prepared.rowsBelowData());
+        assertEquals(Boolean.FALSE, prepared.fillConfig().getForceNewRow());
+        try (Workbook result = fill(plain, null, 3)) {
+            Sheet sheet = result.getSheet("Data");
+            for (int i = 1; i <= 3; i++) {
+                assertEquals(List.of("Alice" + i, "Dept" + i, String.valueOf(i)), texts(sheet.getRow(i)));
+            }
+        }
+
+        // A footer below the data row: each record gets a row of its own and the footer moves down.
+        byte[] footer = template(wb -> {
+            Sheet sheet = dataSheet(wb, "Data", "{{ name }}", "{{ deptId.name }}", "{{ code }}");
+            sheet.createRow(2).createCell(0).setCellValue("Total");
+        });
+        prepared = ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(footer), null);
+        assertTrue(prepared.rowsBelowData());
+        assertEquals(Boolean.TRUE, prepared.fillConfig().getForceNewRow());
+
+        // A row below that holds only formatting still counts: the fill would write over it.
+        byte[] styledOnly = template(wb -> {
+            Sheet sheet = dataSheet(wb, "Data", "{{ name }}", "{{ deptId.name }}", "{{ code }}");
+            sheet.createRow(5);
+        });
+        assertTrue(ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(styledOnly), null).rowsBelowData());
     }
 
     @Test
@@ -280,7 +313,7 @@ class ExportByFileTemplateFillTest {
                 ExportByFileTemplate.prepareTemplate(new ByteArrayInputStream(template), sheetName);
         ByteArrayOutputStream filled = new ByteArrayOutputStream();
         try (ExcelWriter writer = FesodSheet.write(filled).withTemplate(prepared.stream()).build()) {
-            writer.fill(rows, ExportByFileTemplate.FILL_CONFIG, FesodSheet.writerSheet(prepared.sheetNo()).build());
+            writer.fill(rows, prepared.fillConfig(), FesodSheet.writerSheet(prepared.sheetNo()).build());
         }
         return new XSSFWorkbook(new ByteArrayInputStream(filled.toByteArray()));
     }
