@@ -23,12 +23,14 @@ import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.exception.SecurityException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.base.utils.Cast;
+import io.softa.framework.base.utils.PhoneUtils;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.*;
 import io.softa.framework.orm.entity.TimelineSlice;
 import io.softa.framework.orm.enums.AccessType;
 import io.softa.framework.orm.enums.ConvertType;
 import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.enums.WidgetType;
 import io.softa.framework.orm.jdbc.JdbcService;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
@@ -168,6 +170,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
             permissionService.checkWritePayload(modelName, row);
         }
         this.checkTenantId(modelName, rows);
+        this.canonicalizePhones(modelName, rows);
         // Code-layer rules see the caller's rows before the pipeline coerces them.
         if (writeValidators != null) {
             writeValidators.validateCreate(modelName, rows);
@@ -255,6 +258,9 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
             return CreateOrUpdateResult.empty();
         }
         Assert.notEmpty(uniqueConstraints, "The unique constraints of model {0} cannot be empty.", modelName);
+        // Matched against the stored rows in the stored spelling: a phone typed with its trunk prefix
+        // would otherwise find nothing, and be created again beside the row it names.
+        this.canonicalizePhones(modelName, rows);
         List<Map<String, Object>> createDataList = new ArrayList<>();
         List<Map<String, Object>> updateDataList = new ArrayList<>();
 
@@ -402,7 +408,9 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         if (CollectionUtils.isEmpty(uniqueKeys)) {
             return Collections.emptyMap();
         }
-        Filters filters = this.buildUniqueConstraintFilters(uniqueConstraints, uniqueKeys);
+        Set<Integer> phonePositions = this.phonePositions(modelName, uniqueConstraints);
+        Filters filters = this.buildUniqueConstraintFilters(uniqueConstraints,
+                this.withTrunkPrefixedSpellings(uniqueKeys, phonePositions));
         List<String> fields = new ArrayList<>(List.of(ModelConstant.ID));
         fields.addAll(uniqueConstraints);
         if (!CollectionUtils.isEmpty(extraFields)) {
@@ -415,7 +423,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         List<Map<String, Object>> dbRows = this.searchList(modelName, flexQuery);
         Map<UniqueKey, Map<String, Object>> dbRowKeyMap = new HashMap<>();
         for (Map<String, Object> dbRow : dbRows) {
-            UniqueKey key = generateUniqueKey(modelName, dbRow, uniqueConstraints);
+            UniqueKey key = canonicalPhones(generateUniqueKey(modelName, dbRow, uniqueConstraints), phonePositions);
             Assert.notTrue(dbRowKeyMap.containsKey(key),
                     "The unique key `{0}` of uniqueConstraints `{1}` is duplicated in database model `{2}`.",
                     key, uniqueConstraints, modelName);
@@ -436,6 +444,67 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         List<Object> values = uniqueConstraints.stream()
                 .map(field -> normalizeUniqueConstraintValue(modelName, field, data.get(field)))
                 .toList();
+        return new UniqueKey(values);
+    }
+
+    /** The positions in {@code uniqueConstraints} of the phone-widget fields. */
+    private Set<Integer> phonePositions(String modelName, List<String> uniqueConstraints) {
+        Set<Integer> positions = new HashSet<>();
+        for (int i = 0; i < uniqueConstraints.size(); i++) {
+            MetaField field = ModelManager.getModelField(modelName, uniqueConstraints.get(i));
+            if (WidgetType.PHONE.equals(field.getWidgetType())) {
+                positions.add(i);
+            }
+        }
+        return positions;
+    }
+
+    /**
+     * The keys to look up, each also under the spelling its phone values had with their trunk prefix kept
+     * ({@link PhoneUtils#withTrunkPrefix}): a row stored before numbers were stored in one spelling holds
+     * "+640211234678", and the key, canonicalized, asks for "+64211234678". Missed, the row would be created again
+     * beside it, or an update-only import would report it missing.
+     */
+    private static Collection<UniqueKey> withTrunkPrefixedSpellings(Collection<UniqueKey> keys,
+                                                                    Set<Integer> phonePositions) {
+        if (phonePositions.isEmpty()) {
+            return keys;
+        }
+        Set<UniqueKey> spellings = new LinkedHashSet<>();
+        for (UniqueKey key : keys) {
+            List<List<Object>> variants = new ArrayList<>(List.of(key.values()));
+            for (int position : phonePositions) {
+                if (!(key.values().get(position) instanceof String number)) {
+                    continue;
+                }
+                Optional<String> prefixed = PhoneUtils.withTrunkPrefix(number);
+                if (prefixed.isEmpty()) {
+                    continue;
+                }
+                List<List<Object>> more = new ArrayList<>();
+                for (List<Object> variant : variants) {
+                    List<Object> copy = new ArrayList<>(variant);
+                    copy.set(position, prefixed.get());
+                    more.add(copy);
+                }
+                variants.addAll(more);
+            }
+            variants.forEach(values -> spellings.add(new UniqueKey(values)));
+        }
+        return spellings;
+    }
+
+    /** A stored row's key with its phone values in the spelling the input keys were given in. */
+    private static UniqueKey canonicalPhones(UniqueKey key, Set<Integer> phonePositions) {
+        if (phonePositions.isEmpty()) {
+            return key;
+        }
+        List<Object> values = new ArrayList<>(key.values());
+        for (int position : phonePositions) {
+            if (values.get(position) instanceof String number) {
+                values.set(position, PhoneUtils.canonical(number));
+            }
+        }
         return new UniqueKey(values);
     }
 
@@ -937,6 +1006,7 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         if (ContextHolder.getContext().isSkipAutoAudit()) {
             updatableFields.addAll(ModelManager.getModel(modelName).getAuditUpdateFields());
         }
+        this.canonicalizePhones(modelName, rows);
         Set<String> toUpdateFields = new HashSet<>();
         List<Map<String, Object>> toUpdateRows = new ArrayList<>();
         String pkField = ModelManager.getModelPrimaryKey(modelName);
@@ -1792,4 +1862,29 @@ public class ModelServiceImpl<K extends Serializable> implements ModelService<K>
         }
     }
 
+    /**
+     * Writes each phone-widget field of the rows in its stored form ({@link PhoneUtils#canonical}) before anything
+     * judges them. The pipeline would store "+64 021 123 4678" as "+64211234678" anyway, but the code-layer rules run
+     * first: one comparing the typed spelling with the stored one — whether a number is already someone's — would
+     * see two numbers where there is one.
+     */
+    private void canonicalizePhones(String modelName, List<Map<String, Object>> rows) {
+        List<String> phoneFields = ModelManager.getModelFields(modelName).stream()
+                .filter(field -> WidgetType.PHONE.equals(field.getWidgetType()))
+                .map(MetaField::getFieldName)
+                .toList();
+        if (phoneFields.isEmpty()) {
+            return;
+        }
+        for (Map<String, Object> row : rows) {
+            for (String field : phoneFields) {
+                if (row.get(field) instanceof String value && StringUtils.isNotBlank(value)) {
+                    String canonical = PhoneUtils.canonical(value.trim());
+                    if (!canonical.equals(value)) {
+                        row.put(field, canonical);
+                    }
+                }
+            }
+        }
+    }
 }

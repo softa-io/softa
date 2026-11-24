@@ -7,6 +7,8 @@ import java.util.stream.Stream;
 
 import org.apache.commons.lang3.StringUtils;
 
+import io.softa.framework.base.utils.PhoneUtils;
+
 /**
  * The one spelling a login identifier has: trimmed, lowercased, and for a mobile number stripped of
  * the separators people type into it.
@@ -43,10 +45,15 @@ public final class LoginIdentifiers {
     private LoginIdentifiers() {
     }
 
-    /** The canonical form, or null for a blank input. */
+    /**
+     * The canonical form, or null for a blank input: an email lowercased; a mobile with its calling code in the
+     * stored form ({@link PhoneUtils#canonical}) — separators dropped, and the trunk prefix typed after the calling
+     * code dropped too, so "+64 021 123 4678" and "+64211234678" are one identifier; any other mobile-shaped value
+     * with its separators dropped.
+     */
     public static String normalize(String identifier) {
         String value = StringUtils.trimToNull(identifier);
-        return value == null ? null : collapseMobile(value).toLowerCase(Locale.ROOT);
+        return value == null ? null : PhoneUtils.canonical(collapseMobile(value)).toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -71,7 +78,11 @@ public final class LoginIdentifiers {
      * its canonical form — since nothing inside it was ever folded.
      */
     public static List<String> loginSpellings(String identifier) {
-        return spellings(normalize(identifier), typedForm(identifier));
+        String typed = typedForm(identifier);
+        String canonical = normalize(identifier);
+        // A row written before numbers were stored in one spelling may hold the trunk prefix ("+640211234678"):
+        // it is asked for by that spelling too, whether the person typed the 0 or not.
+        return spellings(canonical, trunkPrefixed(canonical), collapseMobile(typed), typed);
     }
 
     /**
@@ -80,11 +91,18 @@ public final class LoginIdentifiers {
      */
     public static List<String> workContactSpellings(String contact) {
         String trimmed = StringUtils.trimToNull(contact);
-        return spellings(collapseMobile(trimmed), trimmed);
+        String collapsed = collapseMobile(trimmed);
+        String canonical = PhoneUtils.canonical(collapsed);
+        return spellings(canonical, trunkPrefixed(canonical), collapsed, trimmed);
     }
 
-    private static List<String> spellings(String canonical, String typed) {
-        return Stream.of(canonical, typed).filter(StringUtils::isNotBlank).distinct().toList();
+    /** The trunk-prefixed spelling of a mobile ({@link PhoneUtils#withTrunkPrefix}), or null. */
+    private static String trunkPrefixed(String canonical) {
+        return canonical == null ? null : PhoneUtils.withTrunkPrefix(canonical).orElse(null);
+    }
+
+    private static List<String> spellings(String... forms) {
+        return Stream.of(forms).filter(StringUtils::isNotBlank).distinct().toList();
     }
 
     /**
