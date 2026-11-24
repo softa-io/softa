@@ -7,12 +7,14 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.base.exception.ValidationException;
 import io.softa.framework.base.utils.Assert;
 import io.softa.framework.orm.constant.FileConstant;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
 import io.softa.framework.orm.enums.FieldType;
 import io.softa.framework.orm.meta.MetaField;
 import io.softa.framework.orm.meta.ModelManager;
@@ -528,6 +530,7 @@ public class RelationLookupResolver {
         Map<List<Object>, Map<String, Object>> fileRows = selfReference
                 ? rowsByOwnKey(rows, group.lookupFields()) : Map.of();
         String subject = subjectOf(modelName, group.rootField(), group.relatedModel());
+        Set<List<Object>> outsideGrant = companiesOutsideGrant(group, rows, lookedUp);
 
         // Step 3: Write back the FK id and remove dotted-path columns
         for (Map<String, Object> row : rows) {
@@ -554,6 +557,8 @@ public class RelationLookupResolver {
                     // fills it in before this row goes in.
                     inFile.add(new InFileReferences.Reference(row, group.rootField(),
                             subject, group.lookupFields(), key, target));
+                } else if (outsideGrant.contains(keyValues)) {
+                    markFailure(row, buildOutsideGrantMessage(subject, keyValues), skipException);
                 } else {
                     markFailure(row, buildNotFoundMessage(subject, group, keyValues), skipException);
                 }
@@ -777,6 +782,85 @@ public class RelationLookupResolver {
         for (String dottedPath : group.dottedPaths()) {
             row.remove(dottedPath);
         }
+    }
+
+    /**
+     * The companies a row names that the lookup did not find but that do exist: outside the importer's
+     * company grant, so their read never returned them.
+     *
+     * <p>The lookup reads as the importer, so a company their roles are not granted is as absent as one
+     * that was never created, and the row was rejected as "not found" — a reader then hunts for a typo
+     * in a name that is spelled right. Read past row scope, the tenant still applying, the two come
+     * apart. Only companies: a company names itself in the grant message the write gives anyway
+     * ({@code CompanyReferenceGrantValidator}), while for other models whether an unreadable record
+     * exists is not the importer's to learn.
+     */
+    private Set<List<Object>> companiesOutsideGrant(LookupGroup group, List<Map<String, Object>> rows,
+                                                    Bucketed lookedUp) {
+        if (!ModelConstant.COMPANY_MODEL.equals(group.relatedModel()) || !allStringFields(group)) {
+            return Set.of();
+        }
+        Set<List<Object>> missing = new LinkedHashSet<>();
+        for (Map<String, Object> row : rows) {
+            if (row.containsKey(FileConstant.FAILED_REASON)) {
+                continue;
+            }
+            List<Object> keyValues = extractKeyValues(row, group);
+            if (keyValues != null && lookedUp.idFor(row, keyValues) == null) {
+                missing.add(keyValues);
+            }
+        }
+        if (missing.isEmpty()) {
+            return Set.of();
+        }
+        // A plain read, not getIdsByBusinessKeys: that one requires each key to name exactly one row and
+        // fails the whole call otherwise, which would turn two same-named companies outside the grant into
+        // a failed import — and tell the importer both exist. Only whether a key matches anything matters.
+        List<String> fields = group.lookupFields();
+        Filters keyFilter = fields.size() == 1
+                ? new Filters().in(fields.getFirst(), missing.stream().map(List::getFirst).toList())
+                : new Filters().tupleIn(fields, missing);
+        Filters filters = Filters.isEmpty(group.relationFilters())
+                ? keyFilter : Filters.and(keyFilter, group.relationFilters());
+        List<Map<String, Object>> found = ContextUtils.withoutPermissionChecks(() -> modelService.searchList(
+                group.relatedModel(), new FlexQuery(fields, filters)));
+        Set<List<String>> foundKeys = new HashSet<>();
+        for (Map<String, Object> record : found) {
+            foundKeys.add(fields.stream().map(field -> String.valueOf(record.get(field))).toList());
+        }
+        Set<List<Object>> outside = new HashSet<>();
+        for (List<Object> key : missing) {
+            if (foundKeys.contains(key.stream().map(String::valueOf).toList())) {
+                outside.add(key);
+            }
+        }
+        return outside;
+    }
+
+    /**
+     * Whether every lookup field is a plain string column. The second read compares the cells as they
+     * were typed; a number, date, boolean or relation column would need each value converted to its
+     * type first (PostgreSQL refuses {@code integer = varchar}), so such lookups keep "not found".
+     */
+    private boolean allStringFields(LookupGroup group) {
+        for (String field : group.lookupFields()) {
+            MetaField metaField = ModelManager.getModelFieldOrNull(group.relatedModel(), field);
+            if (metaField == null || metaField.getFieldType() != FieldType.STRING) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * {@code Legal Entity: "Zingkey Pte Ltd" is outside the companies your role is granted. …} — the sentence
+     * the write gives a company outside the grant ({@code CompanyReferenceGrantValidator}), so an import
+     * and a form say the same thing about the same company.
+     */
+    private String buildOutsideGrantMessage(String subject, List<Object> keyValues) {
+        String named = keyValues.stream().map(String::valueOf).collect(Collectors.joining(", "));
+        return subject + ": \"" + named + "\" is outside the companies your role is granted."
+                + " Choose one of those, or ask an administrator to grant your role this company.";
     }
 
     /**

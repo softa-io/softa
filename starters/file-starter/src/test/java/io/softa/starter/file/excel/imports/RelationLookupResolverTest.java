@@ -6,6 +6,8 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import io.softa.framework.base.context.Context;
+import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.base.exception.IllegalArgumentException;
 import io.softa.framework.orm.constant.FileConstant;
 import io.softa.framework.orm.enums.FieldType;
@@ -16,6 +18,9 @@ import io.softa.starter.file.dto.ImportFieldDTO;
 import io.softa.framework.web.filter.context.CompanyCountryResolver;
 import io.softa.framework.orm.meta.MetaModel;
 import io.softa.framework.orm.domain.Filters;
+import io.softa.framework.orm.domain.FlexQuery;
+import io.softa.framework.base.enums.Operator;
+import io.softa.framework.base.exception.ValidationException;
 import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -739,6 +744,264 @@ class RelationLookupResolverTest {
                         "idType", "IdType", "name", "profileId.idType.name", null)));
     }
 
+    private static final String OUTSIDE_GRANT = " is outside the companies your role is granted."
+            + " Choose one of those, or ask an administrator to grant your role this company.";
+
+    /**
+     * A company the importer's roles are not granted is not "not found": it exists, and the row says so.
+     *
+     * <p>The lookup reads as the importer, so a company outside their grant came back as absent and the
+     * row read "Company not found: Zingkey Pte Ltd" — a name spelled right, reported as a typo. Read
+     * again past row scope, it is found, and the row gets the grant sentence the write would give.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aCompanyOutsideTheGrantIsReportedAsOutsideItNotAsMissing() {
+        RelationLookupResolver resolver = createResolver();
+        var group = new RelationLookupResolver.LookupGroup(
+                "legalEntityId", "Company", List.of("name"), List.of("legalEntityId.name"), true, false, false, null);
+        Map<String, Object> row = new LinkedHashMap<>(Map.of("legalEntityId.name", "Zingkey Pte Ltd"));
+
+        ModelService<Long> models = (ModelService<Long>) getModelService(resolver);
+        boolean[] skippedOnFirst = {true};
+        when(models.getIdsByBusinessKeys(eq("Company"), eq(List.of("name")), anyCollection(), any()))
+                .thenAnswer(inv -> {
+                    skippedOnFirst[0] = ContextHolder.getContext().isSkipPermissionCheck();
+                    return Map.of();   // the importer's read: outside their grant
+                });
+        boolean[] skippedOnRetry = {false};
+        when(models.searchList(eq("Company"), any(FlexQuery.class))).thenAnswer(inv -> {
+            skippedOnRetry[0] = ContextHolder.getContext().isSkipPermissionCheck();
+            return List.of(Map.of("id", 7L, "name", "Zingkey Pte Ltd"));
+        });
+
+        try (MockedStatic<ModelManager> mm = companyFields(Map.of("name", FieldType.STRING))) {
+            ContextHolder.runWith(new Context(), () ->
+                    resolver.resolveRows(new ArrayList<>(List.of(row)), List.of(group), true));
+        }
+
+        String reason = String.valueOf(row.get(FileConstant.FAILED_REASON));
+        assertTrue(reason.endsWith(": \"Zingkey Pte Ltd\"" + OUTSIDE_GRANT), reason);
+        assertFalse(reason.contains("not found"), reason);
+        assertFalse(skippedOnFirst[0]);
+        assertTrue(skippedOnRetry[0]);
+        verify(models, times(1)).getIdsByBusinessKeys(eq("Company"), eq(List.of("name")), anyCollection(), any());
+        verify(models, times(1)).searchList(eq("Company"), any(FlexQuery.class));
+        // Rejected, not resolved: the id read past the grant is never written into the row.
+        assertNull(row.get("legalEntityId"));
+    }
+
+    /**
+     * One file, three rows: a company in the grant, one outside it, one that does not exist. Each gets
+     * its own outcome, and the second read asks only for the two the importer's read missed.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aMixedBatchGivesEachRowItsOwnOutcomeAndLooksUpOnlyTheMissedKeysAgain() {
+        RelationLookupResolver resolver = createResolver();
+        var group = new RelationLookupResolver.LookupGroup(
+                "legalEntityId", "Company", List.of("name"), List.of("legalEntityId.name"), true, false, false, null);
+        Map<String, Object> visible = new LinkedHashMap<>(Map.of("legalEntityId.name", "Granted Pte Ltd"));
+        Map<String, Object> outside = new LinkedHashMap<>(Map.of("legalEntityId.name", "Other Pte Ltd"));
+        Map<String, Object> absent = new LinkedHashMap<>(Map.of("legalEntityId.name", "No Such Pte Ltd"));
+
+        ModelService<Long> models = (ModelService<Long>) getModelService(resolver);
+        when(models.getIdsByBusinessKeys(eq("Company"), eq(List.of("name")), anyCollection(), any()))
+                .thenReturn(Map.of(List.<Object>of("Granted Pte Ltd"), 1L));
+        ArgumentCaptor<FlexQuery> query = ArgumentCaptor.forClass(FlexQuery.class);
+        when(models.searchList(eq("Company"), query.capture()))
+                .thenReturn(List.of(Map.of("id", 2L, "name", "Other Pte Ltd")));
+
+        try (MockedStatic<ModelManager> mm = companyFields(Map.of("name", FieldType.STRING))) {
+            ContextHolder.runWith(new Context(), () -> resolver.resolveRows(
+                    new ArrayList<>(List.of(visible, outside, absent)), List.of(group), true));
+        }
+
+        assertEquals(1L, visible.get("legalEntityId"));
+        assertNull(visible.get(FileConstant.FAILED_REASON));
+        assertTrue(String.valueOf(outside.get(FileConstant.FAILED_REASON))
+                .endsWith(": \"Other Pte Ltd\"" + OUTSIDE_GRANT));
+        assertNull(outside.get("legalEntityId"));
+        assertTrue(String.valueOf(absent.get(FileConstant.FAILED_REASON)).contains(" not found: No Such Pte Ltd"));
+        assertEquals(new Filters().in("name", List.of("Other Pte Ltd", "No Such Pte Ltd")),
+                query.getValue().getFilters());
+    }
+
+    /**
+     * Two companies outside the grant share the name a row gives. The second read only asks whether the
+     * name matches anything, so the row is told it is outside the grant — the import does not fail as a
+     * duplicate business key, and nothing says how many there are.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void twoSameNamedCompaniesOutsideTheGrantDoNotFailTheImport() {
+        RelationLookupResolver resolver = createResolver();
+        var group = new RelationLookupResolver.LookupGroup(
+                "legalEntityId", "Company", List.of("name"), List.of("legalEntityId.name"), true, false, false, null);
+        Map<String, Object> row = new LinkedHashMap<>(Map.of("legalEntityId.name", "Twin Pte Ltd"));
+
+        ModelService<Long> models = (ModelService<Long>) getModelService(resolver);
+        when(models.getIdsByBusinessKeys(eq("Company"), eq(List.of("name")), anyCollection(), any()))
+                .thenReturn(Map.of());
+        when(models.searchList(eq("Company"), any(FlexQuery.class))).thenReturn(List.of(
+                Map.of("id", 3L, "name", "Twin Pte Ltd"), Map.of("id", 4L, "name", "Twin Pte Ltd")));
+
+        try (MockedStatic<ModelManager> mm = companyFields(Map.of("name", FieldType.STRING))) {
+            ContextHolder.runWith(new Context(), () ->
+                    resolver.resolveRows(new ArrayList<>(List.of(row)), List.of(group), true));
+        }
+
+        String reason = String.valueOf(row.get(FileConstant.FAILED_REASON));
+        assertTrue(reason.endsWith(": \"Twin Pte Ltd\"" + OUTSIDE_GRANT), reason);
+        assertFalse(reason.contains("duplicated"), reason);
+    }
+
+    /** Fail-fast imports throw on the first bad row; for a company outside the grant that is the grant sentence. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void failFastThrowsTheGrantSentence() {
+        RelationLookupResolver resolver = createResolver();
+        var group = new RelationLookupResolver.LookupGroup(
+                "legalEntityId", "Company", List.of("name"), List.of("legalEntityId.name"), true, false, false, null);
+        Map<String, Object> row = new LinkedHashMap<>(Map.of("legalEntityId.name", "Zingkey Pte Ltd"));
+
+        ModelService<Long> models = (ModelService<Long>) getModelService(resolver);
+        when(models.getIdsByBusinessKeys(eq("Company"), eq(List.of("name")), anyCollection(), any()))
+                .thenReturn(Map.of());
+        when(models.searchList(eq("Company"), any(FlexQuery.class)))
+                .thenReturn(List.of(Map.of("id", 7L, "name", "Zingkey Pte Ltd")));
+
+        ValidationException thrown;
+        try (MockedStatic<ModelManager> mm = companyFields(Map.of("name", FieldType.STRING))) {
+            thrown = assertThrows(ValidationException.class, () -> ContextHolder.runWith(new Context(),
+                    () -> resolver.resolveRows(new ArrayList<>(List.of(row)), List.of(group), false)));
+        }
+        assertTrue(thrown.getMessage().endsWith(": \"Zingkey Pte Ltd\"" + OUTSIDE_GRANT), thrown.getMessage());
+    }
+
+    /**
+     * The second read keeps the relation field's own filters: a company the field could never point at
+     * is not one the row can be told is merely outside the grant.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void theSecondReadKeepsTheRelationFilters() {
+        RelationLookupResolver resolver = createResolver();
+        Filters relationFilters = Filters.of("active", Operator.EQUAL, true);
+        var group = new RelationLookupResolver.LookupGroup(
+                "legalEntityId", "Company", List.of("name"), List.of("legalEntityId.name"), true, false, false,
+                relationFilters);
+        Map<String, Object> row = new LinkedHashMap<>(Map.of("legalEntityId.name", "Zingkey Pte Ltd"));
+
+        ModelService<Long> models = (ModelService<Long>) getModelService(resolver);
+        when(models.getIdsByBusinessKeys(eq("Company"), eq(List.of("name")), anyCollection(), eq(relationFilters)))
+                .thenReturn(Map.of());
+        ArgumentCaptor<FlexQuery> query = ArgumentCaptor.forClass(FlexQuery.class);
+        when(models.searchList(eq("Company"), query.capture())).thenReturn(List.of());
+
+        try (MockedStatic<ModelManager> mm = companyFields(Map.of("name", FieldType.STRING))) {
+            ContextHolder.runWith(new Context(), () ->
+                    resolver.resolveRows(new ArrayList<>(List.of(row)), List.of(group), true));
+        }
+
+        assertEquals(Filters.and(new Filters().in("name", List.of("Zingkey Pte Ltd")), relationFilters),
+                query.getValue().getFilters());
+        assertTrue(String.valueOf(row.get(FileConstant.FAILED_REASON)).contains(" not found: Zingkey Pte Ltd"));
+    }
+
+    /** A key of several columns is looked up again as a tuple and matched back column by column. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aMultiColumnKeyIsLookedUpAgainAsATuple() {
+        RelationLookupResolver resolver = createResolver();
+        var group = new RelationLookupResolver.LookupGroup("legalEntityId", "Company", List.of("code", "name"),
+                List.of("legalEntityId.code", "legalEntityId.name"), true, false, false, null);
+        Map<String, Object> row = new LinkedHashMap<>(Map.of(
+                "legalEntityId.code", "ZK", "legalEntityId.name", "Zingkey Pte Ltd"));
+
+        ModelService<Long> models = (ModelService<Long>) getModelService(resolver);
+        when(models.getIdsByBusinessKeys(eq("Company"), eq(List.of("code", "name")), anyCollection(), any()))
+                .thenReturn(Map.of());
+        ArgumentCaptor<FlexQuery> query = ArgumentCaptor.forClass(FlexQuery.class);
+        when(models.searchList(eq("Company"), query.capture()))
+                .thenReturn(List.of(Map.of("id", 7L, "code", "ZK", "name", "Zingkey Pte Ltd")));
+
+        try (MockedStatic<ModelManager> mm = companyFields(Map.of("code", FieldType.STRING, "name", FieldType.STRING))) {
+            ContextHolder.runWith(new Context(), () ->
+                    resolver.resolveRows(new ArrayList<>(List.of(row)), List.of(group), true));
+        }
+
+        assertTrue(String.valueOf(row.get(FileConstant.FAILED_REASON))
+                .endsWith(": \"ZK, Zingkey Pte Ltd\"" + OUTSIDE_GRANT), String.valueOf(row.get(FileConstant.FAILED_REASON)));
+        assertEquals(new Filters().tupleIn(List.of("code", "name"), List.of(List.of("ZK", "Zingkey Pte Ltd"))),
+                query.getValue().getFilters());
+    }
+
+    /**
+     * A lookup on a column that is not a plain string is not read again: the cells would be compared as
+     * typed text against a number column, which PostgreSQL refuses. Such a row keeps "not found".
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aCompanyLookedUpByANonStringColumnIsNotLookedUpAgain() {
+        RelationLookupResolver resolver = createResolver();
+        var group = new RelationLookupResolver.LookupGroup(
+                "legalEntityId", "Company", List.of("sequence"), List.of("legalEntityId.sequence"), true, false, false, null);
+        Map<String, Object> row = new LinkedHashMap<>(Map.of("legalEntityId.sequence", "123"));
+
+        ModelService<Long> models = (ModelService<Long>) getModelService(resolver);
+        when(models.getIdsByBusinessKeys(eq("Company"), eq(List.of("sequence")), anyCollection(), any()))
+                .thenReturn(Map.of());
+
+        try (MockedStatic<ModelManager> mm = companyFields(Map.of("sequence", FieldType.INTEGER))) {
+            ContextHolder.runWith(new Context(), () ->
+                    resolver.resolveRows(new ArrayList<>(List.of(row)), List.of(group), true));
+        }
+
+        assertTrue(String.valueOf(row.get(FileConstant.FAILED_REASON)).contains(" not found: 123"));
+        verify(models, Mockito.never()).searchList(any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aCompanyThatDoesNotExistIsStillNotFound() {
+        RelationLookupResolver resolver = createResolver();
+        var group = new RelationLookupResolver.LookupGroup(
+                "legalEntityId", "Company", List.of("name"), List.of("legalEntityId.name"), true, false, false, null);
+        Map<String, Object> row = new LinkedHashMap<>(Map.of("legalEntityId.name", "No Such Pte Ltd"));
+
+        ModelService<Long> models = (ModelService<Long>) getModelService(resolver);
+        when(models.getIdsByBusinessKeys(eq("Company"), eq(List.of("name")), anyCollection(), any()))
+                .thenReturn(Map.of());
+
+        try (MockedStatic<ModelManager> mm = companyFields(Map.of("name", FieldType.STRING))) {
+            ContextHolder.runWith(new Context(), () ->
+                    resolver.resolveRows(new ArrayList<>(List.of(row)), List.of(group), true));
+        }
+
+        assertTrue(String.valueOf(row.get(FileConstant.FAILED_REASON)).contains(" not found: No Such Pte Ltd"));
+    }
+
+    /** Only companies are looked up again: whether another model's unreadable record exists is not the importer's to learn. */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aMissingRecordOfAnotherModelIsNotLookedUpAgain() {
+        RelationLookupResolver resolver = createResolver();
+        var group = new RelationLookupResolver.LookupGroup(
+                "deptId", "Department", List.of("code"), List.of("deptId.code"), true, false, false, null);
+        Map<String, Object> row = new LinkedHashMap<>(Map.of("deptId.code", "D999"));
+
+        ModelService<Long> models = (ModelService<Long>) getModelService(resolver);
+        when(models.getIdsByBusinessKeys(eq("Department"), eq(List.of("code")), anyCollection(), any()))
+                .thenReturn(Map.of());
+
+        resolver.resolveRows(new ArrayList<>(List.of(row)), List.of(group), true);
+
+        assertEquals("Department not found: D999", row.get(FileConstant.FAILED_REASON));
+        verify(models, times(1)).getIdsByBusinessKeys(eq("Department"), eq(List.of("code")), anyCollection(), any());
+        verify(models, Mockito.never()).searchList(any(), any());
+    }
+
     private RelationLookupResolver createResolver() {
         RelationLookupResolver resolver = new RelationLookupResolver();
         ReflectionTestUtils.setField(resolver, "modelService", mock(ModelService.class));
@@ -795,6 +1058,14 @@ class RelationLookupResolverTest {
         dto.setHeader(fieldName);
         dto.setIgnoreEmpty(ignoreEmpty);
         return dto;
+    }
+
+    /** Company metadata as far as the second lookup reads it: the type of each lookup column. */
+    private MockedStatic<ModelManager> companyFields(Map<String, FieldType> types) {
+        MockedStatic<ModelManager> mm = Mockito.mockStatic(ModelManager.class);
+        types.forEach((field, type) -> mm.when(() -> ModelManager.getModelFieldOrNull("Company", field))
+                .thenReturn(metaField("Company", field, type, null)));
+        return mm;
     }
 
     private MetaField metaField(String modelName, String fieldName, FieldType fieldType, String relatedModel) {
