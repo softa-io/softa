@@ -13,6 +13,7 @@ import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.placeholder.PlaceholderUtils;
 import io.softa.framework.base.utils.JsonUtils;
 import io.softa.starter.message.shared.ErrorClassifier;
+import io.softa.starter.message.shared.MessageCategory;
 import io.softa.starter.message.shared.SendQuotaGuard;
 import io.softa.starter.message.shared.RateLimiter;
 import io.softa.starter.message.shared.SendRejection;
@@ -174,6 +175,22 @@ public class SmsDeliveryProcessor {
     }
 
     private void send(SmsSendRecord record, long version, SmsProviderConfig config) {
+        RateLimiter.Outcome window = rateLimiter.tryAcquire("sms", config.getId(),
+                config.getDailySendLimit(), config.getRateLimitPerMinute());
+        if (window == RateLimiter.Outcome.MINUTE_EXCEEDED) {
+            // Not a failure: the window opens again within a minute, so no retry is spent.
+            if (!recordService.markDeferred(record.getId(), version, window.errorCode(),
+                    "Provider config " + config.getId() + " reached its per-minute rate limit; deferred",
+                    RateLimiter.nextMinuteWindow())) {
+                log.debug("SmsDeliveryProcessor: record id={} changed before it could be deferred", record.getId());
+            }
+            return;
+        }
+        if (!window.ok()) {
+            handleFailure(record, version, window.errorCode(), "Provider config " + config.getId()
+                    + " reached its daily send limit; it lifts tomorrow", config);
+            return;
+        }
         SendSmsDTO dto = rebuildDTO(record);
         AttemptResult r = trySend(dto, config, record.getPhoneNumber());
         if (!r.success()) {
@@ -187,7 +204,7 @@ public class SmsDeliveryProcessor {
         } catch (RuntimeException e) {
             // Mirror of MailDeliveryProcessor: the provider has accepted the message, so
             // this is not a send failure. The record stays SENDING until the zombie
-            // sweeper revives it after stale-seconds — the one re-send at-least-once costs.
+            // sweeper fails it as OUTCOME_UNKNOWN — an SMS stuck halfway is not sent again.
             log.error("SmsDeliveryProcessor: SMS accepted by the provider but recording it as sent "
                     + "failed; record id={} stays SENDING (providerMessageId={})",
                     record.getId(), r.providerMessageId(), e);
@@ -195,12 +212,6 @@ public class SmsDeliveryProcessor {
     }
 
     private AttemptResult trySend(SendSmsDTO dto, SmsProviderConfig config, String phoneNumber) {
-        RateLimiter.Outcome quota = rateLimiter.tryAcquire("sms", config.getId(),
-                config.getDailySendLimit(), config.getRateLimitPerMinute());
-        if (!quota.ok()) {
-            return new AttemptResult(false, null, "QUOTA_EXCEEDED",
-                    "Rate limit: " + quota.name(), 0);
-        }
         try {
             SmsProviderAdapter adapter = adapterFactory.getAdapter(config.getProviderType());
             long started = System.nanoTime();
@@ -216,19 +227,25 @@ public class SmsDeliveryProcessor {
             return new AttemptResult(false, null, code, msg, sendDurationMs);
         } catch (Exception e) {
             // Known provider failures return a coded result above; anything reaching
-            // this catch is unexpected — keep the stack in the log.
+            // this catch is unexpected — keep the stack in the log. It may have come after
+            // the provider took the message, so it is not retried.
             log.error("SmsDeliveryProcessor: unexpected provider failure for phone={}",
                     phoneNumber, e);
-            return new AttemptResult(false, null, null, e.getMessage(), 0);
+            return new AttemptResult(false, null, ErrorClassifier.OUTCOME_UNKNOWN, e.getMessage(), 0);
         }
     }
 
+    /**
+     * A one-time code is not retried: by the time a retry would go out the code is about to expire or the
+     * person has asked for another, so a late copy only confuses them. They ask for a new one themselves.
+     */
     private void handleFailure(SmsSendRecord record, long version,
                                String errorCode, String errorMessage,
                                SmsProviderConfig config) {
         int currentAttempts = record.getRetryCount() != null ? record.getRetryCount() : 0;
+        boolean retriesAllowed = record.getCategory() != MessageCategory.OTP;
         sendFailureHandler.handle("sms", providerName(config),
-                record.getId(), version, currentAttempts, errorCode, errorMessage,
+                record.getId(), version, currentAttempts, errorCode, errorMessage, retriesAllowed,
                 new SendFailureHandler.RecordTransitions(
                         recordService::markRetry, recordService::markFailed, recordService::markDeadLetter));
     }

@@ -66,6 +66,14 @@ public interface MailSendRecordService extends EntityService<MailSendRecord, Lon
                       LocalDateTime nextRetryAt);
 
     /**
+     * Put a claimed record off to {@code nextRetryAt} without spending a retry: RETRY, {@code retryCount}
+     * unchanged. For a send held back by a window that lifts by itself (the per-minute rate limit), which is
+     * not a failure of the send.
+     */
+    boolean markDeferred(Long id, long expectedVersion, String errorCode, String errorMessage,
+                         LocalDateTime nextRetryAt);
+
+    /**
      * Manually requeue one record for delivery: {@code PENDING} / {@code RETRY} /
      * {@code FAILED} / {@code DEAD_LETTER} → {@code RETRY}, due now, so the delivery
      * loop takes it on its next poll. A record that failed before it was prepared

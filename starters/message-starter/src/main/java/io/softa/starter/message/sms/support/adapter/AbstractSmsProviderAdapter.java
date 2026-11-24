@@ -13,9 +13,12 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.NullNode;
 
 import io.softa.framework.base.utils.JsonUtils;
+import io.softa.framework.web.resilience.TransientHttpException;
+import io.softa.starter.message.shared.ErrorClassifier;
 import io.softa.starter.message.sms.dto.SmsAdapterRequest;
 import io.softa.starter.message.sms.dto.SmsSendResult;
 import io.softa.starter.message.sms.entity.SmsProviderConfig;
+import io.softa.starter.message.sms.support.ConnectFailures;
 
 /**
  * Base class for {@link SmsProviderAdapter} implementations.
@@ -47,6 +50,10 @@ public abstract class AbstractSmsProviderAdapter implements SmsProviderAdapter {
      * record — at ERROR when the record will not go out — so an attempt that is retried does not
      * report the same failure several times. Only an exception the adapter did not expect, a
      * defect rather than a provider answer, is logged at ERROR here, with its stack.
+     * <p>
+     * A failure without a provider answer is coded by whether the message can have gone out (see
+     * {@link #unanswered}); an exception the adapter did not expect may have come after the provider
+     * took the message, so it is coded {@link ErrorClassifier#OUTCOME_UNKNOWN} too and not retried.
      */
     @Override
     public final SmsSendResult send(SmsProviderConfig config, SmsAdapterRequest request) {
@@ -57,16 +64,34 @@ public abstract class AbstractSmsProviderAdapter implements SmsProviderAdapter {
             log.warn("{} SMS send failed: HTTP {} [{}] {}", getProvider(), e.getStatusCode().value(),
                     result.getErrorCode(), result.getErrorMessage());
             return result;
+        } catch (TransientHttpException e) {
+            // 5xx / 408 / 429, turned into an exception by the resilient client: the code says which.
+            log.warn("{} SMS send failed: HTTP {}", getProvider(), e.getStatusCode());
+            return SmsSendResult.failure(ErrorClassifier.HTTP_PREFIX + e.getStatusCode(),
+                    getProvider() + " API error (HTTP " + e.getStatusCode() + ")");
         } catch (RestClientException e) {
-            // No answer from the provider: connection refused, timeout, unreadable response.
             log.warn("{} SMS send failed: {}", getProvider(), e.getMessage());
-            return SmsSendResult.failure(null,
-                    getProvider() + " API call failed: " + e.getMessage());
+            return unanswered(e, e.getMessage());
         } catch (Exception e) {
             log.error("{} SMS send failed unexpectedly", getProvider(), e);
-            return SmsSendResult.failure(null,
+            return SmsSendResult.failure(ErrorClassifier.OUTCOME_UNKNOWN,
                     getProvider() + " API call failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * A call that got no answer the adapter could read. Never reaching the provider (host not found,
+     * connection refused, connect timeout) is {@link ErrorClassifier#CONNECT_FAILED}, retried; anything
+     * else — a read timeout, a reset halfway, a body that could not be read — may come after the provider
+     * sent the message, so it is {@link ErrorClassifier#OUTCOME_UNKNOWN}, not retried.
+     *
+     * @param reason what to record, already stripped of anything secret
+     */
+    protected SmsSendResult unanswered(Throwable error, String reason) {
+        boolean notSent = ConnectFailures.isConnectFailure(error);
+        return SmsSendResult.failure(notSent ? ErrorClassifier.CONNECT_FAILED : ErrorClassifier.OUTCOME_UNKNOWN,
+                getProvider() + (notSent ? " not reached: " : " API call failed, the message may have been sent: ")
+                        + reason);
     }
 
     /**

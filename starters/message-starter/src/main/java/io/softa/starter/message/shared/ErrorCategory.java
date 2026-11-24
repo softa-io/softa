@@ -11,8 +11,19 @@ import lombok.Getter;
  */
 @Getter
 public enum ErrorCategory {
-    /** Network hiccup, timeout, 5xx — should be retried. */
+    /**
+     * The provider was not reached or answered that it is busy (a refused connection, 503) — should be
+     * retried. For SMS only a failure certain not to have sent anything is TRANSIENT; see
+     * {@link #OUTCOME_UNKNOWN}.
+     */
     TRANSIENT(true),
+    /**
+     * The request may have reached the provider, which may have sent it: no answer came back (a read
+     * timeout, a connection reset), the answer could not be read, or the provider failed while handling
+     * it (500 / 502 / 504). Sending again could deliver the message twice, so the record fails instead;
+     * whoever looks at it checks the provider's console and Retries it by hand when it did not go out.
+     */
+    OUTCOME_UNKNOWN(false),
     /** Provider rejected the message outright (bad recipient, bad sender, 550). */
     PERMANENT(false),
     /** Caller sent something invalid (empty body, no recipients, malformed address). */

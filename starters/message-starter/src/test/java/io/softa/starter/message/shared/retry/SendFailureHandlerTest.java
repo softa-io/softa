@@ -17,6 +17,7 @@ import io.softa.starter.message.shared.metrics.MessageMetrics;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -65,7 +66,7 @@ class SendFailureHandlerTest {
 
     @Test
     void retryDecisionSchedulesTheRecordAndCountsMetric() {
-        when(retryPolicy.decide(anyInt(), any())).thenReturn(new RetryDecision.Retry(Duration.ofSeconds(30)));
+        when(retryPolicy.decide(anyInt(), any(), anyBoolean())).thenReturn(new RetryDecision.Retry(Duration.ofSeconds(30)));
         when(markRetry.apply(eq(7L), eq(1L), eq("EC"), eq("EM"), any())).thenReturn(true);
         LocalDateTime before = LocalDateTime.now();
 
@@ -81,7 +82,7 @@ class SendFailureHandlerTest {
 
     @Test
     void retryCasMiss_skipsMetric() {
-        when(retryPolicy.decide(anyInt(), any())).thenReturn(new RetryDecision.Retry(Duration.ofSeconds(30)));
+        when(retryPolicy.decide(anyInt(), any(), anyBoolean())).thenReturn(new RetryDecision.Retry(Duration.ofSeconds(30)));
         when(markRetry.apply(any(), anyLong(), any(), any(), any())).thenReturn(false);
 
         handler.handle("mail", "smtp", 7L, 1L, 0, "EC", "EM", tx);
@@ -91,7 +92,7 @@ class SendFailureHandlerTest {
 
     @Test
     void failDecisionMarksFailedWithoutRetryOrDeadLetter() {
-        when(retryPolicy.decide(anyInt(), any())).thenReturn(new RetryDecision.Fail());
+        when(retryPolicy.decide(anyInt(), any(), anyBoolean())).thenReturn(new RetryDecision.Fail());
         when(markFailed.apply(9L, 2L, "EC", "EM")).thenReturn(true);
 
         handler.handle("sms", "twilio", 9L, 2L, 1, "EC", "EM", tx);
@@ -104,7 +105,7 @@ class SendFailureHandlerTest {
 
     @Test
     void failCasMiss_skipsMetric() {
-        when(retryPolicy.decide(anyInt(), any())).thenReturn(new RetryDecision.Fail());
+        when(retryPolicy.decide(anyInt(), any(), anyBoolean())).thenReturn(new RetryDecision.Fail());
         when(markFailed.apply(9L, 2L, "EC", "EM")).thenReturn(false);
 
         handler.handle("sms", "twilio", 9L, 2L, 1, "EC", "EM", tx);
@@ -114,7 +115,7 @@ class SendFailureHandlerTest {
 
     @Test
     void deadLetterDecisionMarksArchivesAndCountsMetric() {
-        when(retryPolicy.decide(anyInt(), any())).thenReturn(new RetryDecision.DeadLetter());
+        when(retryPolicy.decide(anyInt(), any(), anyBoolean())).thenReturn(new RetryDecision.DeadLetter());
         when(errorClassifier.classify(any(), any())).thenReturn(ErrorCategory.PERMANENT);
         when(markDeadLetter.apply(5L, 0L, "EC", "EM")).thenReturn(true);
 
@@ -131,7 +132,7 @@ class SendFailureHandlerTest {
     void deadLetterCasMiss_skipsArchiveMetricAndLog() {
         // The critical guard: a superseded version must NOT create a ghost
         // dead_letter_message row or a spurious dead_letter metric.
-        when(retryPolicy.decide(anyInt(), any())).thenReturn(new RetryDecision.DeadLetter());
+        when(retryPolicy.decide(anyInt(), any(), anyBoolean())).thenReturn(new RetryDecision.DeadLetter());
         when(markDeadLetter.apply(5L, 0L, "EC", "EM")).thenReturn(false);
 
         handler.handle("mail", "smtp", 5L, 0L, 3, "EC", "EM", tx);
@@ -142,7 +143,7 @@ class SendFailureHandlerTest {
     @Test
     void failureLabelsAreMdcTagsWhileLoggingAndRemovedAfter() {
         // sentry-starter turns tag.* MDC entries into tags on the event the ERROR line becomes.
-        when(retryPolicy.decide(anyInt(), any())).thenReturn(new RetryDecision.Fail());
+        when(retryPolicy.decide(anyInt(), any(), anyBoolean())).thenReturn(new RetryDecision.Fail());
         when(errorClassifier.classify(any(), any())).thenReturn(ErrorCategory.CONFIG);
         Map<String, String> seen = new HashMap<>();
         when(markFailed.apply(9L, 2L, "REJECTED_SOURCE", "Sender not registered")).thenAnswer(inv -> {

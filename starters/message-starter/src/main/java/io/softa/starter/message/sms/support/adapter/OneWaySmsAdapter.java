@@ -115,19 +115,23 @@ public class OneWaySmsAdapter extends AbstractSmsProviderAdapter {
             // Logged here, as the base class does for an unanswered call, but with the URL's query cut off.
             String reason = redact(e.getMessage());
             log.warn("{} SMS send failed: {}", getProvider(), reason);
-            return SmsSendResult.failure(null, getProvider() + " API call failed: " + reason);
+            return unanswered(e, reason);
         }
         return readAnswer(answer);
     }
 
-    /** The gateway's answer: a positive MT ID, else a refusal. */
+    /**
+     * The gateway's answer: a positive MT ID, else a refusal. An answer it does not document may follow a
+     * send that went out, so it is not retried.
+     */
     SmsSendResult readAnswer(String answer) {
         String result = answer != null ? answer.trim() : "";
         long value;
         try {
             value = Long.parseLong(result);
         } catch (NumberFormatException e) {
-            return SmsSendResult.failure(null, getProvider() + " returned an answer it does not document: "
+            return SmsSendResult.failure(ErrorClassifier.OUTCOME_UNKNOWN, getProvider()
+                    + " returned an answer it does not document, the message may have been sent: "
                     + abbreviate(result));
         }
         if (value > 0) {

@@ -1,5 +1,6 @@
 package io.softa.starter.message.sms.support.adapter;
 
+import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.net.URLDecoder;
@@ -214,11 +215,11 @@ class OneWaySmsAdapterTest {
     }
 
     @Test
-    void answerThatIsNotANumberIsAFailureWithoutACode() {
+    void answerThatIsNotANumberMayHaveBeenSent() {
         SmsSendResult result = adapter.readAnswer("<!DOCTYPE html>\n<html><title>Error</title></html>");
 
         Assertions.assertFalse(result.isSuccess());
-        Assertions.assertNull(result.getErrorCode());
+        Assertions.assertEquals(ErrorClassifier.OUTCOME_UNKNOWN, result.getErrorCode());
         Assertions.assertTrue(result.getErrorMessage().contains("<!DOCTYPE html> <html>"), result.getErrorMessage());
     }
 
@@ -250,7 +251,7 @@ class OneWaySmsAdapterTest {
     }
 
     @Test
-    void connectionFailureQuotesNoCredentialsOrText() {
+    void readTimeoutMayHaveBeenSentAndQuotesNoCredentialsOrText() {
         // Spring words it "I/O error on GET request for \"<url>\": Read timed out".
         mockServer.expect(requestTo(startsWith(SEND_URL)))
                 .andRespond(withException(new SocketTimeoutException("Read timed out")));
@@ -258,9 +259,21 @@ class OneWaySmsAdapterTest {
         SmsSendResult result = adapter.send(createConfig(), request("+6581234567", "Your code is 123456"));
 
         Assertions.assertFalse(result.isSuccess());
-        Assertions.assertNull(result.getErrorCode());
+        Assertions.assertEquals(ErrorClassifier.OUTCOME_UNKNOWN, result.getErrorCode());
         Assertions.assertTrue(result.getErrorMessage().contains("Read timed out"), result.getErrorMessage());
         Assertions.assertTrue(result.getErrorMessage().contains(SEND_URL), result.getErrorMessage());
+        assertNoCredentials(result);
+    }
+
+    @Test
+    void refusedConnectionWasNotSentAndQuotesNoCredentials() {
+        mockServer.expect(requestTo(startsWith(SEND_URL)))
+                .andRespond(withException(new ConnectException("Connection refused")));
+
+        SmsSendResult result = adapter.send(createConfig(), request("+6581234567", "Your code is 123456"));
+
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(ErrorClassifier.CONNECT_FAILED, result.getErrorCode());
         assertNoCredentials(result);
     }
 

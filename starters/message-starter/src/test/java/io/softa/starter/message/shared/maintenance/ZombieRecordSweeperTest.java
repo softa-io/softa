@@ -13,6 +13,7 @@ import io.softa.starter.message.mail.enums.MailSendStatus;
 import io.softa.starter.message.mail.service.MailSendRecordService;
 import io.softa.starter.message.mail.smtp.SmtpMailTransport;
 import io.softa.starter.message.shared.ErrorCategory;
+import io.softa.starter.message.shared.ErrorClassifier;
 import io.softa.starter.message.shared.retry.SendFailureHandler;
 import io.softa.starter.message.sms.entity.SmsSendRecord;
 import io.softa.starter.message.sms.enums.SmsProvider;
@@ -23,8 +24,10 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -98,21 +101,39 @@ class ZombieRecordSweeperTest {
     }
 
     @Test
-    void smsFollowsTheSameBudget() {
+    void aStuckSmsIsFailedNotRevived() {
+        // One attempt made: a mail would be revived, a text may already be on the phone.
+        when(smsService.searchList(any(FlexQuery.class))).thenReturn(List.of(stuckSms(1)));
+
+        sweeper.sweep();
+
+        verify(sendFailureHandler).handle(eq("sms"), eq("twilio"), eq(9L), eq(1L), eq(1),
+                eq(ErrorClassifier.OUTCOME_UNKNOWN), contains("may already have sent it"),
+                any(SendFailureHandler.RecordTransitions.class));
+        verify(smsService, never()).markRetry(any(), anyLong(), any(), any(), any());
+        verify(sendFailureHandler, never()).deadLetter(any(), any(), any(), anyLong(), anyInt(), any(), any(), any(), any());
+    }
+
+    @Test
+    void aStuckSmsWithItsBudgetUsedUpIsFailedToo() {
+        when(smsService.searchList(any(FlexQuery.class))).thenReturn(List.of(stuckSms(5)));
+
+        sweeper.sweep();
+
+        verify(sendFailureHandler).handle(eq("sms"), eq("twilio"), eq(9L), eq(1L), eq(5),
+                eq(ErrorClassifier.OUTCOME_UNKNOWN), any(), any(SendFailureHandler.RecordTransitions.class));
+        verify(smsService, never()).markRetry(any(), anyLong(), any(), any(), any());
+    }
+
+    private static SmsSendRecord stuckSms(int retries) {
         SmsSendRecord sms = new SmsSendRecord();
         sms.setId(9L);
         sms.setTenantId(42L);
         sms.setStatus(SmsSendStatus.SENDING);
         sms.setVersion(1L);
-        sms.setRetryCount(5);
+        sms.setRetryCount(retries);
         sms.setProviderType(SmsProvider.TWILIO);
-        when(smsService.searchList(any(FlexQuery.class))).thenReturn(List.of(sms));
-
-        sweeper.sweep();
-
-        verify(sendFailureHandler).deadLetter(eq("sms"), eq("twilio"), eq(9L), eq(1L), eq(5),
-                eq("ZOMBIE_EXHAUSTED"), any(), eq(ErrorCategory.UNKNOWN), any());
-        verify(smsService, never()).markRetry(any(), anyLong(), any(), any(), any());
+        return sms;
     }
 
     @Test

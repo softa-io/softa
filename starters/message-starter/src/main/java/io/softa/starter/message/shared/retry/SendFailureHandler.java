@@ -81,8 +81,19 @@ public class SendFailureHandler {
     public void handle(String channel, String provider,
                        Long recordId, long expectedVersion, int currentAttempts,
                        String errorCode, String errorMessage, RecordTransitions tx) {
+        handle(channel, provider, recordId, expectedVersion, currentAttempts, errorCode, errorMessage, true, tx);
+    }
+
+    /**
+     * As {@link #handle(String, String, Long, long, int, String, String, RecordTransitions)}; with
+     * {@code retriesAllowed = false} a failure that would be retried fails the record instead (a one-time
+     * code: see {@link ExponentialBackoffPolicy#decide(int, ErrorCategory, boolean)}).
+     */
+    public void handle(String channel, String provider,
+                       Long recordId, long expectedVersion, int currentAttempts,
+                       String errorCode, String errorMessage, boolean retriesAllowed, RecordTransitions tx) {
         ErrorCategory category = errorClassifier.classify(errorCode, errorMessage);
-        RetryDecision decision = retryPolicy.decide(currentAttempts, category);
+        RetryDecision decision = retryPolicy.decide(currentAttempts, category, retriesAllowed);
 
         try (FailureTags ignored = FailureTags.put(channel, provider, category, errorCode)) {
             apply(decision, channel, provider, recordId, expectedVersion, currentAttempts,

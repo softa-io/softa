@@ -73,7 +73,7 @@ etc.). The trade-off and the operational expectations:
 | Database | All paths (send records, framework versionLock) | Operation throws; caller sees 5xx | HA-Database (replicated MySQL / managed PG); migrations applied. |
 | Redis | `RateLimiter` (per-config delivery rate windows), `MailConfigCache` | Operation throws; caller sees 5xx | Sentinel or Cluster setup. K8s `readinessProbe` should include `/actuator/health/redis` so the load balancer routes traffic away while Redis is unreachable. |
 | Pulsar broker | `CronTaskMailFetchConsumer` (scheduled mail fetch), `DeadLetterConsumer` (archiving other consumers' poison messages) | Fetching and poison archiving pause until the broker is back. Sending is unaffected: delivery reads the send records directly. | Optional for sending. |
-| SMTP / SMS provider | Outbound send | Per-record fails; classified by `ErrorClassifier`; retried with exponential back-off (`ExponentialBackoffPolicy`). | Configure provider-side rate limits below provider's quota. |
+| SMTP / SMS provider | Outbound send | Per-record fails; classified by `ErrorClassifier`; retried with exponential back-off (`ExponentialBackoffPolicy`) — for SMS only a failure certain not to have sent anything, and never a one-time code (*Delivery pipeline*). | Configure provider-side rate limits below provider's quota. |
 
 **Why no in-process fallback for Redis?** A local Guava limiter would silently
 let one node burst past the cross-node quota during Redis outages, which on a
@@ -177,8 +177,8 @@ Behaviour that follows:
   context: the delivery loop claims and sends each due record inside its record's
   tenant (and under the trace id of the request that submitted it), the scheduled
   mail fetch runs the platform's receive servers in the platform's context and
-  each tenant's in that tenant's, and the zombie sweeper revives each stuck record
-  inside its record's tenant.
+  each tenant's in that tenant's, and the zombie sweeper revives each stuck mail
+  record (and fails each stuck SMS record) inside its record's tenant.
 
 With multi-tenancy disabled there is one owner: no filtering or stamping occurs,
 the scope stops mattering, and every send takes the deployment's own server and
@@ -271,7 +271,9 @@ own bucket). The per-config `dailySendLimit` / `rateLimitPerMinute`
 windows are a different axis — delivery-time infrastructure protection, counted
 per server or provider config across every tenant it carries (a platform server
 relaying for many tenants stops at its own daily limit, not at that limit once
-per tenant). A send over one of them is retried later rather than failed.
+per tenant). A send over the per-minute window is put off to the next minute
+without spending a retry; one over the daily window fails, as the tenant's daily
+cap does (*Rate limits*).
 
 ### Async delivery (the only delivery model)
 
@@ -817,14 +819,19 @@ quota or an empty rendered body fails it with `TEMPLATE_NOT_RESOLVABLE`,
 `CONTENT_INVALID`.
 
 On failure, `ErrorClassifier` maps the error to an `ErrorCategory`
-(TRANSIENT / PERMANENT / INVALID_INPUT / AUTH / CONFIG / QUOTA / UNKNOWN), and
+(TRANSIENT / OUTCOME_UNKNOWN / PERMANENT / INVALID_INPUT / AUTH / CONFIG / QUOTA / UNKNOWN), and
 the retry policy (`ExponentialBackoffPolicy`) decides:
 
 - **Retry** → `markRetry(nextRetryAt = now + backoff)`; the delivery loop claims
   the record again once `next_retry_at` has passed
 - **Fail** → `markFailed` (terminal; no retry) for PERMANENT / INVALID_INPUT /
   AUTH / CONFIG — none of them heals by retrying: fix the cause, then use the
-  manual Retry action
+  manual Retry action — and for OUTCOME_UNKNOWN: the provider may have sent the
+  message, so sending it again could deliver it twice; check the provider's
+  console, then Retry by hand if it did not go out
+- **A one-time code is never retried.** An SMS record whose category is `OTP`
+  fails on any failure: a retry would arrive as the code expires, or after the
+  person asked for another code that replaced it. They ask again themselves.
 - **DeadLetter** → `markDeadLetter` + archive a `dead_letter_message` row
   (`source = SendExhausted`) once the retry budget is spent
 
@@ -836,12 +843,20 @@ A failed SMTP send is coded with the server's reply when it has one:
 an SMTP reply by its class: 4xx TRANSIENT, 5xx PERMANENT, except 552
 (message too large) INVALID_INPUT and 530 / 534 / 535 / 538 AUTH.
 
-A failed SMS send is coded by its adapter. An HTTP error response is coded
+A failed SMS send is coded by its adapter. Sending a text is not idempotent, so
+a failure is retried only when nothing can have gone out. A call that got no
+answer is coded by `AbstractSmsProviderAdapter`: `CONNECT_FAILED` when it never
+reached the provider (host not found, connection refused, connect timeout —
+`ConnectFailures`), TRANSIENT; `OUTCOME_UNKNOWN` for everything else — a read
+timeout, a connection reset halfway, a body that could not be read, an
+exception the adapter did not expect, an answer the provider does not document
+— which fails the record. An HTTP error response is coded
 `HTTP_<status>` unless the adapter reads a provider code from the body (the
 Infobip adapter keeps `HTTP_<status>` and puts Infobip's `errorCode`,
 `description` and first violation in the message). `ErrorClassifier` reads
 `HTTP_<status>` by the status — 401 / 403 AUTH, 429 QUOTA, 400 / 404 / 413 / 422
-INVALID_INPUT, 408 and 5xx TRANSIENT — and Infobip's refusal statuses by name:
+INVALID_INPUT, 408 and 503 TRANSIENT, any other 5xx (500, 502, 504: the provider
+failed while it handled the request) OUTCOME_UNKNOWN — and Infobip's refusal statuses by name:
 the account's (`REJECTED_SOURCE`, `REJECTED_NOT_ENOUGH_CREDITS`,
 `REJECTED_ROUTE_NOT_AVAILABLE`, …) CONFIG, the number's or content's
 (`REJECTED_PREFIX_MISSING`, `REJECTED_DESTINATION`, `MISSING_TO`, …)
@@ -850,7 +865,15 @@ INVALID_INPUT, a blocked recipient or sender (`REJECTED_DND`,
 and only Infobip's platform failures (`REJECTED_SYSTEM_ERROR`,
 `UNDELIVERABLE_REJECTED_PLATFORM`) TRANSIENT. Other providers' codes go through
 the word heuristics (LIMIT, AUTH, INVALID…), and an unmatched code is UNKNOWN,
-which is retried.
+which is retried: the provider answered, so it refused the message rather than
+sending it.
+
+Below the record, the shared `smsRestClient` retries too: its Resilience4j
+instance `sms-provider` (`SmsRestClientConfig`) tries a call that failed to
+connect once more after 500 ms, and nothing else — not a timeout, not a 5xx.
+A `resilience4j.retry.instances.sms-provider` block in the application's
+configuration replaces this; without either, the registry's defaults would
+retry every exception three times.
 
 Logging is once per outcome, not per attempt. An adapter logs a failed attempt
 at WARN (ERROR, with the stack, only for an exception it did not expect);
@@ -1410,7 +1433,10 @@ country route candidates ∩ template bindings -> selected provider
 - `SmsSendRecord` stores the selected provider's `provider_config_id`,
   `provider_type`, `external_template_id`, and `sign_name`.
 - If the provider call fails, `ExponentialBackoffPolicy.decide(...)` determines
-  the next step (RETRY / FAILED / DEAD_LETTER) — same contract as mail.
+  the next step (RETRY / FAILED / DEAD_LETTER) — same contract as mail, except
+  that a failure after which the provider may have sent the text
+  (OUTCOME_UNKNOWN) and any failure of a one-time code (`OTP`) fail the record
+  rather than retry it (*Delivery pipeline*).
 - During retry, the record replays the same provider and template parameters.
 
 ### SMS Status Reference
@@ -1564,20 +1590,45 @@ handler for that type, so its `getContent()` is a raw stream.
 - `rate_limit_per_minute` — sends per minute (smooths bursts)
 
 Either can be left null/zero to disable that window. Counters live in Redis
-(`rl:{channel}:{daily|min}:{tenantId}:{configId}:{window}`), so multi-instance
-deployments share one budget. A quota breach surfaces as a provider-side
-`QUOTA_EXCEEDED` error, classified as `ErrorCategory.QUOTA` — the retry policy
-waits at least 5 minutes before the next attempt so we don't hammer the
-provider.
+(`rl:{channel}:{daily|min}:{configId}:{window}`, the window being the calendar
+day or the wall-clock minute), so multi-instance deployments share one budget.
+
+A limit is handled by when it lifts. Six kinds stop a send:
+
+| Limit | Set by | Code | Handling |
+|---|---|---|---|
+| Tenant's daily cap | platform, per tenant (`TenantMessageQuota`) | `DAILY_QUOTA_EXCEEDED` | FAILED (CONFIG) — lifts tomorrow |
+| Tenant's monthly allowance | platform, per tenant | `MONTHLY_QUOTA_EXCEEDED` | FAILED (CONFIG) — lifts next month |
+| Server's / provider config's `daily_send_limit` | the config (`RateLimiter`) | `SEND_LIMIT_DAILY_EXCEEDED` | FAILED (CONFIG) — lifts tomorrow |
+| Server's / provider config's `rate_limit_per_minute` | the config (`RateLimiter`) | `SEND_LIMIT_MINUTE_EXCEEDED` | deferred: RETRY, due at the next minute (plus up to 10 s of spread), `retry_count` unchanged (`markDeferred`) |
+| The provider's throttling | the provider: HTTP 429, Aliyun `Throttling.User` (per second), `isv.BUSINESS_LIMIT_CONTROL` (per number) | as answered | QUOTA — retried, at least 5 minutes apart |
+| The provider's daily limit | the provider: Aliyun `isv.DAY_LIMIT_CONTROL`, `DayLimitControl` | as answered | FAILED (CONFIG) — lifts tomorrow |
+
+The per-minute window is not a failure: it opens again within a minute, so a
+batch larger than a minute's allowance drains over the following minutes
+instead of spending — and, past five, exhausting — its records' retries. A
+deferred one-time code waits too; a minute is well inside its five. Retrying a
+daily limit within the retry schedule's quarter hour cannot succeed, so those
+fail at once and say so; Retry them the next day or after raising the limit.
+An unrecognized provider code with LIMIT, QUOTA or THROTTL in it is still read as
+QUOTA.
 
 ### Zombie record sweeper
 
-`ZombieRecordSweeper` runs every minute. Records stuck in `SENDING` whose
+`ZombieRecordSweeper` runs every minute. Mail records stuck in `SENDING` whose
 `updated_time` is older than five minutes — far longer than any send, whose
 connect and read timeouts are seconds — are versionLock-transitioned back to
 `RETRY` with `next_retry_at = now`,
 which makes them due for the delivery loop again. This covers JVM crashes
 between claiming a record and finishing the provider call.
+
+**An SMS record stuck in `SENDING` is failed, not revived.** It may already be
+on the phone — the provider accepted it and only the bookkeeping failed, or the
+call was cut off after it arrived — and a second copy (a second sign-in code)
+is worse than a missing one. The sweep hands it to `SendFailureHandler` as
+`OUTCOME_UNKNOWN`, which marks it `FAILED` and logs it at ERROR; check the
+provider's console, then Retry it by hand if it did not go out. Everything
+below about revival is mail.
 
 The window holds only while every send finishes well inside it, so the sweeper
 refuses to start when a channel's `connection-timeout` plus `read-timeout` is
@@ -1680,6 +1731,8 @@ Failed sends are retried by `ExponentialBackoffPolicy` — exponential back-off 
 30 s, 60 s, 120 s, 240 s and 480 s, each ±50% jitter. The error category from
 `ErrorClassifier` decides the disposition: TRANSIENT / QUOTA / UNKNOWN retry
 (QUOTA waits at least 5 minutes) until five retries are used up and the record
-is dead-lettered, about a quarter of an hour after the first failure; PERMANENT / INVALID_INPUT / AUTH / CONFIG fail immediately
-without retry. `RetryDecision` is a sealed type (`Retry` / `Fail` / `DeadLetter`) so the
+is dead-lettered, about a quarter of an hour after the first failure; PERMANENT / INVALID_INPUT / AUTH / CONFIG
+and OUTCOME_UNKNOWN fail immediately without retry, and so does any failure of
+an `OTP` SMS. The per-minute rate limit is not a failure and is not retried
+but deferred (*Rate limits*). `RetryDecision` is a sealed type (`Retry` / `Fail` / `DeadLetter`) so the
 failure handler's `switch` stays exhaustive.

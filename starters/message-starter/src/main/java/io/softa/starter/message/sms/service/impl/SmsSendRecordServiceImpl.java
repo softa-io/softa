@@ -112,6 +112,16 @@ public class SmsSendRecordServiceImpl extends AbstractCasSendRecordServiceImpl<S
     }
 
     @Override
+    public boolean markDeferred(Long id, long expectedVersion, String errorCode, String errorMessage,
+                                LocalDateTime nextRetryAt) {
+        int retryCount = getById(id)
+                .map(SmsSendRecord::getRetryCount)
+                .orElse(0);
+        return markRetryStatus(id, expectedVersion, SmsSendStatus.RETRY,
+                retryCount, errorCode, errorMessage, nextRetryAt);
+    }
+
+    @Override
     public boolean markFailed(Long id, long expectedVersion, String errorCode, String errorMessage) {
         return markTerminalStatus(id, expectedVersion, SmsSendStatus.FAILED, errorCode, errorMessage);
     }
