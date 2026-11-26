@@ -24,6 +24,7 @@ import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.base.context.UserInfo;
+import io.softa.framework.base.enums.Operator;
 import io.softa.framework.base.enums.ResponseCode;
 import io.softa.framework.base.exception.BusinessException;
 import io.softa.framework.base.exception.UserNotFoundException;
@@ -32,6 +33,8 @@ import io.softa.framework.orm.annotation.DataMask;
 import io.softa.framework.orm.constant.ModelConstant;
 import io.softa.framework.orm.domain.*;
 import io.softa.framework.orm.enums.ConvertType;
+import io.softa.framework.orm.enums.FilterType;
+import io.softa.framework.orm.enums.LogicOperator;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.framework.orm.vo.ModelReference;
@@ -61,6 +64,11 @@ public class UserAccountController extends EntityController<UserAccountService, 
 
     private static final String MODEL = "UserAccount";
     private static final String ROLES_FIELD = "roles";
+    private static final String STATUS_FIELD = "status";
+    private static final String STATUS_BY_ACTION =
+            "An account's status changes only through its actions: invite, revoke, freeze, unfreeze, unbind and re-hire.";
+    private static final String NOT_DELETED =
+            "Accounts are not deleted. Do not invite the person, or freeze the account, to keep them out.";
     private static final String PROFILE_FIELD = "profileId";
     /** {@link UserAccount#getLocked()} — derived per row, never stored. */
     private static final String LOCKED_FIELD = "locked";
@@ -195,6 +203,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
         IdUtils.formatMapId(MODEL, row);
         dropDerivedLock(row);
         dropConsultantFlag(row);
+        refuseStatus(row);
         boolean ok = onRosterAccounts(List.of(idOf(row)), () -> service.updateCarryingLoginIdentifiers(
                 List.of(row), () -> modelService.updateOne(MODEL, row)));
         evictIfRolesTouched(row);
@@ -210,6 +219,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
         IdUtils.formatMapId(MODEL, row);
         dropDerivedLock(row);
         dropConsultantFlag(row);
+        refuseStatus(row);
         Map<String, Object> result = onRosterAccounts(List.of(idOf(row)),
                 () -> service.updateCarryingLoginIdentifiers(List.of(row),
                         () -> modelService.updateOneAndFetch(MODEL, row, ConvertType.REFERENCE)));
@@ -236,6 +246,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
         boolean borrowed = perRow && borrowProfileId(flexQuery);
         Page<Map<String, Object>> page = Page.of(queryParams.getPageNumber(), queryParams.getPageSize());
         return ApiResponse.success(rosterScope.call(() -> {
+            searchEmployeesToo(flexQuery.getFilters());
             flexQuery.setFilters(rosterScope.scopeByTenant(flexQuery.getFilters()));
             Page<Map<String, Object>> result = modelService.searchPage(MODEL, flexQuery, page);
             if (perRow) {
@@ -260,6 +271,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
         boolean perRow = !flexQuery.isAggregate();
         boolean borrowed = perRow && borrowProfileId(flexQuery);
         return ApiResponse.success(rosterScope.call(() -> {
+            searchEmployeesToo(flexQuery.getFilters());
             flexQuery.setFilters(rosterScope.scopeByTenant(flexQuery.getFilters()));
             List<Map<String, Object>> rows = modelService.searchList(MODEL, flexQuery);
             return perRow ? stampPasswordLock(rows, borrowed) : rows;
@@ -381,6 +393,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
         rows.forEach(row -> {
             dropDerivedLock(row);
             dropConsultantFlag(row);
+            refuseStatus(row);
         });
         List<Long> ids = rows.stream().map(UserAccountController::idOf).toList();
         boolean ok = onRosterAccounts(ids, () -> service.updateCarryingLoginIdentifiers(
@@ -399,6 +412,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
         rows.forEach(row -> {
             dropDerivedLock(row);
             dropConsultantFlag(row);
+            refuseStatus(row);
         });
         List<Long> ids = rows.stream().map(UserAccountController::idOf).toList();
         List<Map<String, Object>> result = onRosterAccounts(ids,
@@ -425,6 +439,7 @@ public class UserAccountController extends EntityController<UserAccountService, 
         // updateCarryingLoginIdentifiers) — and one value written to many rows could only collide.
         Assert.notTrue(values.containsKey("email") || values.containsKey("mobile"),
                 "Work email and mobile are changed per account, not by filter.");
+        refuseStatus(values);
         dropDerivedLock(values);
         dropConsultantFlag(values);
         // Emptiness is judged on what SURVIVES the derived-field drops, not on what arrived. A
@@ -445,22 +460,24 @@ public class UserAccountController extends EntityController<UserAccountService, 
                 values)));
     }
 
-    @Operation(summary = "Delete one UserAccount — roster-scoped")
+    /**
+     * Refused: an account is never deleted. One is created with each employee record and closes when the
+     * employee leaves; someone who should not use the app is simply not invited, or is frozen. Deleting
+     * one would also blank the authorship of every change it made, which the audit log points at.
+     *
+     * <p>Shadowed and refused rather than left out: the generic {@code /{modelName}/deleteById} would
+     * otherwise take the call, and a tenant administrator passes the endpoint gate for every model.
+     */
+    @Operation(summary = "Refused — accounts are not deleted")
     @PostMapping("/deleteById")
     public ApiResponse<Boolean> deleteById(@RequestParam Long id) {
-        Long rowId = IdUtils.formatId(MODEL, id);
-        return ApiResponse.success(onRosterAccounts(List.of(rowId),
-                () -> modelService.deleteById(MODEL, rowId)));
+        throw new BusinessException(NOT_DELETED);
     }
 
-    @Operation(summary = "Delete several UserAccounts — roster-scoped")
+    @Operation(summary = "Refused — accounts are not deleted")
     @PostMapping("/deleteByIds")
     public ApiResponse<Boolean> deleteByIds(@RequestParam List<Long> ids) {
-        Assert.notEmpty(ids, "The IDs of the data to be deleted cannot be empty!");
-        validateIdList(ids);
-        List<Long> rowIds = IdUtils.formatIds(MODEL, ids);
-        return ApiResponse.success(onRosterAccounts(rowIds,
-                () -> modelService.deleteByIds(MODEL, rowIds)));
+        throw new BusinessException(NOT_DELETED);
     }
 
     @Operation(summary = "Search UserAccount display names — roster-scoped")
@@ -617,6 +634,60 @@ public class UserAccountController extends EntityController<UserAccountService, 
     private static final String EMPLOYEE_CODE_FIELD = "employeeCode";
 
     /**
+     * The search box also finds an account by its employee's name or code.
+     *
+     * <p>The box searches the account's own {@code searchName} — nickname, username, email, mobile — and
+     * an account nobody has joined yet has no nickname or username: it was found only by a whole email
+     * typed into a filter, or not at all for a worker without one. The name HR knows the person by is the
+     * employee's, shown beside the account and read from the employee record, so each {@code searchName}
+     * term is widened in place to "the account matches, or it is the account of an employee whose name or
+     * code contains the term". Nothing changes where no employee matches, or where no employee model is
+     * deployed. The employees are read past row scope, as the Employee column is: the caller already sees
+     * the accounts, and the roster scope still bounds what comes back.
+     */
+    private void searchEmployeesToo(Filters filters) {
+        if (filters == null || !ModelManager.existModel(EMPLOYEE_MODEL)) {
+            return;
+        }
+        if (FilterType.TREE.equals(filters.getType())) {
+            filters.getChildren().forEach(this::searchEmployeesToo);
+            return;
+        }
+        FilterUnit unit = filters.getFilterUnit();
+        if (!FilterType.LEAF.equals(filters.getType()) || unit == null
+                || !ModelConstant.SEARCH_NAME.equals(unit.getField())
+                || !Operator.CONTAINS.equals(unit.getOperator())
+                || !(unit.getValue() instanceof String term) || StringUtils.isBlank(term)) {
+            return;
+        }
+        List<Long> accountIds = accountsOfEmployeesMatching(term.trim());
+        if (accountIds.isEmpty()) {
+            return;
+        }
+        Filters own = Filters.of(unit.getField(), unit.getOperator(), unit.getValue());
+        filters.setType(FilterType.TREE);
+        filters.setLogicOperator(LogicOperator.OR);
+        filters.setFilterUnit(null);
+        filters.setChildren(new ArrayList<>(List.of(own, Filters.of(ModelConstant.ID, Operator.IN, accountIds))));
+    }
+
+    /** The accounts of the employees whose name or code contains {@code term}, at most one batch of them. */
+    private List<Long> accountsOfEmployeesMatching(String term) {
+        Context context = ContextHolder.cloneContext();
+        context.setSkipPermissionCheck(true);
+        FlexQuery query = new FlexQuery(List.of(ModelConstant.ID, "userId"),
+                Filters.or(Filters.of("fullName", Operator.CONTAINS, term), Filters.of("code", Operator.CONTAINS, term))
+                        .and(Filters.of("userId", Operator.IS_SET, null)));
+        query.setLimitSize(BaseConstant.MAX_BATCH_SIZE);
+        return ContextHolder.callWith(context, () -> modelService.searchList(EMPLOYEE_MODEL, query)).stream()
+                .map(employee -> idOf(employee.get("userId") instanceof Map<?, ?> ref ? ref.get(ModelConstant.ID)
+                        : employee.get("userId")))
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+    }
+
+    /**
      * The employee each row's account signs in — name and code — for the list's Employee column.
      * Derived on every read, like {@code locked}; a row no employee record points at gets nulls. Read
      * past row scope: the caller already sees the account, and the name beside it is what identifies
@@ -737,6 +808,20 @@ public class UserAccountController extends EntityController<UserAccountService, 
      */
     private static void dropConsultantFlag(Map<String, Object> row) {
         row.remove(CONSULTANT_FIELD);
+    }
+
+    /**
+     * Refuse a write that sets the account's status.
+     *
+     * <p>Each status is reached by one operation, which also does what the status promises: an invitation
+     * sends the link, a freeze signs the person out, a join records the activation time. A status written
+     * directly skipped all of that — a Pending account set to Active had nobody behind it and no activation
+     * time, and a bulk edit could do it to a whole list at once. Refused rather than dropped, unlike the
+     * derived fields: the caller asked for something this endpoint will never do, and a silent success
+     * would read as done.
+     */
+    private static void refuseStatus(Map<String, Object> row) {
+        Assert.notTrue(row.containsKey(STATUS_FIELD), STATUS_BY_ACTION);
     }
 
     /**
