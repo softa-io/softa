@@ -18,6 +18,7 @@ import io.softa.starter.user.enums.AccountStatus;
 import io.softa.starter.user.service.UserIdentityService;
 import io.softa.starter.user.service.UserProfileService;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -135,6 +136,28 @@ class SecondTenantAccountTest {
 
         verify(accountService).createOne(org.mockito.ArgumentMatchers
                 .argThat((UserAccount a) -> "Typed Name".equals(a.getNickname())));
+    }
+
+    /**
+     * The account is called by the person's name, username as well as nickname — the account list shows
+     * it by its username. Only with no name does it fall back to the email, then the mobile.
+     */
+    @Test
+    void aNewAccountIsNamedAfterThePersonElseItsEmailElseItsMobile() {
+        when(identityService.findByLoginIdentifier(any())).thenReturn(Optional.empty());
+
+        inThisTenant(() -> accountService.registerInvitedUser(EMAIL, MOBILE, " Ada Lovelace "));
+        inThisTenant(() -> accountService.registerInvitedUser(EMAIL, MOBILE, " "));
+        inThisTenant(() -> accountService.registerInvitedUser(null, MOBILE, null));
+
+        org.mockito.ArgumentCaptor<UserAccount> created = org.mockito.ArgumentCaptor.forClass(UserAccount.class);
+        verify(accountService, org.mockito.Mockito.times(3)).createOne(created.capture());
+        assertThat(created.getAllValues())
+                .extracting(UserAccount::getUsername, UserAccount::getNickname)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("Ada Lovelace", "Ada Lovelace"),
+                        org.assertj.core.groups.Tuple.tuple(EMAIL, EMAIL),
+                        org.assertj.core.groups.Tuple.tuple(MOBILE, MOBILE));
     }
 
     @Test
