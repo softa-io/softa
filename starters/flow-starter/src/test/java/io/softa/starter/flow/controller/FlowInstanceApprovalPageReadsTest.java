@@ -262,7 +262,7 @@ class FlowInstanceApprovalPageReadsTest {
         page.setRows(List.of(row));
         when(instances.searchSummaries(any(), eq(INITIATOR))).thenReturn(page);
         when(modelService.searchList(eq("FlowApprovalTask"), any(FlexQuery.class))).thenReturn(List.of(
-                Map.of("instanceId", "i1", "nodeId", "approval", "nodeLabel", "Manager", "actorId", APPROVER)));
+                Map.of("instanceId", "i1", "nodeId", "approval", "nodeLabel", "Manager", "assigneeId", APPROVER)));
         when(instanceStore.listByInstanceIds(any())).thenReturn(List.of(state));
         when(withdrawPolicyGuard.withdrawable(state, INITIATOR)).thenReturn(true);
         FlowUrgeStatus urge = new FlowUrgeStatus(true, null);

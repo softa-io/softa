@@ -74,7 +74,7 @@ final class ApprovalNotices {
             case FlowNotificationEvent.Reassigned e ->
                     new Notice(List.of(state.getInitiatorId()), "Approver changed: {0}", e.reason(), REASSIGNED);
             // Only a record's approval: an automation run that fails is the operators' to watch, not its trigger's.
-            case FlowNotificationEvent.FlowFailed e -> Boolean.TRUE.equals(state.getRecordApproval())
+            case FlowNotificationEvent.FlowFailed e -> state.isRecordApproval()
                     ? new Notice(withInitiator(state, administrators.get()), "Approval failed: {0}", e.errorMessage(), FAILED)
                     : null;
         };

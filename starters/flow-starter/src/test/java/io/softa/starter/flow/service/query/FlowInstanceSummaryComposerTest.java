@@ -69,7 +69,7 @@ class FlowInstanceSummaryComposerTest {
     }
 
     private static Map<String, Object> task(String instanceId, String nodeId, String actorId) {
-        return Map.of("instanceId", instanceId, "nodeId", nodeId, "nodeLabel", nodeId + " label", "actorId", actorId);
+        return Map.of("instanceId", instanceId, "nodeId", nodeId, "nodeLabel", nodeId + " label", "assigneeId", actorId);
     }
 
     @Test

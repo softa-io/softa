@@ -19,7 +19,7 @@ public final class ApprovalTaskQuerySupport {
     /** Pending-approval work queue: actor's own PENDING rows of type APPROVAL. */
     public static Filters pendingApprovalFilters(String actorId) {
         return new Filters()
-                .eq(FlowApprovalTask::getActorId, actorId)
+                .eq(FlowApprovalTask::getAssigneeId, actorId)
                 .eq(FlowApprovalTask::getStatus, FlowApprovalTaskStatus.PENDING)
                 .eq(FlowApprovalTask::getTaskType, FlowApprovalTaskType.APPROVAL);
     }
@@ -27,7 +27,7 @@ public final class ApprovalTaskQuerySupport {
     /** Unread CC copies: actor's own PENDING rows of type CC. */
     public static Filters unreadCcFilters(String actorId) {
         return new Filters()
-                .eq(FlowApprovalTask::getActorId, actorId)
+                .eq(FlowApprovalTask::getAssigneeId, actorId)
                 .eq(FlowApprovalTask::getStatus, FlowApprovalTaskStatus.PENDING)
                 .eq(FlowApprovalTask::getTaskType, FlowApprovalTaskType.CC);
     }
@@ -35,7 +35,7 @@ public final class ApprovalTaskQuerySupport {
     /** Completed work queue: actor's own APPROVAL rows in any closed status. */
     public static Filters completedApprovalFilters(String actorId) {
         return new Filters()
-                .eq(FlowApprovalTask::getActorId, actorId)
+                .eq(FlowApprovalTask::getAssigneeId, actorId)
                 .eq(FlowApprovalTask::getTaskType, FlowApprovalTaskType.APPROVAL)
                 .in(FlowApprovalTask::getStatus, COMPLETED_STATUSES);
     }
@@ -43,7 +43,7 @@ public final class ApprovalTaskQuerySupport {
     /** All CC copies: actor's own CC rows, read or unread. */
     public static Filters ccFilters(String actorId) {
         return new Filters()
-                .eq(FlowApprovalTask::getActorId, actorId)
+                .eq(FlowApprovalTask::getAssigneeId, actorId)
                 .eq(FlowApprovalTask::getTaskType, FlowApprovalTaskType.CC);
     }
 
@@ -53,9 +53,8 @@ public final class ApprovalTaskQuerySupport {
             FlowApprovalTaskStatus.RETURNED,
             FlowApprovalTaskStatus.TRANSFERRED,
             FlowApprovalTaskStatus.DELEGATED,
-            FlowApprovalTaskStatus.CANCELED,
+            FlowApprovalTaskStatus.CANCELLED,
             FlowApprovalTaskStatus.WITHDRAWN,
-            FlowApprovalTaskStatus.CC,
             FlowApprovalTaskStatus.READ
     );
 

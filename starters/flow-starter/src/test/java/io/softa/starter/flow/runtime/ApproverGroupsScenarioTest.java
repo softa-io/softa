@@ -27,7 +27,7 @@ import io.softa.starter.flow.service.impl.FlowPublishServiceImpl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * An approval step's groups of approvers make one pool, which its approval mode counts over: with two groups, an
+ * An approval step's groups of approvers make one pool, which its vote threshold counts over: with two groups, an
  * any-one step passes on either group's approval and an all-approve step waits for both — "the manager or HR" and "the
  * manager and HR" in one step, with no fork drawn. Someone two groups name is one approver.
  */
@@ -78,9 +78,9 @@ class ApproverGroupsScenarioTest {
     }
 
     @SafeVarargs
-    private FlowExecutionState start(String approvalMode, Map<String, Object>... groups) {
+    private FlowExecutionState start(String voteThreshold, Map<String, Object>... groups) {
         Map<String, Object> config = new LinkedHashMap<>();
-        config.put("approvalMode", approvalMode);
+        config.put("voteThreshold", voteThreshold);
         config.put("approverSources", List.of(groups));
         publishService.publish("groups", DesignFlowDefinition.builder()
                 .name("Groups")

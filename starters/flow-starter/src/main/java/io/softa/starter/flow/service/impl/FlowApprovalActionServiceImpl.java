@@ -9,7 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import io.softa.framework.base.context.ContextUtils;
 import io.softa.framework.orm.domain.Filters;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
-import io.softa.starter.flow.entity.FlowApprovalRecord;
+import io.softa.starter.flow.entity.FlowApprovalAction;
 import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
@@ -17,11 +17,11 @@ import io.softa.starter.flow.runtime.store.ApprovalActionLedger;
 
 /**
  * ORM-backed {@link ApprovalActionLedger}: the instance store flushes each attempt's audit
- * delta here, making {@code flow_approval_record} the single authority for approval action
+ * delta here, making {@code flow_approval_action} the single authority for approval action
  * history.
  * <p>
  * Deliberately excludes the authorized cross-actor query API (see
- * {@link FlowApprovalRecordQueryServiceImpl} instead): the runtime's audit reader depends on
+ * {@link FlowApprovalActionQueryServiceImpl} instead): the runtime's audit reader depends on
  * this ledger, and the instance access guard depends on that reader, so a query method here
  * needing the guard would close a dependency cycle back onto this very bean.
  * <p>
@@ -29,7 +29,7 @@ import io.softa.starter.flow.runtime.store.ApprovalActionLedger;
  * read by the actor checks and the access guard before either has decided anything about the caller.
  */
 @Service
-public class FlowApprovalRecordServiceImpl extends EntityServiceImpl<FlowApprovalRecord, Long>
+public class FlowApprovalActionServiceImpl extends EntityServiceImpl<FlowApprovalAction, Long>
         implements ApprovalActionLedger {
 
     @Override
@@ -58,9 +58,9 @@ public class FlowApprovalRecordServiceImpl extends EntityServiceImpl<FlowApprova
             base = ApprovalAuditReader.committed(state, this).size();
             state.setAuditSequenceBase(base);
         }
-        List<FlowApprovalRecord> rows = new ArrayList<>(entries.size() - already);
+        List<FlowApprovalAction> rows = new ArrayList<>(entries.size() - already);
         for (int i = already; i < entries.size(); i++) {
-            FlowApprovalRecord row = toRecord(state, entries.get(i));
+            FlowApprovalAction row = toRecord(state, entries.get(i));
             row.setSequence(base + i);
             rows.add(row);
         }
@@ -75,16 +75,16 @@ public class FlowApprovalRecordServiceImpl extends EntityServiceImpl<FlowApprova
     @Override
     public List<ApprovalActionAuditEntry> findByInstanceId(String instanceId) {
         return ContextUtils.withoutPermissionChecks(
-                () -> this.searchList(new Filters().eq(FlowApprovalRecord::getInstanceId, instanceId))).stream()
-                .sorted(Comparator.comparing(FlowApprovalRecord::getSequence,
+                () -> this.searchList(new Filters().eq(FlowApprovalAction::getInstanceId, instanceId))).stream()
+                .sorted(Comparator.comparing(FlowApprovalAction::getSequence,
                         Comparator.nullsLast(Integer::compareTo)))
-                .map(FlowApprovalRecordServiceImpl::toEntry)
+                .map(FlowApprovalActionServiceImpl::toEntry)
                 .toList();
     }
 
     /** Entry → row mapping; {@code sequence} is assigned by the flush loop, not copied. */
-    static FlowApprovalRecord toRecord(FlowExecutionState state, ApprovalActionAuditEntry entry) {
-        FlowApprovalRecord record = new FlowApprovalRecord();
+    static FlowApprovalAction toRecord(FlowExecutionState state, ApprovalActionAuditEntry entry) {
+        FlowApprovalAction record = new FlowApprovalAction();
         record.setInstanceId(state.getInstanceId());
         record.setFlowId(entry.getFlowId() == null ? state.getFlowId() : entry.getFlowId());
         record.setFlowRevision(entry.getFlowRevision() == null ? state.getFlowRevision() : entry.getFlowRevision());
@@ -103,7 +103,7 @@ public class FlowApprovalRecordServiceImpl extends EntityServiceImpl<FlowApprova
     }
 
     /** Row → entry mapping for ledger readers (threshold snapshots are not persisted by design). */
-    static ApprovalActionAuditEntry toEntry(FlowApprovalRecord record) {
+    static ApprovalActionAuditEntry toEntry(FlowApprovalAction record) {
         return ApprovalActionAuditEntry.builder()
                 .sequence(record.getSequence())
                 .action(record.getAction())

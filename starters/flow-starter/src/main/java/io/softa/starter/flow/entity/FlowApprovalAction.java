@@ -17,20 +17,23 @@ import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 
 /**
- * Persistent approval audit record projection for flow runtime instances.
+ * Persistent approval action record of flow runtime instances: who did what and when — submit, approve, return,
+ * transfer, CC, urge, comment. Not to be confused with a record's approval (the record's submissions, read through
+ * {@code GET /flow/instances/byRecord}).
  */
 @Data
 @Model(
-    multiTenant = true,
+        multiTenant = true,
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
-        copyable = false
+        copyable = false,
+        renamedFrom = "FlowApprovalRecord"
 )
 @Index(fields = {"instanceId", "sequence"}, unique = true)
 @Index(fields = {"tenantId", "instanceId"})
 @Index(indexName = "idx_tenant_actor_event", fields = {"tenantId", "actorId", "eventTime"})
 @Index(indexName = "idx_tenant_target_event", fields = {"tenantId", "targetActorId", "eventTime"})
 @EqualsAndHashCode(callSuper = true)
-public class FlowApprovalRecord extends AuditableModel {
+public class FlowApprovalAction extends AuditableModel {
 
     @Serial
     private static final long serialVersionUID = 1L;

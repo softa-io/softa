@@ -15,10 +15,8 @@ import lombok.Getter;
 public enum FlowApprovalTaskType {
     @OptionItem(label = "Approval Task")
     APPROVAL("Approval"),
-    @OptionItem(label = "Cc Task")
+    @OptionItem(label = "CC Task")
     CC("Cc"),
-    @OptionItem(label = "Read Task")
-    READ("Read"),
     ;
 
     @JsonValue

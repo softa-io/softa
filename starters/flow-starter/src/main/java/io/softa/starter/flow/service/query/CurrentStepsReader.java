@@ -34,7 +34,7 @@ public class CurrentStepsReader {
             LambdaUtils.getAttributeName(FlowApprovalTask::getInstanceId),
             LambdaUtils.getAttributeName(FlowApprovalTask::getNodeId),
             LambdaUtils.getAttributeName(FlowApprovalTask::getNodeLabel),
-            LambdaUtils.getAttributeName(FlowApprovalTask::getActorId));
+            LambdaUtils.getAttributeName(FlowApprovalTask::getAssigneeId));
 
     private final ModelService<Long> modelService;
 

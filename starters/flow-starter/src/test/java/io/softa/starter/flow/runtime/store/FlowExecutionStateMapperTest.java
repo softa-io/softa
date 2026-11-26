@@ -10,10 +10,13 @@ import java.util.TreeSet;
 import org.junit.jupiter.api.Test;
 
 import io.softa.starter.flow.entity.FlowInstance;
+import io.softa.starter.flow.enums.VoteThresholdMode;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
+import io.softa.starter.flow.runtime.state.PendingApproval;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class FlowExecutionStateMapperTest {
 
@@ -90,5 +93,25 @@ class FlowExecutionStateMapperTest {
         }
         set.remove("id");
         assertEquals(new TreeSet<>(FlowExecutionStateMapper.STATE_FIELDS), set);
+    }
+
+    /**
+     * A waiting step keeps its vote threshold through its row: {@code pending_approvals} stores it as
+     * {@code voteThreshold}, the key Release-20261127's {@code 20261126-flow-naming/01-before-jar-flow-codes.sql}
+     * moves the earlier {@code approvalMode} to.
+     */
+    @Test
+    void aPendingApprovalKeepsItsVoteThresholdUnderItsStoredKey() {
+        FlowExecutionState state = FlowExecutionState.builder()
+                .instanceId("inst-1").status(FlowExecutionStatus.WAITING)
+                .pendingApprovals(List.of(PendingApproval.builder()
+                        .nodeId("manager").voteThreshold(VoteThresholdMode.UNANIMOUS).requiredApprovalCount(2).build()))
+                .build();
+
+        FlowInstance entity = FlowExecutionStateMapper.toEntity(state);
+        assertTrue(entity.getPendingApprovals().contains("\"voteThreshold\":\"Unanimous\""), entity.getPendingApprovals());
+
+        FlowExecutionState restored = FlowExecutionStateMapper.toState(entity);
+        assertEquals(VoteThresholdMode.UNANIMOUS, restored.getPendingApprovals().getFirst().getVoteThreshold());
     }
 }

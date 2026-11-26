@@ -21,7 +21,7 @@ import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.service.impl.EntityServiceImpl;
 import io.softa.starter.flow.dto.FlowApprovalTaskSearchRequest;
 import io.softa.starter.flow.dto.FlowApprovalTaskView;
-import io.softa.starter.flow.dto.FlowInboxCountView;
+import io.softa.starter.flow.dto.FlowApprovalCountsView;
 import io.softa.starter.flow.entity.FlowApprovalTask;
 import io.softa.starter.flow.enums.FlowApprovalTaskStatus;
 import io.softa.starter.flow.enums.FlowApprovalTaskType;
@@ -103,18 +103,18 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
     }
 
     @Override
-    public FlowInboxCountView countInbox(String actorId) {
+    public FlowApprovalCountsView countInbox(String actorId) {
         ApprovalTaskQuerySupport.requireActorId(actorId);
         long pendingApprovals = this.count(ApprovalTaskQuerySupport.pendingApprovalFilters(actorId));
         long unreadCc = this.count(ApprovalTaskQuerySupport.unreadCcFilters(actorId));
-        return new FlowInboxCountView(pendingApprovals, unreadCc);
+        return new FlowApprovalCountsView(pendingApprovals, unreadCc);
     }
 
     @Override
     public List<FlowApprovalTaskView> getTasksByInstanceId(String instanceId, String requesterId) {
         List<FlowApprovalTask> tasks = getTaskEntitiesByInstanceId(instanceId);
         boolean participant = tasks.stream()
-                .anyMatch(task -> requesterId != null && requesterId.equals(task.getActorId()));
+                .anyMatch(task -> requesterId != null && requesterId.equals(task.getAssigneeId()));
         accessGuard.requireInstanceViewer(instanceId, requesterId, participant);
         // The tasks of one instance, read on its own page: the instance is already in hand there, so the tasks carry
         // none of its context — what the lists of many instances' tasks add — only what their steps say about acting
@@ -171,7 +171,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         Map<String, FlowApprovalTask> openTasksByKey = new LinkedHashMap<>();
         Map<String, FlowApprovalTask> latestTasksByKey = new LinkedHashMap<>();
         for (FlowApprovalTask task : existingTasks) {
-            String key = keyOf(task.getNodeId(), task.getActorId(), task.getTaskType());
+            String key = keyOf(task.getNodeId(), task.getAssigneeId(), task.getTaskType());
             latestTasksByKey.merge(key, task, FlowApprovalTaskServiceImpl::latestTask);
             if (isOpen(task)) {
                 openTasksByKey.putIfAbsent(key, task);
@@ -183,7 +183,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         List<FlowApprovalTask> toUpdate = new ArrayList<>();
 
         for (FlowApprovalTask desired : desiredTasks) {
-            String key = keyOf(desired.getNodeId(), desired.getActorId(), desired.getTaskType());
+            String key = keyOf(desired.getNodeId(), desired.getAssigneeId(), desired.getTaskType());
             FlowApprovalTask openTask = openTasksByKey.remove(key);
             if (openTask != null) {
                 copyMutableFields(openTask, desired);
@@ -232,7 +232,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
                     task.setRecordCode(instance.getRecordCode());
                     task.setModelName(instance.getModelName());
                     task.setRowId(instance.getRowId());
-                    task.setInitiatorId(instance.getInitiatorId());
+                    task.setSubmitterId(instance.getInitiatorId());
                     task.setSubmittedTime(instance.getCreatedTime());
                     task.setSubjectId(instance.getSubjectId());
                     task.setDepartmentId(instance.getDepartmentId());
@@ -274,7 +274,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         target.setComment(source.getComment());
         target.setRequiredApprovalCount(source.getRequiredApprovalCount());
         target.setApprovedActors(source.getApprovedActors());
-        target.setClosedByActorId(source.getClosedByActorId());
+        target.setClosedById(source.getClosedById());
         // An escalation sets a new deadline on the step it hands on.
         target.setDueTime(source.getDueTime());
         if (target.getStartTime() == null) {
@@ -295,7 +295,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         task.setStatus(resolveTerminalStatus(task, state, latestAudit));
         task.setAction(latestAudit == null ? task.getAction() : latestAudit.getAction());
         task.setComment(latestAudit == null ? task.getComment() : latestAudit.getComment());
-        task.setClosedByActorId(latestAudit == null ? task.getClosedByActorId() : latestAudit.getActorId());
+        task.setClosedById(latestAudit == null ? task.getClosedById() : latestAudit.getActorId());
         if (task.getEndTime() == null) {
             task.setEndTime(latestAudit == null || latestAudit.getEventTime() == null
                     ? LocalDateTime.now()
@@ -317,7 +317,7 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
             ApprovalActionAuditEntry entry = delta.get(i);
             if (HOLDER_DECISIONS.contains(entry.getAction())
                     && Objects.equals(task.getNodeId(), entry.getNodeId())
-                    && Objects.equals(task.getActorId(), entry.getActorId())) {
+                    && Objects.equals(task.getAssigneeId(), entry.getActorId())) {
                 return entry;
             }
         }
@@ -344,38 +344,38 @@ public class FlowApprovalTaskServiceImpl extends EntityServiceImpl<FlowApprovalT
         if (latestAudit == null) {
             return FlowExecutionStatus.RETURNED.equals(state.getStatus())
                     ? FlowApprovalTaskStatus.RETURNED
-                    : FlowApprovalTaskStatus.CANCELED;
+                    : FlowApprovalTaskStatus.CANCELLED;
         }
         if (FlowExecutionStatus.REJECTED.equals(state.getStatus())
                 && ApprovalActionType.REJECT.equals(latestAudit.getAction())
                 && Objects.equals(task.getNodeId(), latestAudit.getNodeId())
-                && Objects.equals(task.getActorId(), latestAudit.getActorId())) {
+                && Objects.equals(task.getAssigneeId(), latestAudit.getActorId())) {
             return FlowApprovalTaskStatus.REJECTED;
         }
         if (ApprovalActionType.APPROVE.equals(latestAudit.getAction())
                 && Objects.equals(task.getNodeId(), latestAudit.getNodeId())
-                && Objects.equals(task.getActorId(), latestAudit.getActorId())) {
+                && Objects.equals(task.getAssigneeId(), latestAudit.getActorId())) {
             return FlowApprovalTaskStatus.APPROVED;
         }
         if (ApprovalActionType.RETURN.equals(latestAudit.getAction())
                 && Objects.equals(task.getNodeId(), latestAudit.getNodeId())
-                && Objects.equals(task.getActorId(), latestAudit.getActorId())) {
+                && Objects.equals(task.getAssigneeId(), latestAudit.getActorId())) {
             return FlowApprovalTaskStatus.RETURNED;
         }
         if (ApprovalActionType.TRANSFER.equals(latestAudit.getAction())
                 && Objects.equals(task.getNodeId(), latestAudit.getNodeId())
-                && Objects.equals(task.getActorId(), latestAudit.getActorId())) {
+                && Objects.equals(task.getAssigneeId(), latestAudit.getActorId())) {
             return FlowApprovalTaskStatus.TRANSFERRED;
         }
         if (ApprovalActionType.DELEGATE.equals(latestAudit.getAction())
                 && Objects.equals(task.getNodeId(), latestAudit.getNodeId())
-                && Objects.equals(task.getActorId(), latestAudit.getActorId())) {
+                && Objects.equals(task.getAssigneeId(), latestAudit.getActorId())) {
             return FlowApprovalTaskStatus.DELEGATED;
         }
         if (ApprovalActionType.WITHDRAW.equals(latestAudit.getAction())) {
             return FlowApprovalTaskStatus.WITHDRAWN;
         }
-        return FlowApprovalTaskStatus.CANCELED;
+        return FlowApprovalTaskStatus.CANCELLED;
     }
 
     private static String keyOf(String nodeId, String actorId, FlowApprovalTaskType taskType) {

@@ -25,21 +25,20 @@ public class WithdrawPolicyGuard {
 
     /**
      * An approver acting: what ends a {@link WithdrawPolicy#BEFORE_FIRST_ACTION} window. An automatic
-     * approval ({@code AUTO_APPROVE}) is not one, nor is a CC, a read, an urge or a comment. {@code ADD_SIGN}
-     * is no longer recorded, but an approval still running may have it in its history from before.
+     * approval ({@code AUTO_APPROVE}) is not one, nor is a CC, a read, an urge or a comment.
      */
     private static final Set<ApprovalActionType> APPROVER_ACTIONS = EnumSet.of(ApprovalActionType.APPROVE,
             ApprovalActionType.REJECT, ApprovalActionType.RETURN, ApprovalActionType.TRANSFER,
-            ApprovalActionType.DELEGATE, ApprovalActionType.ADD_SIGN);
+            ApprovalActionType.DELEGATE);
 
     private final FlowBundleRegistry bundleRegistry;
 
     private final ApprovalAuditReader auditReader;
 
-    private final FailedApprovalRecords failedApprovals;
+    private final FailedRecordApprovals failedApprovals;
 
     public WithdrawPolicyGuard(FlowBundleRegistry bundleRegistry, ApprovalAuditReader auditReader,
-                               FailedApprovalRecords failedApprovals) {
+                               FailedRecordApprovals failedApprovals) {
         this.bundleRegistry = bundleRegistry;
         this.auditReader = auditReader;
         this.failedApprovals = failedApprovals;
@@ -84,13 +83,13 @@ public class WithdrawPolicyGuard {
 
     /**
      * Whether {@code requesterId} may take the record back from its approval that failed: they
-     * submitted it, and the record still waits on that approval ({@link FailedApprovalRecords}). No policy limits it —
+     * submitted it, and the record still waits on that approval ({@link FailedRecordApprovals}). No policy limits it —
      * nobody is left to act on the approval. The record becomes a draft again, to submit again on the flow as it is
      * by then; the failed instance stays as it is, for flow monitoring.
      */
     public boolean takesBack(FlowExecutionState state, String requesterId) {
         return state != null && requesterId != null && FlowExecutionStatus.FAILED.equals(state.getStatus())
-                && state.isApprovalOfRecord() && Objects.equals(requesterId, state.getInitiatorId())
-                && failedApprovals.standingOf(state) == FailedApprovalRecords.Standing.WAITS;
+                && state.isRecordApproval() && Objects.equals(requesterId, state.getInitiatorId())
+                && failedApprovals.standingOf(state) == FailedRecordApprovals.Standing.WAITS;
     }
 }

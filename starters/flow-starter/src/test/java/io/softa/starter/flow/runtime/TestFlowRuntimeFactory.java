@@ -85,7 +85,7 @@ public final class TestFlowRuntimeFactory {
         FlowApprovalTaskProjector projector = new FlowApprovalTaskProjector(
                 new ApprovalAuditReader(new NoopApprovalActionLedger()));
         FlowStateChangeListener taskSync = state -> projector.project(state).forEach(task -> taskHolders
-                .computeIfAbsent(task.getInstanceId(), instanceId -> new LinkedHashSet<>()).add(task.getActorId()));
+                .computeIfAbsent(task.getInstanceId(), instanceId -> new LinkedHashSet<>()).add(task.getAssigneeId()));
         return create(bundleRegistry, instanceStore, nodeHandlerRegistry, approvalHandler, taskSync,
                 (state, from) -> {}, taskRows(taskHolders));
     }
@@ -100,7 +100,7 @@ public final class TestFlowRuntimeFactory {
                 .thenAnswer(invocation -> taskHolders.entrySet().stream()
                         .flatMap(holders -> holders.getValue().stream().map(actorId -> new Filters()
                                 .in(FlowApprovalTask::getInstanceId, List.of(holders.getKey()))
-                                .eq(FlowApprovalTask::getActorId, actorId)))
+                                .eq(FlowApprovalTask::getAssigneeId, actorId)))
                         .filter(filters -> filters.equals(invocation.getArgument(1)))
                         .count());
         return models;
@@ -200,7 +200,7 @@ public final class TestFlowRuntimeFactory {
                 new ReadCcActionHandler(contextService, auditService),
                 new ReturnApprovalActionHandler(contextService, actorValidator, auditService, notificationService),
                 new WithdrawActionHandler(contextService, auditService, new WithdrawPolicyGuard(bundleRegistry, auditReader,
-                        new FailedApprovalRecords(instanceService, recordModelService))),
+                        new FailedRecordApprovals(instanceService, recordModelService))),
                 new UrgeActionHandler(contextService, auditService, notificationService,
                         new UrgeThrottle(bundleRegistry, auditReader)),
                 new CommentActionHandler(contextService, auditService, accessGuard),
@@ -208,6 +208,6 @@ public final class TestFlowRuntimeFactory {
                 new ReassignActionHandler(contextService, actorValidator, lifecycleService, auditService, notificationService,
                         orchestrator),
                 new RetryActionHandler(contextService, auditService, orchestrator,
-                        new FailedApprovalRecords(instanceService, recordModelService)));
+                        new FailedRecordApprovals(instanceService, recordModelService)));
     }
 }

@@ -18,7 +18,7 @@ import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.starter.flow.entity.FlowInstance;
 import io.softa.starter.flow.runtime.api.FlowRetryRequest;
-import io.softa.starter.flow.runtime.engine.FailedApprovalRecords;
+import io.softa.starter.flow.runtime.engine.FailedRecordApprovals;
 import io.softa.starter.flow.runtime.engine.FlowActionContextService;
 import io.softa.starter.flow.runtime.engine.FlowAuditService;
 import io.softa.starter.flow.runtime.engine.FlowExecutionOrchestrator;
@@ -53,7 +53,7 @@ class RetryActionHandlerRecordTest {
     @SuppressWarnings("unchecked")
     private final ModelService<Long> modelService = mock(ModelService.class);
     private final RetryActionHandler handler = new RetryActionHandler(contextService, mock(FlowAuditService.class),
-            orchestrator, new FailedApprovalRecords(instanceService, modelService));
+            orchestrator, new FailedRecordApprovals(instanceService, modelService));
 
     private MockedStatic<ModelManager> modelManager;
 

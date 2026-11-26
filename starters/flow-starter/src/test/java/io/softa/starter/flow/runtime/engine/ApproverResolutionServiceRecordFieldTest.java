@@ -114,12 +114,12 @@ class ApproverResolutionServiceRecordFieldTest {
     @Test
     void aFieldNamesOnePersonAtMost() {
         CompiledFlowNode node = step(NEW_MANAGER);
-        ((ApprovalNodeConfig) node.getParsedConfig()).setApprovalMode(VoteThresholdMode.UNANIMOUS);
+        ((ApprovalNodeConfig) node.getParsedConfig()).setVoteThreshold(VoteThresholdMode.UNANIMOUS);
         ApprovalNodeConfig cfg = (ApprovalNodeConfig) node.getParsedConfig();
 
         assertFalse(cfg.mayHaveSeveralApprovers());
         assertTrue(cfg.findsApproversByRule(), "an empty field is what the empty-approver strategy is for");
-        assertEquals(VoteThresholdMode.ANY_ONE, service.resolveApprovalMode(node));
+        assertEquals(VoteThresholdMode.ANY_ONE, service.resolveVoteThreshold(node));
     }
 
     /** With the new manager and the employee's supervisor as two groups, either may approve; each is found once. */

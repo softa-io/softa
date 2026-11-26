@@ -6,7 +6,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 
 /**
  * The business record a record's approval runs on, as its caller is shown it
- * ({@code GET /flow/instances/{instanceId}/record}, or {@code GET /flow/instances/by-record/record} through
+ * ({@code GET /flow/instances/{instanceId}/record}, or {@code GET /flow/instances/byRecord/record} through
  * whichever of the record's approvals lends it), with the definitions of the fields it shows that the
  * caller's own metadata leaves out — the sensitive fields an approval step of theirs grants — so the client
  * merges them into the models it loaded and draws them like any other field.

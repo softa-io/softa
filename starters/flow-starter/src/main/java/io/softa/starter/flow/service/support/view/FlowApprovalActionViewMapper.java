@@ -2,22 +2,22 @@ package io.softa.starter.flow.service.support.view;
 
 import java.util.List;
 
-import io.softa.starter.flow.dto.FlowApprovalRecordView;
-import io.softa.starter.flow.entity.FlowApprovalRecord;
+import io.softa.starter.flow.dto.FlowApprovalActionView;
+import io.softa.starter.flow.entity.FlowApprovalAction;
 
 /**
  * Maps approval record entities into API views.
  */
-public final class FlowApprovalRecordViewMapper {
+public final class FlowApprovalActionViewMapper {
 
-    private FlowApprovalRecordViewMapper() {
+    private FlowApprovalActionViewMapper() {
     }
 
-    public static FlowApprovalRecordView toView(FlowApprovalRecord record) {
+    public static FlowApprovalActionView toView(FlowApprovalAction record) {
         if (record == null) {
             return null;
         }
-        return FlowApprovalRecordView.builder()
+        return FlowApprovalActionView.builder()
                 .id(record.getId())
                 .instanceId(record.getInstanceId())
                 .flowId(record.getFlowId())
@@ -38,8 +38,8 @@ public final class FlowApprovalRecordViewMapper {
                 .build();
     }
 
-    public static List<FlowApprovalRecordView> toViews(List<FlowApprovalRecord> records) {
-        return records.stream().map(FlowApprovalRecordViewMapper::toView).toList();
+    public static List<FlowApprovalActionView> toViews(List<FlowApprovalAction> records) {
+        return records.stream().map(FlowApprovalActionViewMapper::toView).toList();
     }
 }
 

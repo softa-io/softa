@@ -114,7 +114,7 @@ class ManualCcScenarioTest {
         assertThrows(FlowActionValidationException.class, () -> engine.cc(cc(instanceId, FIRST, "cc-1")));
     }
 
-    private String start(String approvalMode) {
+    private String start(String voteThreshold) {
         publishService.publish(FLOW_ID, DesignFlowDefinition.builder()
                 .name("Manual CC")
                 .scenario(FlowScenario.APPROVAL)
@@ -123,7 +123,7 @@ class ManualCcScenarioTest {
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),
                                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("approval")
-                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(FIRST, SECOND))), "approvalMode", approvalMode))
+                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(FIRST, SECOND))), "voteThreshold", voteThreshold))
                                         .build(),
                                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))
                         .edges(List.of(

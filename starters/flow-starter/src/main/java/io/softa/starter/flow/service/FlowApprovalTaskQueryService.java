@@ -5,7 +5,7 @@ import java.util.List;
 import io.softa.framework.orm.domain.Page;
 import io.softa.starter.flow.dto.FlowApprovalTaskSearchRequest;
 import io.softa.starter.flow.dto.FlowApprovalTaskView;
-import io.softa.starter.flow.dto.FlowInboxCountView;
+import io.softa.starter.flow.dto.FlowApprovalCountsView;
 
 /**
  * Query service for persistent flow approval task read models.
@@ -36,5 +36,5 @@ public interface FlowApprovalTaskQueryService {
      * Inbox badge counts (pending approvals + unread CC copies) for one actor.
      * Uses the same filter definitions as the paged queries.
      */
-    FlowInboxCountView countInbox(String actorId);
+    FlowApprovalCountsView countInbox(String actorId);
 }

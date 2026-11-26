@@ -20,7 +20,7 @@ public enum SelfApprovalStrategy {
 
     /**
      * The submitter counts as having approved: submitting the record was agreeing to it, so they are not asked
-     * again. Whether the step then passes is the step's own approval mode — an any-one step passes, an
+     * again. Whether the step then passes is the step's own vote threshold — an any-one step passes, an
      * all-approve step still waits for the others. This is the default when unconfigured.
      */
     AUTO_APPROVE("AutoApprove"),

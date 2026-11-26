@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class ApprovalNodeDescriptorValuesTest {
 
-    private static final List<String> ENUM_FIELDS = List.of("emptyApproverStrategy", "approvalMode");
+    private static final List<String> ENUM_FIELDS = List.of("emptyApproverStrategy", "voteThreshold");
 
     @Test
     void everyOfferedOptionAndDefaultIsReadable() {
@@ -119,16 +119,16 @@ class ApprovalNodeDescriptorValuesTest {
     @Test
     void settingsFollowTheApproversAndSayWhenTheyApply() {
         Map<String, Object> schema = approvalSchema();
-        assertEquals(List.of("approverSources", "approvalMode", "minCount", "percentage", "emptyApproverStrategy",
+        assertEquals(List.of("approverSources", "voteThreshold", "minCount", "percentage", "emptyApproverStrategy",
                 "emptyApproverRoleIds", "emptyApproverRoleCodes", "formPermissions"), List.copyOf(schema.keySet()));
-        for (String field : List.of("approvalMode", "minCount", "percentage")) {
+        for (String field : List.of("voteThreshold", "minCount", "percentage")) {
             assertEquals("severalApprovers", property(schema, field).get("appliesWhen"), field);
         }
         for (String field : List.of("emptyApproverStrategy", "emptyApproverRoleIds", "emptyApproverRoleCodes")) {
             assertEquals("approversFoundByRule", property(schema, field).get("appliesWhen"), field);
         }
         assertEquals(Map.of("AnyOne", "Any one", "Unanimous", "Everyone", "MinCount", "Minimum number",
-                "Percentage", "Percentage"), property(schema, "approvalMode").get("optionLabels"));
+                "Percentage", "Percentage"), property(schema, "voteThreshold").get("optionLabels"));
     }
 
     private static void assertReadable(String field, Object value) {

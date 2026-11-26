@@ -58,7 +58,7 @@ import io.softa.starter.flow.runtime.trigger.DefaultFlowTriggerRegistry;
 import io.softa.starter.flow.runtime.trigger.FlowAutomationService;
 import io.softa.starter.flow.service.FlowDesignService;
 import io.softa.starter.flow.service.FlowInstanceService;
-import io.softa.starter.flow.service.FlowLaunchService;
+import io.softa.starter.flow.service.FlowStartService;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
 import io.softa.starter.flow.service.support.FlowUserNames;
 
@@ -66,7 +66,7 @@ import io.softa.starter.flow.service.support.FlowUserNames;
  * Default launch facade built on top of publish and runtime services.
  */
 @Service
-public class FlowLaunchServiceImpl implements FlowLaunchService {
+public class FlowStartServiceImpl implements FlowStartService {
 
     // A submission is refused with these, and its preview reports them.
     private static final String ALREADY_IN_APPROVAL = "This record is already in approval.";
@@ -101,7 +101,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     private OrganizationService organizationService;
 
     @SuppressWarnings("unchecked")
-    public FlowLaunchServiceImpl(FlowRuntimeEngine flowRuntimeEngine,
+    public FlowStartServiceImpl(FlowRuntimeEngine flowRuntimeEngine,
                                  DefaultFlowCompiler flowCompiler,
                                  ModelApprovalHandlerRegistry handlerRegistry,
                                  ApprovalStatusWriter statusWriter,
@@ -289,7 +289,7 @@ public class FlowLaunchServiceImpl implements FlowLaunchService {
     /**
      * {@link #submitRecord} up to the start of the approval, whose path is worked out instead. A record whose
      * approval is in progress has nothing to preview: its approval's steps, those ahead included, are the record's
-     * approval's to show ({@code GET /flow/instances/by-record}), and the preview names the instance.
+     * approval's to show ({@code GET /flow/instances/byRecord}), and the preview names the instance.
      */
     private FlowApprovalPreview previewSubmission(String modelName, String rowId, String submitterId) {
         FlowInstance latest = latestApproval(modelName, rowId);

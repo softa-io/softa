@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
 import io.softa.starter.flow.dto.FlowApprovalPreview;
-import io.softa.starter.flow.service.FlowLaunchService;
+import io.softa.starter.flow.service.FlowStartService;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.mock;
@@ -21,7 +21,7 @@ class FlowClientTest {
 
     private static final String ACTOR = "100";
 
-    private final FlowLaunchService launch = mock(FlowLaunchService.class);
+    private final FlowStartService launch = mock(FlowStartService.class);
 
     private final FlowClient client = new FlowClient(launch);
 

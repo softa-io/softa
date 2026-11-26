@@ -223,25 +223,25 @@ class ApprovalConfigValidatorOrgTest {
         Map<String, Object> managerAndHr = Map.of("type", "Users", "userIds", List.of("1002", "1001"));
 
         assertDoesNotThrow(() -> compiler.compile(flowWithConfig(Map.of("approverSources", List.of(manager, managerAndHr),
-                "approvalMode", "MinCount", "minCount", 2))));
+                "voteThreshold", "MinCount", "minCount", 2))));
         FlowCompileException ex = assertThrows(FlowCompileException.class, () -> compiler.compile(flowWithConfig(Map.of(
-                "approverSources", List.of(manager, managerAndHr), "approvalMode", "MinCount", "minCount", 3))));
+                "approverSources", List.of(manager, managerAndHr), "voteThreshold", "MinCount", "minCount", 3))));
         assertTrue(ex.getDiagnostics().stream().anyMatch(d -> "INVALID_MIN_COUNT".equals(d.code())));
         assertDoesNotThrow(() -> compiler.compile(flowWithConfig(Map.of("approverSources", List.of(manager,
-                Map.of("type", "Supervisor")), "approvalMode", "MinCount", "minCount", 3))));
+                Map.of("type", "Supervisor")), "voteThreshold", "MinCount", "minCount", 3))));
     }
 
     /**
-     * Settings that do not apply are not judged — the designer does not show them: the approval mode of a step with one
+     * Settings that do not apply are not judged — the designer does not show them: the vote threshold of a step with one
      * approver at most, the empty-approver roles of a step that only names its people.
      */
     @Test
     void settingsThatDoNotApplyAreNotJudged() {
         Map<String, Object> ann = Map.of("type", "Users", "userIds", List.of("1001"));
         assertDoesNotThrow(() -> compiler.compile(flowWithConfig(Map.of("approverSources", List.of(ann),
-                "approvalMode", "MinCount", "minCount", 3))));
+                "voteThreshold", "MinCount", "minCount", 3))));
         assertDoesNotThrow(() -> compiler.compile(flowWithConfig(Map.of(
-                "approverSources", List.of(Map.of("type", "Supervisor")), "approvalMode", "Percentage"))));
+                "approverSources", List.of(Map.of("type", "Supervisor")), "voteThreshold", "Percentage"))));
         assertDoesNotThrow(() -> compiler.compile(flowWithConfig(Map.of("approverSources", List.of(ann),
                 "emptyApproverStrategy", "AssignToRole"))));
 

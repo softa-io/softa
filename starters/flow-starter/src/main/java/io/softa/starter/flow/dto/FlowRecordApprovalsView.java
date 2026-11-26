@@ -161,7 +161,7 @@ public class FlowRecordApprovalsView {
         private StepState state;
 
         @Schema(description = "How many of the approvers must approve: any one, all, a count or a percentage")
-        private VoteThresholdMode approvalMode;
+        private VoteThresholdMode voteThreshold;
 
         @Schema(description = "How many approvals pass the step, the automatic ones counted; null when nobody is asked")
         private Integer requiredApprovals;
@@ -225,7 +225,7 @@ public class FlowRecordApprovalsView {
     @Schema(name = "FlowRecordApprovalEvent")
     public static class Event {
 
-        @Schema(description = "Action type: Cc, Urge, Comment, Retry — or AddSign in history recorded before it was removed")
+        @Schema(description = "Action type: Cc, Urge, Comment, Retry")
         private ApprovalActionType action;
 
         @Schema(description = "Who acted")

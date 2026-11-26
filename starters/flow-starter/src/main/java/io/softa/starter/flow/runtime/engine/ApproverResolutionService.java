@@ -268,25 +268,25 @@ public class ApproverResolutionService {
     }
 
     /**
-     * The step's approval mode — {@code AnyOne} when it holds none, or when it has one approver at most
+     * The step's vote threshold — {@code AnyOne} when it holds none, or when it has one approver at most
      * ({@link ApprovalNodeConfig#mayHaveSeveralApprovers}): that one's approval passes it, whatever mode it holds.
      */
-    public VoteThresholdMode resolveApprovalMode(CompiledFlowNode node) {
-        if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg) || cfg.getApprovalMode() == null
+    public VoteThresholdMode resolveVoteThreshold(CompiledFlowNode node) {
+        if (!(node.getParsedConfig() instanceof ApprovalNodeConfig cfg) || cfg.getVoteThreshold() == null
                 || !cfg.mayHaveSeveralApprovers()) {
             return VoteThresholdMode.ANY_ONE;
         }
-        return cfg.getApprovalMode();
+        return cfg.getVoteThreshold();
     }
 
     /**
-     * The approvals that pass the step: its approval mode's count over {@code approvers}, never more than there are
+     * The approvals that pass the step: its vote threshold's count over {@code approvers}, never more than there are
      * approvers — the people who cannot act were already left out, so a "two of them" step left with one asks that one.
      */
     public int resolveRequiredApprovalCount(CompiledFlowNode node, List<String> approvers) {
-        VoteThresholdMode approvalMode = resolveApprovalMode(node);
+        VoteThresholdMode voteThreshold = resolveVoteThreshold(node);
         ApprovalNodeConfig cfg = node.getParsedConfig() instanceof ApprovalNodeConfig c ? c : null;
-        int required = switch (approvalMode) {
+        int required = switch (voteThreshold) {
             case ANY_ONE -> 1;
             case UNANIMOUS -> approvers.isEmpty() ? 1 : approvers.size();
             case MIN_COUNT -> cfg != null && cfg.getMinCount() != null ? cfg.getMinCount() : 0;

@@ -16,11 +16,15 @@ import io.softa.framework.base.utils.JsonUtils;
 import io.softa.starter.flow.enums.ApproverDeptScope;
 import io.softa.starter.flow.enums.ApproverRelativeTo;
 import io.softa.starter.flow.enums.ApproverSourceType;
+import io.softa.starter.flow.enums.FlowNodeType;
+import io.softa.starter.flow.enums.VoteThresholdMode;
 import io.softa.starter.flow.runtime.bundle.NodeConfigParser;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mockStatic;
@@ -59,6 +63,25 @@ class StoredDesignJsonTest {
         String json = read(fixture);
         assertDoesNotThrow(() -> readAsTheRuntimeDoes(json), fixture + " no longer reads: an enum code it stores was "
                 + "renamed or removed. Ship a migration SQL that rewrites the stored rows; do not edit the fixture.");
+    }
+
+    /**
+     * A step's vote threshold reads from {@code voteThreshold}. Every fixture above stores it as {@code approvalMode},
+     * which is no longer a property and reads as absent — a step without a threshold passes on any one approval
+     * ({@code ApproverResolutionService.resolveVoteThreshold}), silently — so Release-20261127's
+     * {@code 20261126-flow-naming/01-before-jar-flow-codes.sql} moves it in the stored rows.
+     */
+    @Test
+    void aStepReadsItsVoteThresholdUnderTheKeyTheMigrationWrites() {
+        try (MockedStatic<JsonUtils> jsonUtils = mockStatic(JsonUtils.class, CALLS_REAL_METHODS)) {
+            jsonUtils.when(JsonUtils::getMapper).thenReturn(RUNTIME);
+            ApprovalNodeConfig moved = (ApprovalNodeConfig) NodeConfigParser.parse(FlowNodeType.APPROVAL,
+                    Map.of("voteThreshold", "Unanimous"));
+            assertEquals(VoteThresholdMode.UNANIMOUS, moved.getVoteThreshold());
+            ApprovalNodeConfig unmoved = (ApprovalNodeConfig) NodeConfigParser.parse(FlowNodeType.APPROVAL,
+                    Map.of("approvalMode", "Unanimous"));
+            assertNull(unmoved.getVoteThreshold());
+        }
     }
 
     /** What the guard rests on: a code the enum no longer has fails the read instead of reading as null. */

@@ -27,7 +27,7 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.service.FlowBundleService;
 import io.softa.starter.flow.service.FlowExecutionTraceService;
 import io.softa.starter.flow.service.FlowInstanceService;
-import io.softa.starter.flow.service.FlowLaunchService;
+import io.softa.starter.flow.service.FlowStartService;
 import io.softa.starter.flow.service.query.FlowInstanceSummaryComposer;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard.RecordAdmission;
@@ -56,7 +56,7 @@ public class FlowInstanceController {
     private final FlowInstanceService instanceService;
     private final FlowExecutionTraceService traceService;
     private final FlowInstanceAccessGuard accessGuard;
-    private final FlowLaunchService launchService;
+    private final FlowStartService startService;
     private final UrgeThrottle urgeThrottle;
     private final WithdrawPolicyGuard withdrawPolicyGuard;
     private final BatchApprovalExecutor batchExecutor;
@@ -69,7 +69,7 @@ public class FlowInstanceController {
                                   FlowInstanceService instanceService,
                                   FlowExecutionTraceService traceService,
                                   FlowInstanceAccessGuard accessGuard,
-                                  FlowLaunchService launchService,
+                                  FlowStartService startService,
                                   UrgeThrottle urgeThrottle,
                                   WithdrawPolicyGuard withdrawPolicyGuard,
                                   BatchApprovalExecutor batchExecutor,
@@ -81,7 +81,7 @@ public class FlowInstanceController {
         this.instanceService = instanceService;
         this.traceService = traceService;
         this.accessGuard = accessGuard;
-        this.launchService = launchService;
+        this.startService = startService;
         this.urgeThrottle = urgeThrottle;
         this.withdrawPolicyGuard = withdrawPolicyGuard;
         this.batchExecutor = batchExecutor;
@@ -154,7 +154,7 @@ public class FlowInstanceController {
                         "Flow instance not found: " + instanceId));
     }
 
-    @GetMapping("/by-record")
+    @GetMapping("/byRecord")
     @Operation(summary = "Get a record's approval",
             description = "A business record's approval: every submission of it — the approval instance each "
                     + "started — newest first, with its status, who submitted it and when, and its approval steps: "
@@ -184,7 +184,7 @@ public class FlowInstanceController {
                     + "those who take part in it — told it is in progress, with its instance id, the record unread.")
     public ApiResponse<FlowApprovalPreview> previewRecordApproval(@RequestParam String modelName,
                                                                  @RequestParam String rowId) {
-        return ApiResponse.success(launchService.previewRecord(modelName, rowId, currentUserId()));
+        return ApiResponse.success(startService.previewRecord(modelName, rowId, currentUserId()));
     }
 
     @GetMapping("/{instanceId}/record")
@@ -221,7 +221,7 @@ public class FlowInstanceController {
                         "Flow instance not found: " + instanceId));
     }
 
-    @GetMapping("/by-record/record")
+    @GetMapping("/byRecord/record")
     @Operation(summary = "Get a record through its approvals",
             description = "The business record, as GET /flow/instances/{instanceId}/record returns it ({ record, "
                     + "fields }), whichever of its approvals is current: for a page keyed by the record that shows "
@@ -402,7 +402,7 @@ public class FlowInstanceController {
                 .filter(state -> withdrawPolicyGuard.takesBack(state, request.getActorId()));
         if (failed.isPresent()) {
             FlowExecutionState state = failed.get();
-            return ApiResponse.success(withoutRecordValues(launchService.withdrawRecord(state.getModelName(),
+            return ApiResponse.success(withoutRecordValues(startService.withdrawRecord(state.getModelName(),
                     state.getRowId(), request.getActorId(), request.getComment())));
         }
         return ApiResponse.success(withoutRecordValues(runtimeEngine.withdraw(request)));
@@ -420,7 +420,7 @@ public class FlowInstanceController {
         return ApiResponse.success(urgeThrottle.status(state, request.getActorId(), LocalDateTime.now()));
     }
 
-    @GetMapping("/{instanceId}/urge")
+    @GetMapping("/{instanceId}/urgeStatus")
     @Operation(summary = "Get urge status",
             description = "Whether the approval may be urged now, and if not, when it may be — never, for its "
                     + "initiator, on a flow that does not let its initiator urge. Allowed to whoever may view the "
@@ -436,7 +436,7 @@ public class FlowInstanceController {
                         "Flow instance not found: " + instanceId));
     }
 
-    @GetMapping("/{instanceId}/withdraw")
+    @GetMapping("/{instanceId}/withdrawable")
     @Operation(summary = "Get whether the caller may withdraw",
             description = "True when the caller is the initiator of an approval waiting on its approvers and the "
                     + "flow's withdraw policy still permits it, or the submitter of a record whose approval failed "

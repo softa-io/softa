@@ -91,7 +91,7 @@ class AutoCcScenarioTest {
                 .filter(t -> FlowApprovalTaskType.CC.equals(t.getTaskType()))
                 .findFirst()
                 .orElseThrow();
-        assertEquals("cc-1", task.getActorId());
+        assertEquals("cc-1", task.getAssigneeId());
         assertTrue(FlowParticipants.isParticipant(started, started.getApprovalAuditDelta(), "cc-1"));
         assertEquals(List.of("cc-1"), ccNotices().getFirst().recipientActorIds());
 
@@ -212,7 +212,7 @@ class AutoCcScenarioTest {
         assertFalse(notices.stream().anyMatch(FlowNotificationEvent.CcSent.class::isInstance));
     }
 
-    private void publish(String approvalMode, FlowCcRule... rules) {
+    private void publish(String voteThreshold, FlowCcRule... rules) {
         publishService.publish(FLOW_ID, DesignFlowDefinition.builder()
                 .name("Auto CC")
                 .scenario(FlowScenario.APPROVAL)
@@ -225,7 +225,7 @@ class AutoCcScenarioTest {
                                         .id("approval")
                                         .type(FlowNodeType.APPROVAL)
                                         .label("approval")
-                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(FIRST, SECOND))), "approvalMode", approvalMode))
+                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(FIRST, SECOND))), "voteThreshold", voteThreshold))
                                         .build(),
                                 node("end", FlowNodeType.END)))
                         .edges(List.of(

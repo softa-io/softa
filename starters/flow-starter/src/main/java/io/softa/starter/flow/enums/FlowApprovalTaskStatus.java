@@ -18,9 +18,9 @@ public enum FlowApprovalTaskStatus {
     RETURNED("Returned"),
     TRANSFERRED("Transferred"),
     DELEGATED("Delegated"),
-    CANCELED("Canceled"),
+    CANCELLED("Cancelled"),
     WITHDRAWN("Withdrawn"),
-    CC("Cc"),
+    /** A CC task its recipient has read; an unread one is {@link #PENDING}. */
     READ("Read"),
     ;
 

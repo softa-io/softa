@@ -62,7 +62,7 @@ class CallerConditionsTest {
     @Test
     void aPathIntoAnotherModelAnUnknownNameAndAComparisonWithAnUnstoredFieldAreRefused() {
         assertRefused(TASK, "[\"flowId.flowName\", \"=\", \"Expense\"]", "flowId.flowName");
-        assertRefused(TASK, "[[\"actorId\", \"=\", \"u1\"], \"OR\", [\"title\", \"=\", \"x\"]]", "title");
+        assertRefused(TASK, "[[\"assigneeId\", \"=\", \"u1\"], \"OR\", [\"title\", \"=\", \"x\"]]", "title");
         assertRefused(TASK, "[\"nodeLabel\", \"=\", \"{{ @flowName }}\"]", "flowName");
     }
 
@@ -77,8 +77,8 @@ class CallerConditionsTest {
 
     @Test
     void theCallersFiltersAreAndedOnAsTheirOwnSubtree() {
-        Filters own = new Filters().eq(FlowApprovalTask::getActorId, "me").eq(FlowApprovalTask::getTaskType, "Cc");
-        Filters theirs = Filters.of("[[\"actorId\", \"=\", \"boss\"], \"OR\", [\"recordCode\", \"=\", \"EXP-1\"]]");
+        Filters own = new Filters().eq(FlowApprovalTask::getAssigneeId, "me").eq(FlowApprovalTask::getTaskType, "Cc");
+        Filters theirs = Filters.of("[[\"assigneeId\", \"=\", \"boss\"], \"OR\", [\"recordCode\", \"=\", \"EXP-1\"]]");
 
         Filters combined = CallerConditions.and(own, theirs);
 

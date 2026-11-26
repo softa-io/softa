@@ -41,7 +41,7 @@ Under `io.softa.starter.flow`:
 | `api` | `FlowClient`; the compile diagnostics (`CompileDiagnostic`, `FlowCompileException`) |
 | `design`, `design/trigger` | The editor's graph (`DesignFlowDefinition`, `FlowGraphNode` / `FlowGraphEdge`, `FlowCcRule`), node descriptors, the trigger types (`TriggerSource` and its sealed sub-types) |
 | `compiler` (`graph`, `transform`, `validation`) | `DefaultFlowCompiler`: graph indexing and ordering, the built-in `FlowValidator`s, the transform into `CompiledFlowDefinition` |
-| `entity`, `enums`, `dto` | The persisted models — `FlowDesign`, `FlowBundle`, `FlowInstance`, `FlowExecutionTrace`, `FlowApprovalTask`, `FlowApprovalRecord`, `FlowDelegation`, `FlowEvent` — and `ApprovalModel`, the base of an approved record; wire enums and DTOs |
+| `entity`, `enums`, `dto` | The persisted models — `FlowDesign`, `FlowBundle`, `FlowInstance`, `FlowExecutionTrace`, `FlowApprovalTask`, `FlowApprovalAction`, `FlowDelegation`, `FlowEvent` — and `ApprovalModel`, the base of an approved record; wire enums and DTOs |
 | `controller` | The REST surfaces, `ApprovalModelController`, `FlowExceptionHandler` |
 | `service` (`impl`, `query`, `support`) | Design and publish, launch (submit, preview, test run), instance reads and searches, tasks, delegation, the directory, the monitor; `FlowInstanceAccessGuard`, `CallerConditions`, `SubmitConditions`, the task projector |
 | `runtime/engine` | `FlowRuntimeFacade` (the `FlowRuntimeEngine`), `FlowExecutionOrchestrator`, approver resolution and dedup, auto-CC and auto-delegation, the path previewer, the approval lock and status writer, `WithdrawPolicyGuard`, reminders, `UndoableSteps`, `FlowCron`, `ActorAccounts` |
@@ -174,7 +174,7 @@ A change keeps these; each names the class that holds it.
   only onto a record still `Pending`, so `afterOutcome` runs once per result. An instance's status moves only by `FlowStatusTransitions`.
 - **A record deleted softly is deleted for its approvals.** A read by id returns a soft-deleted row, flagged
   (`ModelService.getByIds` leaves the soft-delete filter to queries), so each read of an approved record by id that
-  acts on what it finds asks `ApprovalModel.isDeleted`: `FlowLaunchServiceImpl.readRecord` (submit, preview, cancel),
+  acts on what it finds asks `ApprovalModel.isDeleted`: `FlowStartServiceImpl.readRecord` (submit, preview, cancel),
   `ApprovalStatusWriter` (the write-back), `FlowInstanceSummaryComposer` (`recordDeleted`) and the record read of the
   approval pages. A new one does the same.
 - **One approval in progress per record.** `FlowInstance.openRecordId` holds the record's id while its approval is
@@ -206,7 +206,7 @@ A change keeps these; each names the class that holds it.
   also an approver is asked is the flow's `SelfApprovalStrategy` (`ApproverDedupService`); the employee, when someone
   else submitted, is asked like any other approver.
 - **A submission goes to one flow.** `DefaultFlowTriggerRegistry.findSubmitFlows` returns the document's enabled
-  approval flows whose condition holds, else the one without a condition — the default; `FlowLaunchServiceImpl`
+  approval flows whose condition holds, else the one without a condition — the default; `FlowStartServiceImpl`
   refuses none and several; `SubmitConditions` refuses two flows with the same condition, two defaults included, at a
   publish while enabled, an enable and a rollback.
 - **A flow runs at most once a minute.** `FlowCron.refusal` refuses a cron whose second field is not a single value;
@@ -225,7 +225,7 @@ A change keeps these; each names the class that holds it.
   `PendingApprovalFactory` and auto-approves with `ApproverDedupService`, on a state never saved — a routing or
   resolution change reaches submissions, previews and the steps a record's approval shows ahead together.
 - **A record's approval is one, however many times it was submitted.** Each submission is an instance; whoever sees
-  one sees them all, with their steps (`GET /flow/instances/by-record`): whoever took part in any of them, reads the
+  one sees them all, with their steps (`GET /flow/instances/byRecord`): whoever took part in any of them, reads the
   record, or whose roles read any of their `FlowInstance` rows. The instance endpoints admit the same people
   (`FlowInstanceAccessGuard`). Reading the record itself through an approval stays narrower: its participants and
   its readers.
@@ -245,13 +245,13 @@ The softa-docs pages state each rule; this is where to change it.
 | Routing: edge order, default edges, the inclusive gateway's paired join | `FlowGatewayRouter`; `BranchRegions.pairOf` and `GatewayValidator` at publish; `FlowExecutionOrchestrator.creditUntakenBranches` at run time |
 | Edge rules: how they are judged and checked | `FilterEvaluator`; `FieldConstraints.checkCondition` at publish |
 | Who approves a step: groups, sources, accounts that can act | `ApproverResolutionService` (`resolvePeople`, also for CC rules), `PendingApprovalFactory`, `FlowOrgService` |
-| When the approval mode and the empty-approver strategy apply | `ApprovalNodeConfig.mayHaveSeveralApprovers` / `findsApproversByRule`, `ApproverSourceType.isFindsOne`, `ApproverResolutionService.resolveApprovalMode`, `PendingApprovalFactory.resolveEmptyApproverStrategy` |
+| When the vote threshold and the empty-approver strategy apply | `ApprovalNodeConfig.mayHaveSeveralApprovers` / `findsApproversByRule`, `ApproverSourceType.isFindsOne`, `ApproverResolutionService.resolveVoteThreshold`, `PendingApprovalFactory.resolveEmptyApproverStrategy` |
 | Votes needed, capped by the approvers found | `ApproverResolutionService.capRequiredApprovals` |
 | Why a step found nobody | `ApproverResolutionService.whyNobody` |
 | Which field of the record a source reads a person or a department from (`RecordField`, `VARIABLE_DEPT`) | `ApproverResolutionService.recordField` (`PERSON_MODELS`, `DEPARTMENT_MODELS`), on the model the start carries in `MODEL_KEY`; checked by `ApprovalConfigValidator.recordFieldProblem`, for CC rules too |
-| What a submitter may submit or cancel | `FlowLaunchServiceImpl` (`AccessScope.callAs(UPDATE, …)`) |
+| What a submitter may submit or cancel | `FlowStartServiceImpl` (`AccessScope.callAs(UPDATE, …)`) |
 | Routing variables, and numbers restored on load | `RecordVariables`, `RecordVariables.restoreNumbers` |
-| A rule reading through relations, up to `RecordVariables.MAX_HOPS` levels: which paths, when read, which a flow needs | `RecordVariables.routedPathField` / `readPaths`; `CompiledFlowDefinition.rulePaths`, `DefaultFlowTriggerRegistry.submitConditionPaths`; read in `FlowLaunchServiceImpl.submitVariables`, `ApprovalFormWriteService.refreshVariables`, `FlowAutomationService.startVariables`; checked by `GatewayValidator.checkRule`; offered as `FlowVariableView.ruleFields` |
+| A rule reading through relations, up to `RecordVariables.MAX_HOPS` levels: which paths, when read, which a flow needs | `RecordVariables.routedPathField` / `readPaths`; `CompiledFlowDefinition.rulePaths`, `DefaultFlowTriggerRegistry.submitConditionPaths`; read in `FlowStartServiceImpl.submitVariables`, `ApprovalFormWriteService.refreshVariables`, `FlowAutomationService.startVariables`; checked by `GatewayValidator.checkRule`; offered as `FlowVariableView.ruleFields` |
 | A record node's model, and the paths its filters, orders and fields name, checked at publish | `TaskConfigValidator.checkQuery`, with softa-orm's `FieldPaths` |
 | A delegation rule's status — Scheduled, Active, Ended, Cancelled — the one that routes a task, the one the lists show and the one the administrators' list filters by | `FlowDelegationStatus.of`, and `condition` for the same judgement as a filter on the stored fields (`FlowDelegationSearchTest` holds them together); routing in `FlowDelegationServiceImpl.findActiveDelegation`, the caller's lists in `searchDelegations` (`FlowDelegationBox`), the administrators' in `searchAll`, shown by `FlowDelegationViews` |
 | Withdrawing and taking back a failed approval | `WithdrawPolicyGuard` |

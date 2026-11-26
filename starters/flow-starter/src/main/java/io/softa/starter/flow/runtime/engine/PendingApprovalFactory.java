@@ -112,7 +112,7 @@ public class PendingApprovalFactory {
                 .nodeId(node.getNodeId())
                 .nodeLabel(node.getLabel())
                 .approvers(approvers)
-                .approvalMode(toRoles ? VoteThresholdMode.ANY_ONE : approverResolutionService.resolveApprovalMode(node))
+                .voteThreshold(toRoles ? VoteThresholdMode.ANY_ONE : approverResolutionService.resolveVoteThreshold(node))
                 .requiredApprovalCount(toRoles ? 1 : approverResolutionService.resolveRequiredApprovalCount(node, approvers))
                 .approvedActors(new ArrayList<>())
                 .dueTime(computeDueTime(definition))

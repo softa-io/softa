@@ -436,7 +436,7 @@ class ApproverResolutionServiceOrgTest {
     private CompiledFlowNode approvalNode(List<Map<String, Object>> groups) {
         ApprovalNodeConfig cfg = ApprovalNodeConfig.builder()
                 .approverSources(groups)
-                .approvalMode(VoteThresholdMode.ANY_ONE)
+                .voteThreshold(VoteThresholdMode.ANY_ONE)
                 .build();
         return CompiledFlowNode.builder()
                 .nodeId("approval-1")

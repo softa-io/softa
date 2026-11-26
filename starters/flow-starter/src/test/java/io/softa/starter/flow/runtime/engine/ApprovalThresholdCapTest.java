@@ -33,7 +33,7 @@ class ApprovalThresholdCapTest {
     void aStepAskingMorePeopleThanItHasLeftAsksThoseItHas() {
         // "Two of A and B": B left, and was dropped as the step started.
         CompiledFlowNode node = step(ApprovalNodeConfig.builder().approverSources(A_B_C)
-                .approvalMode(VoteThresholdMode.MIN_COUNT).minCount(2).build());
+                .voteThreshold(VoteThresholdMode.MIN_COUNT).minCount(2).build());
 
         assertEquals(1, resolution.resolveRequiredApprovalCount(node, List.of("A")));
         assertEquals(2, resolution.resolveRequiredApprovalCount(node, List.of("A", "B")));
@@ -42,7 +42,7 @@ class ApprovalThresholdCapTest {
     @Test
     void aStepEveryoneMustApproveCountsEveryone() {
         CompiledFlowNode node = step(ApprovalNodeConfig.builder().approverSources(A_B_C)
-                .approvalMode(VoteThresholdMode.UNANIMOUS).build());
+                .voteThreshold(VoteThresholdMode.UNANIMOUS).build());
 
         assertEquals(3, resolution.resolveRequiredApprovalCount(node, List.of("A", "B", "C")));
     }
@@ -58,15 +58,15 @@ class ApprovalThresholdCapTest {
                 Map.of("type", "Supervisor", "level", 2),
                 Map.of("type", "DeptHrbp"))) {
             CompiledFlowNode node = step(ApprovalNodeConfig.builder().approverSources(List.of(group))
-                    .approvalMode(VoteThresholdMode.PERCENTAGE).build());
+                    .voteThreshold(VoteThresholdMode.PERCENTAGE).build());
 
-            assertEquals(VoteThresholdMode.ANY_ONE, resolution.resolveApprovalMode(node), group.toString());
+            assertEquals(VoteThresholdMode.ANY_ONE, resolution.resolveVoteThreshold(node), group.toString());
             assertEquals(1, resolution.resolveRequiredApprovalCount(node, List.of("A")), group.toString());
         }
         CompiledFlowNode roles = step(ApprovalNodeConfig.builder()
                 .approverSources(List.of(Map.of("type", "RoleQuery", "roleCodes", List.of("HR"))))
-                .approvalMode(VoteThresholdMode.UNANIMOUS).build());
-        assertEquals(VoteThresholdMode.UNANIMOUS, resolution.resolveApprovalMode(roles), "a role may have several holders");
+                .voteThreshold(VoteThresholdMode.UNANIMOUS).build());
+        assertEquals(VoteThresholdMode.UNANIMOUS, resolution.resolveVoteThreshold(roles), "a role may have several holders");
     }
 
     @Test

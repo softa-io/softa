@@ -30,9 +30,6 @@ public final class FlowStatusTransitions {
             new EnumMap<>(FlowExecutionStatus.class);
 
     static {
-        // Async-launch: created-but-not-started → running (or force-cancelled before start).
-        ALLOWED.put(FlowExecutionStatus.PENDING, EnumSet.of(
-                FlowExecutionStatus.RUNNING, FlowExecutionStatus.CANCELLED));
         // Active execution may suspend on any wait (approval / async), complete, or cancel.
         ALLOWED.put(FlowExecutionStatus.RUNNING, EnumSet.of(
                 FlowExecutionStatus.WAITING, FlowExecutionStatus.COMPLETED,

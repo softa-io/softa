@@ -43,7 +43,7 @@ public class ApprovalOutcomeListener implements FlowStatusChangeListener {
     @Override
     public void onStatusChanged(FlowExecutionState state, FlowExecutionStatus from) {
         ApprovalOutcomeType type = outcomeOf(state.getStatus());
-        if (type == null || !state.isApprovalOfRecord() || !StringUtils.hasText(state.getModelName())
+        if (type == null || !state.isRecordApproval() || !StringUtils.hasText(state.getModelName())
                 || !StringUtils.hasText(state.getRowId())) {
             return;
         }
@@ -67,7 +67,7 @@ public class ApprovalOutcomeListener implements FlowStatusChangeListener {
             case RETURNED -> ApprovalOutcomeType.RETURNED;
             case WITHDRAWN -> ApprovalOutcomeType.WITHDRAWN;
             case CANCELLED -> ApprovalOutcomeType.CANCELLED;
-            case PENDING, RUNNING, WAITING, FAILED -> null;
+            case RUNNING, WAITING, FAILED -> null;
         };
     }
 }

@@ -8,7 +8,7 @@ import io.softa.framework.base.context.ContextUtils;
 import io.softa.starter.flow.runtime.api.FlowRetryRequest;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowDefinition;
 import io.softa.starter.flow.runtime.bundle.CompiledFlowNode;
-import io.softa.starter.flow.runtime.engine.FailedApprovalRecords;
+import io.softa.starter.flow.runtime.engine.FailedRecordApprovals;
 import io.softa.starter.flow.runtime.engine.FlowActionContextService;
 import io.softa.starter.flow.runtime.engine.FlowAuditService;
 import io.softa.starter.flow.runtime.engine.FlowExecutionOrchestrator;
@@ -39,12 +39,12 @@ public class RetryActionHandler implements FlowActionHandler<FlowRetryRequest> {
     private final FlowActionContextService contextService;
     private final FlowAuditService auditService;
     private final FlowExecutionOrchestrator orchestrator;
-    private final FailedApprovalRecords failedApprovals;
+    private final FailedRecordApprovals failedApprovals;
 
     public RetryActionHandler(FlowActionContextService contextService,
                               FlowAuditService auditService,
                               FlowExecutionOrchestrator orchestrator,
-                              FailedApprovalRecords failedApprovals) {
+                              FailedRecordApprovals failedApprovals) {
         this.contextService = contextService;
         this.auditService = auditService;
         this.orchestrator = orchestrator;
@@ -61,7 +61,7 @@ public class RetryActionHandler implements FlowActionHandler<FlowRetryRequest> {
             throw new FlowActionValidationException("Only an approval whose steps after an approval failed can be run "
                     + "again; terminate any other failed instance instead.");
         }
-        if (state.isApprovalOfRecord()) {
+        if (state.isRecordApproval()) {
             requireRecordStillWaitsOn(state);
         }
         CompiledFlowDefinition definition = contextService.resolveDefinition(state.getBundleId());

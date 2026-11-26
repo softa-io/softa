@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Which of a step's settings apply, by its groups of approvers: the approval mode where it may have several approvers,
+ * Which of a step's settings apply, by its groups of approvers: the vote threshold where it may have several approvers,
  * the empty-approver strategy where a group finds its people by rule.
  */
 class ApprovalNodeConfigAppliesTest {

@@ -79,7 +79,7 @@ public class TaskInstanceContextEnricher {
                 .distinct()
                 .toList());
         views.forEach(view -> {
-            view.setActorName(accountNames.get(view.getActorId()));
+            view.setAssigneeName(accountNames.get(view.getAssigneeId()));
             Map<String, String> named = new LinkedHashMap<>();
             actorIdsOf(view).forEach(id -> {
                 String name = accountNames.get(id);
@@ -120,8 +120,8 @@ public class TaskInstanceContextEnricher {
             view.setSummary(instance.getSummary());
             view.setSuperseded(Boolean.TRUE.equals(instance.getSuperseded()) ? Boolean.TRUE : null);
             if (instance.getInitiatorId() != null) {
-                view.setInitiator(new FlowRecordApprovalsView.Actor(instance.getInitiatorId(), null));
-                initiators.add(view.getInitiator());
+                view.setSubmitter(new FlowRecordApprovalsView.Actor(instance.getInitiatorId(), null));
+                initiators.add(view.getSubmitter());
             }
             if (instance.getSubjectId() != null) {
                 view.setSubject(new FlowRecordApprovalsView.Actor(instance.getSubjectId().toString(), null));
@@ -190,7 +190,7 @@ public class TaskInstanceContextEnricher {
 
     /** The accounts a task names: its holder, and who closed it. */
     private static List<String> actorIdsOf(FlowApprovalTaskView view) {
-        return Stream.of(view.getActorId(), view.getClosedByActorId())
+        return Stream.of(view.getAssigneeId(), view.getClosedById())
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList();

@@ -6,7 +6,7 @@ import org.springframework.beans.factory.ObjectProvider;
 
 import io.softa.framework.base.context.Context;
 import io.softa.framework.base.context.ContextHolder;
-import io.softa.starter.flow.dto.FlowInboxCountView;
+import io.softa.starter.flow.dto.FlowApprovalCountsView;
 import io.softa.starter.flow.service.FlowApprovalTaskQueryService;
 import io.softa.starter.message.inbox.service.InboxNotificationService;
 
@@ -25,21 +25,21 @@ class FlowApprovalTaskCountsTest {
 
     @Test
     void theCountsCarryTheCallersUnreadNotifications() {
-        when(tasks.countInbox("7")).thenReturn(new FlowInboxCountView(3, 2));
+        when(tasks.countInbox("7")).thenReturn(new FlowApprovalCountsView(3, 2));
         when(inbox.countUnread(7L)).thenReturn(5);
 
-        FlowInboxCountView counts = as(7L, () -> controller(inbox).counts().getData());
+        FlowApprovalCountsView counts = as(7L, () -> controller(inbox).counts().getData());
 
-        assertEquals(new FlowInboxCountView(3, 2, 5), counts);
+        assertEquals(new FlowApprovalCountsView(3, 2, 5), counts);
     }
 
     @Test
     void withoutTheInboxThereAreNoNotificationsToCount() {
-        when(tasks.countInbox("7")).thenReturn(new FlowInboxCountView(3, 2));
+        when(tasks.countInbox("7")).thenReturn(new FlowApprovalCountsView(3, 2));
 
-        FlowInboxCountView counts = as(7L, () -> controller(null).counts().getData());
+        FlowApprovalCountsView counts = as(7L, () -> controller(null).counts().getData());
 
-        assertEquals(new FlowInboxCountView(3, 2, 0), counts);
+        assertEquals(new FlowApprovalCountsView(3, 2, 0), counts);
     }
 
     private FlowApprovalTaskController controller(InboxNotificationService available) {

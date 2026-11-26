@@ -11,7 +11,7 @@ import io.softa.framework.orm.domain.Page;
 import io.softa.framework.web.response.ApiResponse;
 import io.softa.starter.flow.dto.FlowApprovalTaskSearchRequest;
 import io.softa.starter.flow.dto.FlowApprovalTaskView;
-import io.softa.starter.flow.dto.FlowInboxCountView;
+import io.softa.starter.flow.dto.FlowApprovalCountsView;
 import io.softa.starter.flow.service.FlowApprovalTaskQueryService;
 import io.softa.starter.message.inbox.service.InboxNotificationService;
 
@@ -52,9 +52,9 @@ public class FlowApprovalTaskController {
                     + "notifications, as GET /InboxNotification/myCountUnread counts them: the bell reads all three "
                     + "in one request. Its badge shows the notifications alone, since each new task comes with one.")
     @SkipPermissionCheck
-    public ApiResponse<FlowInboxCountView> counts() {
+    public ApiResponse<FlowApprovalCountsView> counts() {
         String userId = currentUserId();
-        FlowInboxCountView counts = flowApprovalTaskService.countInbox(userId);
+        FlowApprovalCountsView counts = flowApprovalTaskService.countInbox(userId);
         InboxNotificationService inbox = inboxNotifications.getIfAvailable();
         return ApiResponse.success(inbox == null ? counts
                 : counts.withUnreadNotifications(inbox.countUnread(Long.valueOf(userId))));

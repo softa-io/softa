@@ -29,7 +29,7 @@ import static org.mockito.Mockito.when;
 /**
  * Unit tests for {@link ApproverDedupService}: the GLOBAL / CONTIGUOUS distinction, and the record's submitter
  * approved for automatically on an Approval flow unless the flow asks them like anyone else (recorded, and
- * counted by the step's approval mode) — while the employee the record is about, when someone else filed it, is
+ * counted by the step's vote threshold) — while the employee the record is about, when someone else filed it, is
  * asked like anyone.
  */
 class ApproverDedupServiceTest {

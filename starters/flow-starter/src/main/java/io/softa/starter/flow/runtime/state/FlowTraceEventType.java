@@ -23,8 +23,6 @@ public enum FlowTraceEventType {
     APPROVAL_REJECTED("ApprovalRejected"),
     APPROVAL_TRANSFERRED("ApprovalTransferred"),
     APPROVAL_DELEGATED("ApprovalDelegated"),
-    /** No longer emitted — the add-sign actions are gone; kept so traces recorded before still read. */
-    APPROVAL_ADD_SIGNED("ApprovalAddSigned"),
     // Explicit labels: humanize flattens the CC acronym to "Cced" / "Cc Read".
     @OptionItem(label = "Approval CC'd")
     APPROVAL_CCED("ApprovalCced"),

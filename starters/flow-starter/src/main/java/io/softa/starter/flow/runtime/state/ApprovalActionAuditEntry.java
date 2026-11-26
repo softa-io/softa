@@ -55,7 +55,7 @@ public class ApprovalActionAuditEntry {
     @Schema(description = "Approvers who had already approved when the action was recorded")
     private List<String> approvedActors;
 
-    @Schema(description = "Required approval count for threshold-based approval modes")
+    @Schema(description = "Required approval count for a vote threshold that counts approvals")
     private Integer requiredApprovalCount;
 
     @Schema(description = "Target actor id when returning to initiator")

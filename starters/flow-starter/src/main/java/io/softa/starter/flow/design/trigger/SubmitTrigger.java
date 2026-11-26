@@ -13,7 +13,7 @@ import io.softa.framework.orm.domain.Filters;
  * condition is one of the two kinds an edge takes, never both: a rule over the record's fields, or an expression.
  * The document is the system's, not the designer's: chosen when the flow is created ({@code FlowDesign#getModelName()})
  * and put back on every save, which keeps the condition. Only the record-submission path
- * ({@code FlowLaunchService.submitRecord}) fires it: change logs never produce it, and the generic trigger endpoint
+ * ({@code FlowStartService.submitRecord}) fires it: change logs never produce it, and the generic trigger endpoint
  * refuses it.
  */
 @Schema(name = "SubmitTrigger")

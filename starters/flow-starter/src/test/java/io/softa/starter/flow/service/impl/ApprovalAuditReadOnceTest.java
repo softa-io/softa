@@ -6,7 +6,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 import io.softa.framework.orm.domain.Filters;
-import io.softa.starter.flow.entity.FlowApprovalRecord;
+import io.softa.starter.flow.entity.FlowApprovalAction;
 import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
@@ -54,8 +54,8 @@ class ApprovalAuditReadOnceTest {
 
     @Test
     void whatTheActionFlushesJoinsTheRowsItReadWithoutCountingThem() {
-        FlowApprovalRecordServiceImpl ledger = spy(new FlowApprovalRecordServiceImpl());
-        FlowApprovalRecord submitted = FlowApprovalRecordServiceImpl.toRecord(loaded(), entry(ApprovalActionType.CC, null));
+        FlowApprovalActionServiceImpl ledger = spy(new FlowApprovalActionServiceImpl());
+        FlowApprovalAction submitted = FlowApprovalActionServiceImpl.toRecord(loaded(), entry(ApprovalActionType.CC, null));
         submitted.setSequence(0);
         doReturn(List.of(submitted)).when(ledger).searchList(any(Filters.class));
         doReturn(List.of()).when(ledger).createList(anyList());

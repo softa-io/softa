@@ -484,12 +484,12 @@ class FlowRecordApprovalsTest {
 
         // The instances the history lists, each with what deciding who takes part in it reads.
         assertEquals(List.of("new", "old"), approvals.stream().map(FlowExecutionState::getInstanceId).toList());
-        assertTrue(approvals.stream().allMatch(FlowExecutionState::isApprovalOfRecord));
+        assertTrue(approvals.stream().allMatch(FlowExecutionState::isRecordApproval));
         assertEquals(List.of("2002"), approvals.getFirst().getPendingApprovals().getFirst().getApprovers());
         assertEquals("1001", approvals.getLast().getInitiatorId());
     }
 
-    // ---- the record read through its approvals, whichever is current: GET /flow/instances/by-record/record ----
+    // ---- the record read through its approvals, whichever is current: GET /flow/instances/byRecord/record ----
 
     private static final String EARLIER_APPROVER = "2001";
     private static final String CURRENT_APPROVER = "2002";
@@ -689,7 +689,7 @@ class FlowRecordApprovalsTest {
     private static Filters tasksOf(String userId, String... instanceIds) {
         return new Filters()
                 .in(FlowApprovalTask::getInstanceId, List.of(instanceIds))
-                .eq(FlowApprovalTask::getActorId, userId);
+                .eq(FlowApprovalTask::getAssigneeId, userId);
     }
 
     /**

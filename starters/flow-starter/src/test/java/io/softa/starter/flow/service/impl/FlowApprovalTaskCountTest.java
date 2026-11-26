@@ -3,7 +3,7 @@ package io.softa.starter.flow.service.impl;
 import org.junit.jupiter.api.Test;
 
 import io.softa.framework.orm.domain.Filters;
-import io.softa.starter.flow.dto.FlowInboxCountView;
+import io.softa.starter.flow.dto.FlowApprovalCountsView;
 import io.softa.starter.flow.runtime.NoopApprovalActionLedger;
 import io.softa.starter.flow.runtime.engine.ApprovalAuditReader;
 import io.softa.starter.flow.service.FlowInstanceService;
@@ -45,7 +45,7 @@ class FlowApprovalTaskCountTest {
             return -1L;
         }).when(service).count(any(Filters.class));
 
-        FlowInboxCountView counts = service.countInbox("user-1");
+        FlowApprovalCountsView counts = service.countInbox("user-1");
         assertEquals(3L, counts.pendingApprovals());
         assertEquals(2L, counts.unreadCc());
     }

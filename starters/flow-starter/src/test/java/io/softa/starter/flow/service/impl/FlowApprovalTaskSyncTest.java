@@ -101,7 +101,7 @@ class FlowApprovalTaskSyncTest {
     @Test
     void anotherApproversVoteDoesNotCopyTheRowOfWhoeverVotedBefore() {
         PendingApproval unanimous = step(List.of("a", "b", "c"));
-        unanimous.setApprovalMode(VoteThresholdMode.UNANIMOUS);
+        unanimous.setVoteThreshold(VoteThresholdMode.UNANIMOUS);
         FlowExecutionState state = waitingOn(unanimous);
         service.onStateChanged(state);
 
@@ -112,7 +112,7 @@ class FlowApprovalTaskSyncTest {
         state.getApprovalAuditDelta().add(entry(ApprovalActionType.APPROVE, "b", null, "agreed"));
         service.onStateChanged(state);
 
-        List<FlowApprovalTask> rowsOfA = stored.stream().filter(task -> "a".equals(task.getActorId())).toList();
+        List<FlowApprovalTask> rowsOfA = stored.stream().filter(task -> "a".equals(task.getAssigneeId())).toList();
         assertEquals(1, rowsOfA.size(), "a's task, not a copy per later vote");
         assertEquals(FlowApprovalTaskStatus.APPROVED, rowsOfA.getFirst().getStatus());
     }
@@ -136,7 +136,7 @@ class FlowApprovalTaskSyncTest {
         assertEquals(FlowApprovalTaskStatus.APPROVED, task.getStatus());
         assertEquals(ApprovalActionType.APPROVE, task.getAction());
         assertEquals("R1 INF-09 approve after unfreeze", task.getComment());
-        assertEquals("mgr", task.getClosedByActorId());
+        assertEquals("mgr", task.getClosedById());
     }
 
     @Test
@@ -168,8 +168,8 @@ class FlowApprovalTaskSyncTest {
         state.getApprovalAuditDelta().add(entry(ApprovalActionType.APPROVE, "deputy", null, "done"));
         service.onStateChanged(state);
 
-        FlowApprovalTask mgrs = stored.stream().filter(row -> "mgr".equals(row.getActorId())).findFirst().orElseThrow();
-        assertEquals(FlowApprovalTaskStatus.CANCELED, mgrs.getStatus(), "closed by someone else's vote, not theirs");
+        FlowApprovalTask mgrs = stored.stream().filter(row -> "mgr".equals(row.getAssigneeId())).findFirst().orElseThrow();
+        assertEquals(FlowApprovalTaskStatus.CANCELLED, mgrs.getStatus(), "closed by someone else's vote, not theirs");
     }
 
     /** The CC an approval's result sends comes after the vote that closed the step: the task says the vote. */
@@ -186,12 +186,12 @@ class FlowApprovalTaskSyncTest {
         service.onStateChanged(state);
 
         FlowApprovalTask mgrs = stored.stream()
-                .filter(row -> "mgr".equals(row.getActorId()) && row.getTaskType() == FlowApprovalTaskType.APPROVAL)
+                .filter(row -> "mgr".equals(row.getAssigneeId()) && row.getTaskType() == FlowApprovalTaskType.APPROVAL)
                 .findFirst().orElseThrow();
-        assertEquals(FlowApprovalTaskStatus.CANCELED, mgrs.getStatus());
+        assertEquals(FlowApprovalTaskStatus.CANCELLED, mgrs.getStatus());
         assertEquals(ApprovalActionType.APPROVE, mgrs.getAction());
         assertEquals("done", mgrs.getComment());
-        assertEquals("deputy", mgrs.getClosedByActorId());
+        assertEquals("deputy", mgrs.getClosedById());
     }
 
     @Test
@@ -211,7 +211,7 @@ class FlowApprovalTaskSyncTest {
         FlowApprovalTask earlier = new FlowApprovalTask();
         earlier.setInstanceId("i1");
         earlier.setNodeId("manager");
-        earlier.setActorId("mgr");
+        earlier.setAssigneeId("mgr");
         earlier.setTaskType(FlowApprovalTaskType.APPROVAL);
         earlier.setStatus(FlowApprovalTaskStatus.PENDING);
         earlier.setStartTime(T0);
@@ -249,7 +249,7 @@ class FlowApprovalTaskSyncTest {
         assertEquals("EXP-0042", task.getRecordCode());
         assertEquals("ExpenseClaim", task.getModelName());
         assertEquals("42", task.getRowId());
-        assertEquals("u-7", task.getInitiatorId());
+        assertEquals("u-7", task.getSubmitterId());
         assertEquals(SUBMITTED, task.getSubmittedTime(), "the instance's start, not the task's");
         assertEquals(7L, task.getSubjectId());
         assertEquals(30L, task.getDepartmentId());
@@ -258,7 +258,7 @@ class FlowApprovalTaskSyncTest {
 
     private List<FlowApprovalTask> ccRows(String recipient) {
         return stored.stream()
-                .filter(task -> FlowApprovalTaskType.CC.equals(task.getTaskType()) && recipient.equals(task.getActorId()))
+                .filter(task -> FlowApprovalTaskType.CC.equals(task.getTaskType()) && recipient.equals(task.getAssigneeId()))
                 .toList();
     }
 
@@ -277,7 +277,7 @@ class FlowApprovalTaskSyncTest {
                 .nodeId("manager")
                 .nodeLabel("Direct Manager")
                 .approvers(new ArrayList<>(approvers))
-                .approvalMode(VoteThresholdMode.ANY_ONE)
+                .voteThreshold(VoteThresholdMode.ANY_ONE)
                 .build();
     }
 

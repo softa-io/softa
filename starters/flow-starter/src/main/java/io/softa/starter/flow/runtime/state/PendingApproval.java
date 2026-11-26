@@ -38,8 +38,8 @@ public class PendingApproval {
     @Schema(description = "Static approver ids or names from config")
     private List<String> approvers;
 
-    @Schema(description = "Approval mode for this node")
-    private VoteThresholdMode approvalMode;
+    @Schema(description = "Vote threshold for this node")
+    private VoteThresholdMode voteThreshold;
 
     @Schema(description = "Required approval count before the node can continue")
     private Integer requiredApprovalCount;

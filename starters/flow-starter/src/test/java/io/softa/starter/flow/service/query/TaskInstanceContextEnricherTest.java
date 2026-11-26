@@ -95,13 +95,13 @@ class TaskInstanceContextEnricherTest {
         FlowApprovalTaskView view = view("i1");
         enricher.enrich(List.of(view));
 
-        assertEquals("hr-1", view.getInitiator().getId());
+        assertEquals("hr-1", view.getSubmitter().getId());
         assertEquals(LocalDateTime.of(2026, 10, 29, 9, 30), view.getSubmittedTime());
         assertEquals("42", view.getSubject().getId());
         assertEquals(7L, view.getSubjectDept().getId());
         assertEquals(LocalDate.of(2026, 11, 1), view.getEffectiveDate());
         assertEquals("TR-0001", view.getRecordCode());
-        verify(names).name(List.of(view.getInitiator()));
+        verify(names).name(List.of(view.getSubmitter()));
         verify(names).nameEmployees(List.of(view.getSubject()));
         verify(names).nameDepartments(List.of(view.getSubjectDept()));
     }
@@ -257,21 +257,21 @@ class TaskInstanceContextEnricherTest {
                 "u1", "Ann Lee", "u2", "Bob Tan"));
         FlowApprovalTaskView task = FlowApprovalTaskView.builder()
                 .instanceId("i1")
-                .actorId("u1")
+                .assigneeId("u1")
                 .approvedActors(List.of("u3"))
-                .closedByActorId("u2")
+                .closedById("u2")
                 .build();
         FlowApprovalTaskView closedByAStranger = FlowApprovalTaskView.builder()
                 .instanceId("i1")
-                .actorId("u1")
-                .closedByActorId("u-unknown")
+                .assigneeId("u1")
+                .closedById("u-unknown")
                 .build();
 
         enricher.enrich(List.of(task, closedByAStranger));
 
         verify(names, times(1)).namesOf(argThat(ids ->
                 ids.containsAll(List.of("u1", "u2", "u-unknown")) && ids.size() == 3));
-        assertEquals("Ann Lee", task.getActorName());
+        assertEquals("Ann Lee", task.getAssigneeName());
         assertEquals(Map.of("u1", "Ann Lee", "u2", "Bob Tan"), task.getActorNames(),
                 "who approved is counted, not named");
         // An account the lookup cannot name is left out, for the client to show as it is.

@@ -28,13 +28,13 @@ class ApprovalConfigUnreadableTest {
         List<CompileDiagnostic> diagnostics = assertDoesNotThrow(() -> compiler.validate(flowWithConfig(Map.of(
                 "approverSources", List.of(Map.of("type", "Supervisor", "relativeTo", "SUBJECT", "level", 1)),
                 "emptyApproverStrategy", "ERROR",
-                "approvalMode", "ANY_ONE"))));
+                "voteThreshold", "ANY_ONE"))));
 
         CompileDiagnostic unreadable = diagnostics.stream()
                 .filter(d -> "UNREADABLE_CONFIG".equals(d.code()))
                 .findFirst().orElseThrow();
         assertEquals("approval", unreadable.nodeId());
-        assertTrue(List.of("config.emptyApproverStrategy", "config.approvalMode").contains(unreadable.field()),
+        assertTrue(List.of("config.emptyApproverStrategy", "config.voteThreshold").contains(unreadable.field()),
                 "the diagnostic names the field it could not read: " + unreadable.field());
         assertTrue(unreadable.message().startsWith("Approval node 'approval' cannot read config."),
                 unreadable.message());
@@ -45,7 +45,7 @@ class ApprovalConfigUnreadableTest {
         List<CompileDiagnostic> diagnostics = compiler.validate(flowWithConfig(Map.of(
                 "approverSources", List.of(Map.of("type", "Supervisor", "relativeTo", "SUBJECT", "level", 1)),
                 "emptyApproverStrategy", "Error",
-                "approvalMode", "AnyOne",
+                "voteThreshold", "AnyOne",
                 "rejectMode", "AnyOne")));
 
         assertTrue(diagnostics.isEmpty(), diagnostics::toString);

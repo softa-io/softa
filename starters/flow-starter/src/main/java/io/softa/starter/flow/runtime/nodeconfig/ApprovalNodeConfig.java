@@ -39,7 +39,7 @@ public class ApprovalNodeConfig {
      * a role query, a position, …) — see {@link ApproverSourceType}. Each type's fields sit beside its {@code type};
      * interpreted by {@code ApproverResolutionService}.
      * <p>
-     * The groups make one pool: the step's approvers are everyone its groups find, each once, and the approval mode
+     * The groups make one pool: the step's approvers are everyone its groups find, each once, and the vote threshold
      * counts over that pool — any one of them, all of them, so many. A group that finds nobody leaves the others to
      * decide; the empty-approver strategy applies when the pool is empty. Parties that must each decide — in an
      * order, on fields of their own, or stopping the approval when one of them is missing — are steps of their own.
@@ -78,11 +78,11 @@ public class ApprovalNodeConfig {
      * (会签) and an any-one step (或签) alike. A {@code rejectMode} saved on a step before is ignored.
      */
     @Builder.Default
-    private VoteThresholdMode approvalMode = VoteThresholdMode.ANY_ONE;
+    private VoteThresholdMode voteThreshold = VoteThresholdMode.ANY_ONE;
 
     /** Used when mode is {@code MIN_COUNT}. */
     private Integer minCount;
-    /** Used when approval mode is {@code PERCENTAGE} (0–100). */
+    /** Used when vote threshold is {@code PERCENTAGE} (0–100). */
     private Integer percentage;
 
     // ── Form field permissions ─────────────────────────────────────────────
@@ -102,7 +102,7 @@ public class ApprovalNodeConfig {
     // Not bean properties (no get / is prefix), so they are never read or written as config keys.
 
     /**
-     * Whether the step may have several approvers, so its approval mode applies: several groups, or one that names
+     * Whether the step may have several approvers, so its vote threshold applies: several groups, or one that names
      * several people or may find several. A step whose one group names one person, or finds one at most (a supervisor,
      * a department's leader or HR business partner — {@link ApproverSourceType#isFindsOne}), has one approver at most;
      * the designer does not offer the mode then.

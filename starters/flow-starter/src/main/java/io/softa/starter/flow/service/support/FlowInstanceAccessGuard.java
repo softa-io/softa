@@ -194,8 +194,8 @@ public class FlowInstanceAccessGuard {
         String instanceId = state == null ? null : state.getInstanceId();
         requireAuthenticated(requesterId);
         if (state != null && (isParticipant(state, requesterId)
-                || permittedByRoles(instanceId, state.getRecordApproval(), state.getModelName(), state.getRowId())
-                || (state.isApprovalOfRecord()
+                || permittedByRoles(instanceId, state.isRecordApproval(), state.getModelName(), state.getRowId())
+                || (state.isRecordApproval()
                         && seesThroughAnotherSubmission(state.getModelName(), state.getRowId(), instanceId,
                         requesterId)))) {
             return;
@@ -215,7 +215,7 @@ public class FlowInstanceAccessGuard {
         }
         List<FlowExecutionState> others = ContextUtils.withoutPermissionChecks(
                 () -> instanceService.recordApprovalStates(modelName, rowId)).stream()
-                .filter(FlowExecutionState::isApprovalOfRecord)
+                .filter(FlowExecutionState::isRecordApproval)
                 .filter(approval -> !Objects.equals(approval.getInstanceId(), instanceId))
                 .toList();
         return !others.isEmpty() && (newestTakenPartIn(others, requesterId) != null
@@ -255,7 +255,7 @@ public class FlowInstanceAccessGuard {
      */
     public RecordAccess requireRecordAccess(FlowExecutionState state, String requesterId) {
         requireAuthenticated(requesterId);
-        if (state != null && !state.isApprovalOfRecord()) {
+        if (state != null && !state.isRecordApproval()) {
             throw new FlowAuthorizationException("This instance is not a record's approval: its record is read "
                     + "through the record's own permissions.");
         }
@@ -304,7 +304,7 @@ public class FlowInstanceAccessGuard {
         requireAuthenticated(requesterId);
         List<FlowExecutionState> approvals = ContextUtils.withoutPermissionChecks(
                 () -> instanceService.recordApprovalStates(modelName, rowId)).stream()
-                .filter(FlowExecutionState::isApprovalOfRecord)
+                .filter(FlowExecutionState::isRecordApproval)
                 .toList();
         FlowExecutionState lending = newestTakenPartIn(approvals, requesterId);
         if (lending != null) {
@@ -413,7 +413,7 @@ public class FlowInstanceAccessGuard {
     private static Filters taskFilters(List<String> instanceIds, String userId) {
         return new Filters()
                 .in(FlowApprovalTask::getInstanceId, instanceIds)
-                .eq(FlowApprovalTask::getActorId, userId);
+                .eq(FlowApprovalTask::getAssigneeId, userId);
     }
 
     private static List<String> presentIds(Collection<String> instanceIds) {

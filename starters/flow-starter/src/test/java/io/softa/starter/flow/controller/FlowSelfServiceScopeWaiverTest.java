@@ -40,7 +40,7 @@ class FlowSelfServiceScopeWaiverTest {
     @DisplayName("the reads the access guard rules on stay checked")
     void guardedReadsStayChecked() {
         assertChecked(FlowApprovalTaskController.class, "getTasksByInstance");
-        assertChecked(FlowApprovalRecordController.class, "getByInstance");
+        assertChecked(FlowApprovalActionController.class, "getByInstance");
         assertChecked(FlowInstanceController.class, "getInstance", "getOverlay", "getTrace",
                 "getRecordApprovals", "previewRecordApproval", "getInstanceRecord", "getRecordThroughApprovals",
                 "getInstanceSummary", "getInstanceDesign", "getFormPermissions");
