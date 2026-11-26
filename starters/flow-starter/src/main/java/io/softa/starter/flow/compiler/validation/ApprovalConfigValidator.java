@@ -19,7 +19,7 @@ import io.softa.starter.flow.runtime.engine.ApproverResolutionService;
 import io.softa.starter.flow.runtime.nodeconfig.ApprovalNodeConfig;
 
 /**
- * Validates approval node configs: their groups of approvers, the approval mode counting over them, the roles a step
+ * Validates approval node configs: their groups of approvers, the vote threshold counting over them, the roles a step
  * that finds nobody goes to, and the field permissions. A step has no timeout of its own (its flow's
  * {@code remindAfterHours} reminds its approvers), nor a return switch (its flow's {@code returnEnabled} says whether
  * its approvers may return the approval).
@@ -56,7 +56,7 @@ public class ApprovalConfigValidator implements FlowValidator {
     /** What a {@code VARIABLE_DEPT} scope's field points at, as a message names it. */
     static final String DEPARTMENT = "a department";
 
-    /** A property named in the reference chain of a failed read: {@code ApprovalNodeConfig["approvalMode"]}. */
+    /** A property named in the reference chain of a failed read: {@code ApprovalNodeConfig["voteThreshold"]}. */
     private static final Pattern READ_REFERENCE = Pattern.compile("\\[\"([^\"]+)\"]");
 
     @Override
@@ -161,7 +161,7 @@ public class ApprovalConfigValidator implements FlowValidator {
     // ── Approvers ───────────────────────────────────────────────────────────
 
     /**
-     * A step's groups of approvers, and the approval mode counting over the pool they make. A step names who approves
+     * A step's groups of approvers, and the vote threshold counting over the pool they make. A step names who approves
      * it — at least one group, each specific people or a source that finds them. A step or a group that names nobody
      * finds nobody on every run — under the default strategy every submission is refused — so it
      * is not published; the vote thresholds have nothing to count then, and are not judged.
@@ -197,8 +197,8 @@ public class ApprovalConfigValidator implements FlowValidator {
         if (complete && cfg.mayHaveSeveralApprovers()) {
             // A rejection has no threshold: one approver's rejection rejects the approval, so only the approvals are
             // counted. Only specific people can be counted before the step is reached.
-            VoteThresholdMode approvalMode = cfg.getApprovalMode() != null ? cfg.getApprovalMode() : VoteThresholdMode.ANY_ONE;
-            validateApprovalMode(nodeId, name, approvalMode, List.copyOf(named), dynamic,
+            VoteThresholdMode voteThreshold = cfg.getVoteThreshold() != null ? cfg.getVoteThreshold() : VoteThresholdMode.ANY_ONE;
+            validateVoteThreshold(nodeId, name, voteThreshold, List.copyOf(named), dynamic,
                     cfg.getMinCount(), cfg.getPercentage(), d);
         }
     }
@@ -398,10 +398,10 @@ public class ApprovalConfigValidator implements FlowValidator {
     // ── Vote thresholds ────────────────────────────────────────────────────
 
     /**
-     * The approval mode over the step's pool: {@code approvers}, the specific people its groups name, each once — a
+     * The vote threshold over the step's pool: {@code approvers}, the specific people its groups name, each once — a
      * count it cannot outgrow unless another group finds more when the step is reached ({@code hasDynamic}).
      */
-    private void validateApprovalMode(String nodeId, String name, VoteThresholdMode mode,
+    private void validateVoteThreshold(String nodeId, String name, VoteThresholdMode mode,
                                       List<String> approvers, boolean hasDynamic,
                                       Integer minCount, Integer percentage,
                                       List<CompileDiagnostic> d) {

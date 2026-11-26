@@ -100,7 +100,7 @@ class FlowApprovalTaskInstanceTasksTest {
         task.setId(id);
         task.setInstanceId("i1");
         task.setNodeId(nodeId);
-        task.setActorId(actorId);
+        task.setAssigneeId(actorId);
         task.setTaskType(FlowApprovalTaskType.APPROVAL);
         task.setStatus(FlowApprovalTaskStatus.PENDING);
         return task;

@@ -18,9 +18,9 @@ public class ApprovalLifecycleService {
     }
 
     public boolean requiresTrackedApprover(PendingApproval pendingApproval) {
-        return VoteThresholdMode.UNANIMOUS.equals(pendingApproval.getApprovalMode())
-                || VoteThresholdMode.MIN_COUNT.equals(pendingApproval.getApprovalMode())
-                || VoteThresholdMode.PERCENTAGE.equals(pendingApproval.getApprovalMode());
+        return VoteThresholdMode.UNANIMOUS.equals(pendingApproval.getVoteThreshold())
+                || VoteThresholdMode.MIN_COUNT.equals(pendingApproval.getVoteThreshold())
+                || VoteThresholdMode.PERCENTAGE.equals(pendingApproval.getVoteThreshold());
     }
 
     public void replaceApprover(PendingApproval pendingApproval, String sourceActorId, String targetActorId) {

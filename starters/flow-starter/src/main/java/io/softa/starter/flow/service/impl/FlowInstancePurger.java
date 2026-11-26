@@ -16,16 +16,16 @@ public class FlowInstancePurger {
     private final FlowInstanceServiceImpl instanceService;
     private final FlowExecutionTraceServiceImpl traceService;
     private final FlowApprovalTaskServiceImpl approvalTaskService;
-    private final FlowApprovalRecordServiceImpl approvalRecordService;
+    private final FlowApprovalActionServiceImpl approvalActionService;
 
     public FlowInstancePurger(FlowInstanceServiceImpl instanceService,
                               FlowExecutionTraceServiceImpl traceService,
                               FlowApprovalTaskServiceImpl approvalTaskService,
-                              FlowApprovalRecordServiceImpl approvalRecordService) {
+                              FlowApprovalActionServiceImpl approvalActionService) {
         this.instanceService = instanceService;
         this.traceService = traceService;
         this.approvalTaskService = approvalTaskService;
-        this.approvalRecordService = approvalRecordService;
+        this.approvalActionService = approvalActionService;
     }
 
     /** Delete {@code instances} (each carrying its row id and instance id) and their records. */
@@ -36,7 +36,7 @@ public class FlowInstancePurger {
         List<String> instanceIds = instances.stream().map(FlowInstance::getInstanceId).toList();
         traceService.deleteByFilters(new Filters().in(FlowExecutionTrace::getInstanceId, instanceIds));
         approvalTaskService.deleteByFilters(new Filters().in(FlowApprovalTask::getInstanceId, instanceIds));
-        approvalRecordService.deleteByFilters(new Filters().in(FlowApprovalRecord::getInstanceId, instanceIds));
+        approvalActionService.deleteByFilters(new Filters().in(FlowApprovalAction::getInstanceId, instanceIds));
         instanceService.deleteByIds(instances.stream().map(FlowInstance::getId).toList());
     }
 }

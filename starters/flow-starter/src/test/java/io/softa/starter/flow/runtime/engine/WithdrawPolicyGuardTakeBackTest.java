@@ -22,14 +22,14 @@ class WithdrawPolicyGuardTakeBackTest {
 
     private static final String SUBMITTER = "1001";
 
-    private final FailedApprovalRecords failedApprovals = mock(FailedApprovalRecords.class);
+    private final FailedRecordApprovals failedApprovals = mock(FailedRecordApprovals.class);
     private final WithdrawPolicyGuard guard = new WithdrawPolicyGuard(new StubFlowBundleRegistry(),
             new ApprovalAuditReader(new NoopApprovalActionLedger()), failedApprovals);
 
     @Test
     void itsSubmitterTakesBackARecordWhoseApprovalFailed() {
         FlowExecutionState failed = failed(true);
-        when(failedApprovals.standingOf(failed)).thenReturn(FailedApprovalRecords.Standing.WAITS);
+        when(failedApprovals.standingOf(failed)).thenReturn(FailedRecordApprovals.Standing.WAITS);
 
         assertTrue(guard.takesBack(failed, SUBMITTER));
         assertTrue(guard.withdrawable(failed, SUBMITTER), "offered wherever Withdraw is");
@@ -40,7 +40,7 @@ class WithdrawPolicyGuardTakeBackTest {
     void notOnceTheRecordMovedOn() {
         FlowExecutionState failed = failed(true);
         when(failedApprovals.standingOf(failed))
-                .thenReturn(FailedApprovalRecords.Standing.MOVED_ON, FailedApprovalRecords.Standing.SUBMITTED_AGAIN);
+                .thenReturn(FailedRecordApprovals.Standing.MOVED_ON, FailedRecordApprovals.Standing.SUBMITTED_AGAIN);
 
         assertFalse(guard.withdrawable(failed, SUBMITTER), "taken back already");
         assertFalse(guard.withdrawable(failed, SUBMITTER), "submitted again: it waits on its new approval");

@@ -4,7 +4,7 @@ import java.util.Map;
 
 import io.softa.starter.flow.dto.FlowApprovalPreview;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
-import io.softa.starter.flow.service.FlowLaunchService;
+import io.softa.starter.flow.service.FlowStartService;
 
 import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
 
@@ -21,9 +21,9 @@ import static io.softa.starter.flow.service.support.FlowActors.currentUserId;
  */
 public class FlowClient {
 
-    private final FlowLaunchService launch;
+    private final FlowStartService launch;
 
-    public FlowClient(FlowLaunchService launch) {
+    public FlowClient(FlowStartService launch) {
         this.launch = launch;
     }
 

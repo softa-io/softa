@@ -61,7 +61,7 @@ public class FlowApprovalTaskProjector {
             task.setFlowRevision(entry.getFlowRevision() == null ? state.getFlowRevision() : entry.getFlowRevision());
             task.setNodeId(entry.getNodeId());
             task.setNodeLabel(entry.getNodeLabel());
-            task.setActorId(entry.getTargetActorId());
+            task.setAssigneeId(entry.getTargetActorId());
             // Unread until its recipient reads it: a Read of theirs at the CC's node.
             ApprovalActionAuditEntry read = readOf(history, entry);
             task.setStatus(read == null ? FlowApprovalTaskStatus.PENDING : FlowApprovalTaskStatus.READ);
@@ -72,7 +72,7 @@ public class FlowApprovalTaskProjector {
             task.setApprovedActors(entry.getApprovedActors() == null ? List.of() : List.copyOf(entry.getApprovedActors()));
             task.setStartTime(resolveEventTime(entry));
             task.setEndTime(resolveEventTime(read == null ? entry : read));
-            task.setClosedByActorId(entry.getActorId());
+            task.setClosedById(entry.getActorId());
             result.add(task);
         }
         return result;
@@ -102,7 +102,7 @@ public class FlowApprovalTaskProjector {
         task.setFlowRevision(pendingApproval.getFlowRevision());
         task.setNodeId(pendingApproval.getNodeId());
         task.setNodeLabel(pendingApproval.getNodeLabel());
-        task.setActorId(actorId);
+        task.setAssigneeId(actorId);
         task.setStatus(status);
         task.setTaskType(FlowApprovalTaskType.APPROVAL);
         task.setRequiredApprovalCount(pendingApproval.getRequiredApprovalCount());
@@ -113,7 +113,7 @@ public class FlowApprovalTaskProjector {
         if (latestAudit != null) {
             task.setAction(latestAudit.getAction());
             task.setComment(latestAudit.getComment());
-            task.setClosedByActorId(latestAudit.getActorId());
+            task.setClosedById(latestAudit.getActorId());
         }
         if (!FlowApprovalTaskStatus.PENDING.equals(status)) {
             task.setEndTime(resolveEventTime(latestAudit));

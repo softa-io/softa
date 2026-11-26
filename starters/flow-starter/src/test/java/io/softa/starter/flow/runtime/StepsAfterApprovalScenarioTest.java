@@ -180,7 +180,7 @@ class StepsAfterApprovalScenarioTest {
     private static FlowGraphNode approvalStep(String id, String label, String approver) {
         return FlowGraphNode.builder().id(id).type(FlowNodeType.APPROVAL).label(label)
                 .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(approver))),
-                        "approvalMode", "AnyOne", "emptyApproverStrategy", "Error"))
+                        "voteThreshold", "AnyOne", "emptyApproverStrategy", "Error"))
                 .build();
     }
 

@@ -74,7 +74,7 @@ public final class FlowExecutionStateMapper {
         entity.setModelName(state.getModelName());
         entity.setRowId(state.getRowId());
         entity.setInitiatorId(state.getInitiatorId());
-        entity.setRecordApproval(state.getRecordApproval());
+        entity.setRecordApproval(state.isRecordApproval());
         entity.setSubjectId(state.getSubjectId());
         entity.setDepartmentId(state.getDepartmentId());
         entity.setEffectiveDate(state.getEffectiveDate());
@@ -83,7 +83,7 @@ public final class FlowExecutionStateMapper {
         entity.setTriggerEventId(state.getTriggerEventId());
         // Held while the record's approval is unfinished; the unique index on it keeps a record
         // to one approval in progress, concurrent submissions included.
-        boolean open = state.isApprovalOfRecord() && state.getStatus() != null && !state.getStatus().isTerminal();
+        boolean open = state.isRecordApproval() && state.getStatus() != null && !state.getStatus().isTerminal();
         entity.setOpenRecordId(open ? state.getRowId() : null);
         entity.setStatus(state.getStatus());
         entity.setErrorMessage(state.getErrorMessage());
@@ -116,7 +116,7 @@ public final class FlowExecutionStateMapper {
                 .modelName(entity.getModelName())
                 .rowId(entity.getRowId())
                 .initiatorId(entity.getInitiatorId())
-                .recordApproval(entity.getRecordApproval())
+                .recordApproval(Boolean.TRUE.equals(entity.getRecordApproval()))
                 .subjectId(entity.getSubjectId())
                 .departmentId(entity.getDepartmentId())
                 .effectiveDate(entity.getEffectiveDate())
@@ -135,7 +135,7 @@ public final class FlowExecutionStateMapper {
                 .completedNodeIds(JsonUtils.stringToObject(entity.getCompletedNodeIds(), new TypeReference<>() {}, new ArrayList<>()))
                 .pendingApprovals(JsonUtils.stringToObject(entity.getPendingApprovals(), new TypeReference<>() {}, new ArrayList<>()))
                 // approval audit is a delta buffer: loads keep it empty; history lives in
-                // flow_approval_record. -1 = sequence base unknown, resolved lazily on first flush.
+                // flow_approval_action. -1 = sequence base unknown, resolved lazily on first flush.
                 .approvalAuditDelta(new ArrayList<>())
                 .auditSequenceBase(-1)
                 .joinArrivalCounts(JsonUtils.stringToObject(entity.getJoinArrivalCounts(), new TypeReference<>() {}, new LinkedHashMap<>()))

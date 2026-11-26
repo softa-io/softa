@@ -81,7 +81,7 @@ public class ApprovalFormWriteService {
             return;
         }
         modelService.updateByFilter(state.getModelName(), new Filters().eq(ID, state.getRowId()), sanitized);
-        if (state.isApprovalOfRecord()) {
+        if (state.isRecordApproval()) {
             handlerRegistry.find(state.getModelName()).ifPresent(handler -> {
                 holdToModelRules(handler, state, Set.copyOf(sanitized.keySet()));
                 refreshVariables(handler, definition, state);

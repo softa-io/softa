@@ -23,7 +23,7 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
  *   <li><b>The submitter</b> ("提交人是审批人时"). On an Approval flow, a step whose approvers include the
  *       record's submitter counts them as having approved — submitting it was agreeing to it, so they are not
  *       asked again — unless the flow's {@link SelfApprovalStrategy} asks them like anyone else. Whether the
- *       step then passes is the step's own approval mode: an any-one step passes, an all-approve step still
+ *       step then passes is the step's own vote threshold: an any-one step passes, an all-approve step still
  *       waits for the others. The employee the record is about gets no such pass when someone else submitted
  *       it: approving it for them would decide their own matter in their name, so they are asked like any
  *       other approver.</li>

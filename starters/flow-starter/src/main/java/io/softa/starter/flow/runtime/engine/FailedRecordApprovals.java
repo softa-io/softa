@@ -23,7 +23,7 @@ import io.softa.starter.flow.service.FlowInstanceService;
  * became of the record, not who may see it.
  */
 @Component
-public class FailedApprovalRecords {
+public class FailedRecordApprovals {
 
     /** Where the record stands against its failed approval. */
     public enum Standing {
@@ -39,7 +39,7 @@ public class FailedApprovalRecords {
     private final ModelService<Serializable> modelService;
 
     @SuppressWarnings("unchecked")
-    public FailedApprovalRecords(FlowInstanceService instanceService, ModelService<?> modelService) {
+    public FailedRecordApprovals(FlowInstanceService instanceService, ModelService<?> modelService) {
         this.instanceService = instanceService;
         this.modelService = (ModelService<Serializable>) modelService;
     }

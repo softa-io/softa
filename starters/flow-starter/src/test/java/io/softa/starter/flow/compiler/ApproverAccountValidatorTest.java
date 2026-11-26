@@ -57,7 +57,7 @@ class ApproverAccountValidatorTest {
         assertDoesNotThrow(() -> compiler.compile(flow(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("2002")))))));
 
         FlowCompileException refused = assertThrows(FlowCompileException.class,
-                () -> compiler.compile(flow(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("2001", "2002"))), "approvalMode", "MinCount"))));
+                () -> compiler.compile(flow(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of("2001", "2002"))), "voteThreshold", "MinCount"))));
         assertTrue(refused.getDiagnostics().stream().anyMatch(d -> d.severity() == Severity.WARNING));
         assertEquals(refused.getDiagnostics().stream().filter(d -> d.severity() == Severity.ERROR).count()
                 + " compilation error(s)", refused.getMessage(), "the warnings are not counted as errors");

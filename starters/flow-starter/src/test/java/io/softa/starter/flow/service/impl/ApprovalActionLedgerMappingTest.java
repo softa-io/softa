@@ -4,7 +4,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-import io.softa.starter.flow.entity.FlowApprovalRecord;
+import io.softa.starter.flow.entity.FlowApprovalAction;
 import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
  * Ledger mapping fidelity: an audit entry survives the entry → row → entry round trip
- * for every persisted field. Threshold snapshots (approvalMode / required counts / …)
+ * for every persisted field. Threshold snapshots (voteThreshold / required counts / …)
  * are intentionally not persisted and therefore not asserted.
  */
 class ApprovalActionLedgerMappingTest {
@@ -43,9 +43,9 @@ class ApprovalActionLedgerMappingTest {
                 .approvedActors(List.of("manager"))
                 .build();
 
-        FlowApprovalRecord record = FlowApprovalRecordServiceImpl.toRecord(state, entry);
+        FlowApprovalAction record = FlowApprovalActionServiceImpl.toRecord(state, entry);
         record.setSequence(7); // assigned by the flush loop
-        ApprovalActionAuditEntry restored = FlowApprovalRecordServiceImpl.toEntry(record);
+        ApprovalActionAuditEntry restored = FlowApprovalActionServiceImpl.toEntry(record);
 
         assertEquals("instance-42", record.getInstanceId());
         assertEquals(7, restored.getSequence());
@@ -74,7 +74,7 @@ class ApprovalActionLedgerMappingTest {
                 .action(ApprovalActionType.COMMENT)
                 .build();
 
-        FlowApprovalRecord record = FlowApprovalRecordServiceImpl.toRecord(state, bare);
+        FlowApprovalAction record = FlowApprovalActionServiceImpl.toRecord(state, bare);
 
         assertEquals("expense", record.getFlowId());
         assertEquals(3, record.getFlowRevision());

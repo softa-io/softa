@@ -25,8 +25,8 @@ import io.softa.starter.flow.runtime.state.PendingApproval;
 
 /**
  * Works out the approval path of a record's submission without running its flow, for the approval
- * path preview ({@code FlowLaunchService.previewRecord}) and the editor's test run of a draft
- * ({@code FlowLaunchService.previewDraft}). It walks the flow from its start node the
+ * path preview ({@code FlowStartService.previewRecord}) and the editor's test run of a draft
+ * ({@code FlowStartService.previewDraft}). It walks the flow from its start node the
  * way {@link FlowExecutionOrchestrator} does, every approval step assumed approved: routes are decided
  * by {@link FlowGatewayRouter}, each step's approvers by {@link PendingApprovalFactory} and its
  * automatic approvals by {@link ApproverDedupService}, on the state the submission would start from —
@@ -120,7 +120,7 @@ public class ApprovalPathPreviewer {
                 .modelName(live.getModelName())
                 .rowId(live.getRowId())
                 .initiatorId(live.getInitiatorId())
-                .recordApproval(live.getRecordApproval())
+                .recordApproval(live.isRecordApproval())
                 .status(live.getStatus())
                 .variables(new LinkedHashMap<>(live.getVariables() == null ? Map.of() : live.getVariables()))
                 .completedNodeIds(new ArrayList<>(live.getCompletedNodeIds() == null ? List.of() : live.getCompletedNodeIds()))

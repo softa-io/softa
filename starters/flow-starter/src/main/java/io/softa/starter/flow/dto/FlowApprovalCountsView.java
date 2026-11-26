@@ -7,8 +7,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
  * cheaper than probing the paged endpoints with {@code pageSize=1} for their totals — and their unread inbox
  * notifications, which the bell's badge shows.
  */
-@Schema(name = "FlowInboxCountView")
-public record FlowInboxCountView(
+@Schema(name = "FlowApprovalCountsView")
+public record FlowApprovalCountsView(
 
         @Schema(description = "Pending approval tasks assigned to the caller")
         long pendingApprovals,
@@ -23,12 +23,12 @@ public record FlowInboxCountView(
 ) {
 
     /** The task counts alone; {@link #withUnreadNotifications} adds the notifications. */
-    public FlowInboxCountView(long pendingApprovals, long unreadCc) {
+    public FlowApprovalCountsView(long pendingApprovals, long unreadCc) {
         this(pendingApprovals, unreadCc, 0);
     }
 
     /** These counts with the caller's unread notifications. */
-    public FlowInboxCountView withUnreadNotifications(long unread) {
-        return new FlowInboxCountView(pendingApprovals, unreadCc, unread);
+    public FlowApprovalCountsView withUnreadNotifications(long unread) {
+        return new FlowApprovalCountsView(pendingApprovals, unreadCc, unread);
     }
 }

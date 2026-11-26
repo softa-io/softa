@@ -86,7 +86,7 @@ class FlowApprovalStepsComposerTest {
         Step passed = submission.getSteps().getFirst();
         assertEquals(StepState.DONE, passed.getState());
         assertEquals("Manager", passed.getNodeLabel());
-        assertEquals(VoteThresholdMode.ANY_ONE, passed.getApprovalMode());
+        assertEquals(VoteThresholdMode.ANY_ONE, passed.getVoteThreshold());
         assertEquals(at(1), passed.getEnteredAt());
         assertEquals(at(2), passed.getFinishedAt());
         assertEquals(List.of(row(MANAGER, ApproverResult.APPROVED, at(2), "ok")), passed.getApprovers());
@@ -212,7 +212,7 @@ class FlowApprovalStepsComposerTest {
 
         Instance terminated = composer.compose(instance(flow, FlowExecutionStatus.CANCELLED, null),
                 List.of(entry(1, ApprovalActionType.TERMINATE, null, ADMINISTRATOR, null, null, "duplicate", at(2))),
-                List.of(task("manager", MANAGER, FlowApprovalTaskStatus.CANCELED, at(1), at(2), null)));
+                List.of(task("manager", MANAGER, FlowApprovalTaskStatus.CANCELLED, at(1), at(2), null)));
         assertEquals(ApprovalActionType.TERMINATE, terminated.getEnded().getAction());
         assertEquals("duplicate", terminated.getEnded().getComment());
 
@@ -238,7 +238,7 @@ class FlowApprovalStepsComposerTest {
         Instance submission = composer.compose(instance(flow, FlowExecutionStatus.COMPLETED, null),
                 List.of(entry(1, ApprovalActionType.APPROVE, "manager", MANAGER, null, null, null, at(2))),
                 List.of(task("manager", MANAGER, FlowApprovalTaskStatus.APPROVED, at(1), at(2), null),
-                        task("manager", DEPUTY, FlowApprovalTaskStatus.CANCELED, at(1), at(2), null)));
+                        task("manager", DEPUTY, FlowApprovalTaskStatus.CANCELLED, at(1), at(2), null)));
 
         assertEquals(List.of(ApproverResult.APPROVED, ApproverResult.NOT_NEEDED),
                 submission.getSteps().getFirst().getApprovers().stream().map(Approver::getResult).toList());
@@ -287,7 +287,7 @@ class FlowApprovalStepsComposerTest {
     private static PendingApproval waiting(String nodeId, String nodeLabel, String... approvers) {
         return PendingApproval.builder().nodeId(nodeId).nodeLabel(nodeLabel)
                 .approvers(new ArrayList<>(List.of(approvers))).approvedActors(new ArrayList<>())
-                .approvalMode(VoteThresholdMode.ANY_ONE).requiredApprovalCount(1).build();
+                .voteThreshold(VoteThresholdMode.ANY_ONE).requiredApprovalCount(1).build();
     }
 
     private static FlowInstance instance(CompiledFlowDefinition flow, FlowExecutionStatus status, PendingApproval pending) {
@@ -312,7 +312,7 @@ class FlowApprovalStepsComposerTest {
         FlowApprovalTask task = new FlowApprovalTask();
         task.setInstanceId("i1");
         task.setNodeId(nodeId);
-        task.setActorId(actorId);
+        task.setAssigneeId(actorId);
         task.setStatus(status);
         task.setTaskType(FlowApprovalTaskType.APPROVAL);
         task.setStartTime(start);

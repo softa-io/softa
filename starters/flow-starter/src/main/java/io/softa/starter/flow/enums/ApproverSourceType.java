@@ -48,7 +48,7 @@ public enum ApproverSourceType {
 
     /**
      * Whether a group of this source finds one person at most: a step with only such a group has one approver at most,
-     * and its approval mode does not apply.
+     * and its vote threshold does not apply.
      */
     private final boolean findsOne;
 

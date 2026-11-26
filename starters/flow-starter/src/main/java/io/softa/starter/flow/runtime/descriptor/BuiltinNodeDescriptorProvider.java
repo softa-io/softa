@@ -102,7 +102,7 @@ public class BuiltinNodeDescriptorProvider {
     private static Map<String, Object> approvalConfigSchema() {
         Map<String, Object> schema = new LinkedHashMap<>();
         // ── Approver resolution ─────────────────────────────────────────────
-        // One or more groups, making one pool the approval mode counts over. Each group is one select: specific
+        // One or more groups, making one pool the vote threshold counts over. Each group is one select: specific
         // people first, then the sources that find them in the organization when the step is reached — one person,
         // then the holders of a role, a position or a department. A CC rule names its one group of recipients from
         // the same options. An option says what the designer needs to tell which settings apply (`appliesWhen`):
@@ -156,7 +156,7 @@ public class BuiltinNodeDescriptorProvider {
         String unanimous = VoteThresholdMode.UNANIMOUS.getType();
         String minCount = VoteThresholdMode.MIN_COUNT.getType();
         String percentage = VoteThresholdMode.PERCENTAGE.getType();
-        schema.put("approvalMode", ordered("type", "enum", "label", "Approval mode",
+        schema.put("voteThreshold", ordered("type", "enum", "label", "Vote threshold",
                 "options", voteThresholdModes(), "default", anyOne,
                 "optionLabels", ordered(anyOne, "Any one", unanimous, "Everyone", minCount, "Minimum number",
                         percentage, "Percentage"),
@@ -167,9 +167,9 @@ public class BuiltinNodeDescriptorProvider {
                         percentage, "This share of everyone its groups find must approve."),
                 "appliesWhen", SEVERAL_APPROVERS));
         schema.put("minCount", ordered("type", "number", "label", "Minimum approvals",
-                "depends", Map.of("approvalMode", minCount), "appliesWhen", SEVERAL_APPROVERS));
+                "depends", Map.of("voteThreshold", minCount), "appliesWhen", SEVERAL_APPROVERS));
         schema.put("percentage", ordered("type", "number", "label", "Approval percentage (0-100)",
-                "depends", Map.of("approvalMode", percentage), "appliesWhen", SEVERAL_APPROVERS));
+                "depends", Map.of("voteThreshold", percentage), "appliesWhen", SEVERAL_APPROVERS));
         // ── Nobody found ─────────────────────────────────────────────────────
         // These three are read into enums through Jackson, which takes each one's JSON value and nothing else: offer
         // that value, not the constant name (a chosen constant name made the whole config unreadable).

@@ -5,7 +5,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 import io.softa.framework.orm.domain.Filters;
-import io.softa.starter.flow.entity.FlowApprovalRecord;
+import io.softa.starter.flow.entity.FlowApprovalAction;
 import io.softa.starter.flow.runtime.state.ApprovalActionType;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
 import io.softa.starter.flow.service.support.FlowUserNames;
@@ -15,14 +15,14 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class FlowApprovalRecordQueryServiceImplTest {
+class FlowApprovalActionQueryServiceImplTest {
 
     @Test
     void anInstancesHistoryNamesNoAdministratorWhoOnlyUrgedOrTerminatedItAParticipant() {
-        FlowApprovalRecordServiceImpl records = mock(FlowApprovalRecordServiceImpl.class);
+        FlowApprovalActionServiceImpl records = mock(FlowApprovalActionServiceImpl.class);
         FlowInstanceAccessGuard guard = mock(FlowInstanceAccessGuard.class);
-        FlowApprovalRecordQueryServiceImpl service =
-                new FlowApprovalRecordQueryServiceImpl(records, guard, mock(FlowUserNames.class));
+        FlowApprovalActionQueryServiceImpl service =
+                new FlowApprovalActionQueryServiceImpl(records, guard, mock(FlowUserNames.class));
         LocalDateTime now = LocalDateTime.now();
         when(records.searchList(any(Filters.class))).thenReturn(List.of(
                 record(60L, 1, "approver-1", "leave", "inst-1", "approvalA",
@@ -42,7 +42,7 @@ class FlowApprovalRecordQueryServiceImplTest {
         verify(guard).requireInstanceViewer("inst-1", "admin-2", false);
     }
 
-    private FlowApprovalRecord record(Long id,
+    private FlowApprovalAction record(Long id,
                                              Integer sequence,
                                              String actorId,
                                              String flowId,
@@ -52,7 +52,7 @@ class FlowApprovalRecordQueryServiceImplTest {
                                              LocalDateTime eventTime,
                                              String targetActorId,
                                              String comment) {
-        var record = new FlowApprovalRecord();
+        var record = new FlowApprovalAction();
         record.setId(id);
         record.setSequence(sequence);
         record.setActorId(actorId);

@@ -168,7 +168,7 @@ class AssignToRoleTest {
         List<FlowGraphNode> nodes = new ArrayList<>(List.of(
                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("Start").build(),
                 FlowGraphNode.builder().id("hr").type(FlowNodeType.APPROVAL).label("HR approval")
-                        .config(Map.of("approverSources", List.of(Map.of("type", "Supervisor")), "approvalMode", "Unanimous",
+                        .config(Map.of("approverSources", List.of(Map.of("type", "Supervisor")), "voteThreshold", "Unanimous",
                                 "emptyApproverStrategy", "AssignToRole", "emptyApproverRoleCodes", List.of("HR_ADMIN")))
                         .build(),
                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("End").build()));

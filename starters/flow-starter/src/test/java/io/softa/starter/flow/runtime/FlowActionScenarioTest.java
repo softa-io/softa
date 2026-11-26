@@ -173,7 +173,7 @@ class FlowActionScenarioTest {
                         .nodes(List.of(
                                 node("start", FlowNodeType.START),
                                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("approval")
-                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(APPROVER, OTHER))), "approvalMode", "AnyOne"))
+                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(APPROVER, OTHER))), "voteThreshold", "AnyOne"))
                                         .build(),
                                 approvalNode("director", DIRECTOR),
                                 node("end", FlowNodeType.END)))

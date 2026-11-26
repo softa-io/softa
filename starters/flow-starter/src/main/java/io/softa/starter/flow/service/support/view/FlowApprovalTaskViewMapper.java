@@ -25,7 +25,7 @@ public final class FlowApprovalTaskViewMapper {
                 .flowRevision(task.getFlowRevision())
                 .nodeId(task.getNodeId())
                 .nodeLabel(task.getNodeLabel())
-                .actorId(task.getActorId())
+                .assigneeId(task.getAssigneeId())
                 .status(task.getStatus())
                 .taskType(task.getTaskType())
                 .action(task.getAction())
@@ -34,7 +34,7 @@ public final class FlowApprovalTaskViewMapper {
                 .approvedActors(task.getApprovedActors())
                 .startTime(task.getStartTime())
                 .endTime(task.getEndTime())
-                .closedByActorId(task.getClosedByActorId())
+                .closedById(task.getClosedById())
                 .dueTime(task.getDueTime())
                 // The instance's fields as the task stored them; the enricher sets them again from the instance.
                 .instanceTitle(task.getInstanceTitle())

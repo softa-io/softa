@@ -45,7 +45,7 @@ class RejectionScenarioTest {
 
     @Test
     void oneRejectionRejectsAStepThatCountsSeveralApprovals() {
-        FlowExecutionState state = start(Map.of("approvalMode", "MinCount", "minCount", 2,
+        FlowExecutionState state = start(Map.of("voteThreshold", "MinCount", "minCount", 2,
                 // A threshold a step was saved with before: ignored.
                 "rejectMode", "MinCount", "rejectMinCount", 2));
 
@@ -56,7 +56,7 @@ class RejectionScenarioTest {
 
     @Test
     void anApproverWhoApprovedCannotThenRejectButAnotherCan() {
-        FlowExecutionState state = start(Map.of("approvalMode", "Unanimous"));
+        FlowExecutionState state = start(Map.of("voteThreshold", "Unanimous"));
         FlowApproveRequest approve = new FlowApproveRequest();
         approve.setInstanceId(state.getInstanceId());
         approve.setNodeId("approval");

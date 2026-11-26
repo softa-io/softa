@@ -32,7 +32,7 @@ class FlowApprovalTaskProjectorTest {
                         .nodeId("managerApproval")
                         .nodeLabel("Manager Approval")
                         .approvers(List.of("manager", "hr"))
-                        .approvalMode(VoteThresholdMode.UNANIMOUS)
+                        .voteThreshold(VoteThresholdMode.UNANIMOUS)
                         .requiredApprovalCount(2)
                         .approvedActors(List.of("manager"))
                         .dueTime(LocalDateTime.of(2026, 11, 6, 18, 0))
@@ -50,7 +50,7 @@ class FlowApprovalTaskProjectorTest {
 
         assertEquals(2, tasks.size());
 
-        var managerTask = tasks.stream().filter(task -> "manager".equals(task.getActorId())).findFirst().orElseThrow();
+        var managerTask = tasks.stream().filter(task -> "manager".equals(task.getAssigneeId())).findFirst().orElseThrow();
         // The step's deadline goes on its tasks: what the inbox says is due.
         assertEquals(LocalDateTime.of(2026, 11, 6, 18, 0), managerTask.getDueTime());
         assertEquals(FlowApprovalTaskStatus.APPROVED, managerTask.getStatus());
@@ -59,7 +59,7 @@ class FlowApprovalTaskProjectorTest {
         assertEquals(List.of("manager"), managerTask.getApprovedActors());
         assertNotNull(managerTask.getEndTime());
 
-        var hrTask = tasks.stream().filter(task -> "hr".equals(task.getActorId())).findFirst().orElseThrow();
+        var hrTask = tasks.stream().filter(task -> "hr".equals(task.getAssigneeId())).findFirst().orElseThrow();
         assertEquals(FlowApprovalTaskStatus.PENDING, hrTask.getStatus());
         assertNull(hrTask.getEndTime());
         assertEquals(2, hrTask.getRequiredApprovalCount());
@@ -78,7 +78,7 @@ class FlowApprovalTaskProjectorTest {
                         .nodeId("managerApproval")
                         .nodeLabel("Manager Approval")
                         .approvers(List.of("manager"))
-                        .approvalMode(VoteThresholdMode.ANY_ONE)
+                        .voteThreshold(VoteThresholdMode.ANY_ONE)
                         .requiredApprovalCount(1)
                         .approvedActors(List.of())
                         .build()))
@@ -95,11 +95,11 @@ class FlowApprovalTaskProjectorTest {
 
         var tasks = projector.project(state);
 
-        var ccTask = tasks.stream().filter(task -> "observer".equals(task.getActorId())).findFirst().orElseThrow();
+        var ccTask = tasks.stream().filter(task -> "observer".equals(task.getAssigneeId())).findFirst().orElseThrow();
         assertEquals(FlowApprovalTaskType.CC, ccTask.getTaskType());
         assertEquals(FlowApprovalTaskStatus.PENDING, ccTask.getStatus());
         assertEquals(ApprovalActionType.CC, ccTask.getAction());
-        assertEquals("manager", ccTask.getClosedByActorId());
+        assertEquals("manager", ccTask.getClosedById());
         assertEquals(ccAt, ccTask.getEndTime());
     }
 }

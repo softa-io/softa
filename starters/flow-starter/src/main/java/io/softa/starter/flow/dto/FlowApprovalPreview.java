@@ -76,7 +76,7 @@ public class FlowApprovalPreview {
         WAITING("Waiting"),
         /**
          * The step passes on its own: approvers counted as having approved — the submitter, or someone
-         * who approved an earlier step — meet its approval mode.
+         * who approved an earlier step — meet its vote threshold.
          */
         AUTO_APPROVED("AutoApproved"),
         /** Nobody resolves to the step, which is approved on record (empty-approver strategy AutoApprove). */

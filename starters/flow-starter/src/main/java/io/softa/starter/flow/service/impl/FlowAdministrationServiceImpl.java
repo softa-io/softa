@@ -172,7 +172,7 @@ public class FlowAdministrationServiceImpl implements FlowAdministrationService 
      */
     private List<Map<String, Object>> reassignableTasks(String fromActorId) {
         FlexQuery query = new FlexQuery(new Filters()
-                .eq(FlowApprovalTask::getActorId, fromActorId)
+                .eq(FlowApprovalTask::getAssigneeId, fromActorId)
                 .eq(FlowApprovalTask::getTaskType, FlowApprovalTaskType.APPROVAL)
                 .eq(FlowApprovalTask::getStatus, FlowApprovalTaskStatus.PENDING),
                 Orders.ofAsc(FlowApprovalTask::getStartTime));

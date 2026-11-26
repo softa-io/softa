@@ -6,7 +6,7 @@ import io.softa.starter.flow.runtime.state.ApprovalActionAuditEntry;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 
 /**
- * Persistence port for the approval action audit ledger ({@code flow_approval_record}) —
+ * Persistence port for the approval action audit ledger ({@code flow_approval_action}) —
  * the single authority for approval lifecycle history.
  * <p>
  * The runtime keeps {@code FlowExecutionState#getApprovalAuditDelta()} as a delta buffer

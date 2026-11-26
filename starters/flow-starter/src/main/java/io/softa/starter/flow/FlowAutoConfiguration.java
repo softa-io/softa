@@ -24,7 +24,7 @@ import io.softa.starter.flow.runtime.spi.OrganizationService;
 import io.softa.starter.flow.runtime.spi.impl.InboxReadMarker;
 import io.softa.starter.flow.runtime.spi.impl.MessageApprovalNotificationService;
 import io.softa.starter.flow.runtime.spi.impl.FlowOrgService;
-import io.softa.starter.flow.service.FlowLaunchService;
+import io.softa.starter.flow.service.FlowStartService;
 import io.softa.starter.flow.service.FlowPublishService;
 import io.softa.starter.flow.service.support.MetadataFieldDefinitions;
 import io.softa.starter.flow.service.support.RecordFieldDefinitions;
@@ -74,7 +74,7 @@ public class FlowAutoConfiguration {
 
     /** The in-process port business modules call for a record's approval: one class, nothing to replace. */
     @Bean
-    public FlowClient flowClient(FlowLaunchService launch) {
+    public FlowClient flowClient(FlowStartService launch) {
         return new FlowClient(launch);
     }
 

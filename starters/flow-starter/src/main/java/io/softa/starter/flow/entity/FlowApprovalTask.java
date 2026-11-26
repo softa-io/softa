@@ -32,8 +32,8 @@ import io.softa.starter.flow.runtime.state.ApprovalActionType;
     searchName = {"instanceTitle", "recordCode"}
 )
 @Index(indexName = "idx_tenant_instance_node", fields = {"tenantId", "instanceId", "nodeId"})
-@Index(indexName = "idx_tenant_actor_status_start", fields = {"tenantId", "actorId", "status", "startTime"})
-@Index(indexName = "idx_tenant_actor_status_end", fields = {"tenantId", "actorId", "status", "endTime"})
+@Index(indexName = "idx_tenant_assignee_status_start", fields = {"tenantId", "assigneeId", "status", "startTime"})
+@Index(indexName = "idx_tenant_assignee_status_end", fields = {"tenantId", "assigneeId", "status", "endTime"})
 @EqualsAndHashCode(callSuper = true)
 public class FlowApprovalTask extends AuditableModel {
 
@@ -64,8 +64,8 @@ public class FlowApprovalTask extends AuditableModel {
     @Field(length = 200, description = "Approval node label")
     private String nodeLabel;
 
-    @Field(label = "Actor ID", required = true, description = "Assigned actor id")
-    private String actorId;
+    @Field(label = "Assignee ID", required = true, description = "Whom the task is assigned to: the approver of an approval task, the recipient of a CC task", renamedFrom = "actorId")
+    private String assigneeId;
 
     @Field(required = true, description = "Task status")
     private FlowApprovalTaskStatus status;
@@ -94,8 +94,8 @@ public class FlowApprovalTask extends AuditableModel {
     @Field(description = "Task due time for timeout handling")
     private LocalDateTime dueTime;
 
-    @Field(label = "Closed By Actor ID", description = "Actor who closed this task when available")
-    private String closedByActorId;
+    @Field(label = "Closed By ID", description = "Who closed this task, when known", renamedFrom = "closedByActorId")
+    private String closedById;
 
     @Field(length = 200, description = "The instance's title")
     private String instanceTitle;
@@ -109,8 +109,8 @@ public class FlowApprovalTask extends AuditableModel {
     @Field(label = "Row ID", description = "The instance's related row data ID")
     private String rowId;
 
-    @Field(label = "Initiator ID", description = "The instance's initiator id")
-    private String initiatorId;
+    @Field(label = "Submitter ID", description = "Who submitted the record the task approves (the instance's initiator)", renamedFrom = "initiatorId")
+    private String submitterId;
 
     @Field(description = "When the instance started — a record's approval: when the record was submitted")
     private LocalDateTime submittedTime;

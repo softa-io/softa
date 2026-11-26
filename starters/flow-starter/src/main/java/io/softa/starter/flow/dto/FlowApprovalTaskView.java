@@ -46,11 +46,11 @@ public class FlowApprovalTaskView {
     @Schema(description = "Approval node label")
     private String nodeLabel;
 
-    @Schema(description = "Assigned actor id")
-    private String actorId;
+    @Schema(description = "Whom the task is assigned to: the approver of an approval task, the recipient of a CC task")
+    private String assigneeId;
 
-    @Schema(description = "The assigned actor's name")
-    private String actorName;
+    @Schema(description = "The assignee's name")
+    private String assigneeName;
 
     @Schema(description = "Task status")
     private FlowApprovalTaskStatus status;
@@ -76,8 +76,8 @@ public class FlowApprovalTaskView {
     @Schema(description = "Task closed time")
     private LocalDateTime endTime;
 
-    @Schema(description = "Actor who closed this task when available")
-    private String closedByActorId;
+    @Schema(description = "Who closed this task, when known")
+    private String closedById;
 
     @Schema(description = "The names of the accounts the task names — its holder, the step's candidates, those who "
             + "approved or rejected and who closed it — by account id (batch-enriched)")
@@ -99,8 +99,8 @@ public class FlowApprovalTaskView {
     @Schema(description = "Current execution status of the owning instance")
     private FlowExecutionStatus instanceStatus;
 
-    @Schema(description = "Initiator of the owning instance, named")
-    private FlowRecordApprovalsView.Actor initiator;
+    @Schema(description = "Who submitted the record the task approves, named")
+    private FlowRecordApprovalsView.Actor submitter;
 
     @Schema(description = "When the owning instance started — a record's approval: when the record was submitted")
     private LocalDateTime submittedTime;

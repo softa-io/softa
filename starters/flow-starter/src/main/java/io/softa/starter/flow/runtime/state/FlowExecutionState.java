@@ -65,7 +65,7 @@ public class FlowExecutionState {
 
     @Schema(description = "Whether the instance is the approval of its record: started by submitting the record, "
             + "so its result is written back to it. Other instances running on a record are automation runs")
-    private Boolean recordApproval;
+    private boolean recordApproval;
 
     @Schema(description = "A record's approval: the employee the record is about, as at submission")
     private Long subjectId;
@@ -103,7 +103,7 @@ public class FlowExecutionState {
 
     /**
      * Approval audit delta of the CURRENT attempt only. The authoritative history lives in
-     * {@code flow_approval_record}: the instance store flushes this buffer on save (sequence
+     * {@code flow_approval_action}: the instance store flushes this buffer on save (sequence
      * continuing from {@link #auditSequenceBase}) and readers merge committed rows with the
      * unflushed tail. Excluded from JSON / persistence.
      */
@@ -113,7 +113,7 @@ public class FlowExecutionState {
 
     /**
      * Internal high-water mark: number of {@link #approvalAuditDelta} entries already
-     * flushed to {@code flow_approval_record}. Managed by the ledger flush.
+     * flushed to {@code flow_approval_action}. Managed by the ledger flush.
      */
     @JsonIgnore
     @Schema(hidden = true)
@@ -227,10 +227,5 @@ public class FlowExecutionState {
         return waitTokens != null && !waitTokens.isEmpty();
     }
 
-    /** Whether this instance is its record's approval (see {@link #recordApproval}). */
-    @JsonIgnore
-    public boolean isApprovalOfRecord() {
-        return Boolean.TRUE.equals(recordApproval);
-    }
 
 }

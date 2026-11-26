@@ -18,8 +18,8 @@ import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Schema(name = "FlowApprovalRecordView")
-public class FlowApprovalRecordView {
+@Schema(name = "FlowApprovalActionView")
+public class FlowApprovalActionView {
 
     @Schema(description = "ID")
     private Long id;

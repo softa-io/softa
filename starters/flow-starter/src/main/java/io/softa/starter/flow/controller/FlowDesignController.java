@@ -32,7 +32,7 @@ import io.softa.starter.flow.dto.FlowVariableView;
 import io.softa.starter.flow.entity.FlowDesign;
 import io.softa.starter.flow.enums.FlowScenario;
 import io.softa.starter.flow.service.FlowDesignService;
-import io.softa.starter.flow.service.FlowLaunchService;
+import io.softa.starter.flow.service.FlowStartService;
 import io.softa.starter.flow.service.FlowPublishService;
 import io.softa.starter.flow.service.FlowVariableCatalogService;
 
@@ -71,7 +71,7 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
     private FlowVariableCatalogService variableCatalogService;
 
     @Autowired
-    private FlowLaunchService flowLaunchService;
+    private FlowStartService flowStartService;
 
     @PostMapping
     @Operation(summary = "Create flow draft")
@@ -223,6 +223,6 @@ public class FlowDesignController extends EntityController<FlowDesignService, Fl
                                                   @RequestBody(required = false) FlowDesignPreviewRequest request) {
         String submitterId = request != null && StringUtils.hasText(request.submitterId())
                 ? request.submitterId() : currentUserId();
-        return ApiResponse.success(flowLaunchService.previewDraft(id, submitterId, request == null ? null : request.values()));
+        return ApiResponse.success(flowStartService.previewDraft(id, submitterId, request == null ? null : request.values()));
     }
 }

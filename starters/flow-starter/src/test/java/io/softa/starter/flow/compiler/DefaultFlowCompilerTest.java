@@ -231,7 +231,7 @@ class DefaultFlowCompilerTest {
                                         .type(FlowNodeType.APPROVAL)
                                         .label("approval")
                                         .config(Map.of(
-                                                "approvalMode", VoteThresholdMode.UNANIMOUS,
+                                                "voteThreshold", VoteThresholdMode.UNANIMOUS,
                                                 "approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager", "hr")))))
                                         .build(),
                                 node("end", FlowNodeType.END)
@@ -246,11 +246,11 @@ class DefaultFlowCompilerTest {
         CompiledFlowDefinition compiled = compiler.compile(definition);
 
         assertEquals(VoteThresholdMode.UNANIMOUS,
-                compiled.getNodeIndex().get("approval").getConfig().get("approvalMode"));
+                compiled.getNodeIndex().get("approval").getConfig().get("voteThreshold"));
     }
 
     @Test
-    void shouldRejectUnanimousApprovalModeWithoutApprovers() {
+    void shouldRejectUnanimousVoteThresholdWithoutApprovers() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Invalid Unanimous Approval")
                 .scenario(FlowScenario.APPROVAL)
@@ -262,7 +262,7 @@ class DefaultFlowCompilerTest {
                                         .id("approval")
                                         .type(FlowNodeType.APPROVAL)
                                         .label("approval")
-                                        .config(Map.of("approvalMode", VoteThresholdMode.UNANIMOUS))
+                                        .config(Map.of("voteThreshold", VoteThresholdMode.UNANIMOUS))
                                         .build(),
                                 node("end", FlowNodeType.END)
                         ))
@@ -279,7 +279,7 @@ class DefaultFlowCompilerTest {
     }
 
     @Test
-    void shouldRejectMinCountApprovalModeWhenThresholdExceedsApprovers() {
+    void shouldRejectMinCountVoteThresholdWhenThresholdExceedsApprovers() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Invalid Min Count Approval")
                 .scenario(FlowScenario.APPROVAL)
@@ -292,7 +292,7 @@ class DefaultFlowCompilerTest {
                                         .type(FlowNodeType.APPROVAL)
                                         .label("approval")
                                         .config(Map.of(
-                                                "approvalMode", VoteThresholdMode.MIN_COUNT,
+                                                "voteThreshold", VoteThresholdMode.MIN_COUNT,
                                                 "approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager", "hr"))),
                                                 "minCount", 3))
                                         .build(),
@@ -310,7 +310,7 @@ class DefaultFlowCompilerTest {
     }
 
     @Test
-    void shouldCompileMinCountApprovalModeWithDynamicApproverSource() {
+    void shouldCompileMinCountVoteThresholdWithDynamicApproverSource() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Dynamic Min Count Approval")
                 .scenario(FlowScenario.APPROVAL)
@@ -323,7 +323,7 @@ class DefaultFlowCompilerTest {
                                         .type(FlowNodeType.APPROVAL)
                                         .label("approval")
                                         .config(Map.of(
-                                                "approvalMode", VoteThresholdMode.MIN_COUNT,
+                                                "voteThreshold", VoteThresholdMode.MIN_COUNT,
                                                 "minCount", 2,
                                                 "approverSources", List.of(Map.of(
                                                         "type", "RoleQuery",
@@ -340,7 +340,7 @@ class DefaultFlowCompilerTest {
 
         CompiledFlowDefinition compiled = compiler.compile(definition);
 
-        assertEquals(VoteThresholdMode.MIN_COUNT, compiled.getNodeIndex().get("approval").getConfig().get("approvalMode"));
+        assertEquals(VoteThresholdMode.MIN_COUNT, compiled.getNodeIndex().get("approval").getConfig().get("voteThreshold"));
         assertEquals(2, compiled.getNodeIndex().get("approval").getConfig().get("minCount"));
         assertEquals("RoleQuery",
                 ((Map<?, ?>) ((List<?>) compiled.getNodeIndex().get("approval").getConfig().get("approverSources")).getFirst())
@@ -348,7 +348,7 @@ class DefaultFlowCompilerTest {
     }
 
     @Test
-    void shouldRejectPercentageApprovalModeOutsideRange() {
+    void shouldRejectPercentageVoteThresholdOutsideRange() {
         DesignFlowDefinition definition = DesignFlowDefinition.builder()
                 .name("Invalid Percentage Approval")
                 .scenario(FlowScenario.APPROVAL)
@@ -361,7 +361,7 @@ class DefaultFlowCompilerTest {
                                         .type(FlowNodeType.APPROVAL)
                                         .label("approval")
                                         .config(Map.of(
-                                                "approvalMode", VoteThresholdMode.PERCENTAGE,
+                                                "voteThreshold", VoteThresholdMode.PERCENTAGE,
                                                 "approverSources", List.of(Map.of("type", "Users", "userIds", List.of("manager", "hr"))),
                                                 "percentage", 0))
                                         .build(),
@@ -395,7 +395,7 @@ class DefaultFlowCompilerTest {
                                         .type(FlowNodeType.APPROVAL)
                                         .label("approval")
                                         .config(Map.of(
-                                                "approvalMode", VoteThresholdMode.MIN_COUNT,
+                                                "voteThreshold", VoteThresholdMode.MIN_COUNT,
                                                 "minCount", 2,
                                                 "rejectMode", VoteThresholdMode.MIN_COUNT,
                                                 "rejectMinCount", 3,

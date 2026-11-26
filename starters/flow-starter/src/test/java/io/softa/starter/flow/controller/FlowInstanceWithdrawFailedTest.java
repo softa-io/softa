@@ -11,7 +11,7 @@ import io.softa.starter.flow.runtime.engine.FlowRuntimeEngine;
 import io.softa.starter.flow.runtime.engine.WithdrawPolicyGuard;
 import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
-import io.softa.starter.flow.service.FlowLaunchService;
+import io.softa.starter.flow.service.FlowStartService;
 import io.softa.starter.flow.service.support.FlowInstanceAccessGuard;
 import io.softa.starter.flow.service.support.FlowUserNames;
 
@@ -31,21 +31,21 @@ class FlowInstanceWithdrawFailedTest {
     private static final String SUBMITTER = "1001";
 
     private final FlowRuntimeEngine engine = mock(FlowRuntimeEngine.class);
-    private final FlowLaunchService launchService = mock(FlowLaunchService.class);
+    private final FlowStartService startService = mock(FlowStartService.class);
     private final WithdrawPolicyGuard guard = mock(WithdrawPolicyGuard.class);
     private final FlowInstanceController controller = new FlowInstanceController(engine, null, null, null,
-            mock(FlowInstanceAccessGuard.class), launchService, null, guard, null, null, mock(FlowUserNames.class), null);
+            mock(FlowInstanceAccessGuard.class), startService, null, guard, null, null, mock(FlowUserNames.class), null);
 
     @Test
     void aFailedApprovalIsTakenBackFromItsRecord() {
         FlowExecutionState failed = approval(FlowExecutionStatus.FAILED);
         when(engine.getInstance("i1")).thenReturn(Optional.of(failed));
         when(guard.takesBack(failed, SUBMITTER)).thenReturn(true);
-        when(launchService.withdrawRecord("ExpenseClaim", "42", SUBMITTER, "will fix it")).thenReturn(failed);
+        when(startService.withdrawRecord("ExpenseClaim", "42", SUBMITTER, "will fix it")).thenReturn(failed);
 
         as(SUBMITTER, () -> controller.withdraw(request("will fix it")));
 
-        verify(launchService).withdrawRecord("ExpenseClaim", "42", SUBMITTER, "will fix it");
+        verify(startService).withdrawRecord("ExpenseClaim", "42", SUBMITTER, "will fix it");
         verify(engine, never()).withdraw(any());
     }
 
@@ -58,7 +58,7 @@ class FlowInstanceWithdrawFailedTest {
         as(SUBMITTER, () -> controller.withdraw(request(null)));
 
         verify(engine).withdraw(any());
-        verify(launchService, never()).withdrawRecord(any(), any(), any(), any());
+        verify(startService, never()).withdrawRecord(any(), any(), any(), any());
     }
 
     private static FlowExecutionState approval(FlowExecutionStatus status) {

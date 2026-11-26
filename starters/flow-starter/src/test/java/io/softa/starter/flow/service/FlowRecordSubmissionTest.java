@@ -51,7 +51,7 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
 import io.softa.starter.flow.runtime.state.FlowExecutionStatus;
 import io.softa.starter.flow.runtime.store.FlowExecutionStateMapper;
 import io.softa.starter.flow.runtime.trigger.DefaultFlowTriggerRegistry;
-import io.softa.starter.flow.service.impl.FlowLaunchServiceImpl;
+import io.softa.starter.flow.service.impl.FlowStartServiceImpl;
 import io.softa.starter.flow.service.impl.FlowPublishServiceImpl;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -98,7 +98,7 @@ class FlowRecordSubmissionTest {
             new ApprovalOutcomeListener(handlerRegistry, statusWriter));
     private final FlowInstanceService instanceService = mock(FlowInstanceService.class);
     // The preview's collaborators stay null: FlowApprovalPreviewTest covers it.
-    private final FlowLaunchServiceImpl launchService = new FlowLaunchServiceImpl(
+    private final FlowStartServiceImpl startService = new FlowStartServiceImpl(
             engine, compiler, handlerRegistry, statusWriter,
             new DefaultFlowTriggerRegistry(bundleRegistry), instanceService, modelService, null, null, null);
 
@@ -133,7 +133,7 @@ class FlowRecordSubmissionTest {
                 for (FlowExecutionState state : instanceStore.listByStatus(status)) {
                     if (Objects.equals(state.getModelName(), invocation.getArgument(0))
                             && Objects.equals(state.getRowId(), invocation.getArgument(1))
-                            && Boolean.TRUE.equals(state.getRecordApproval())) {
+                            && state.isRecordApproval()) {
                         FlowInstance instance = FlowExecutionStateMapper.toEntity(state);
                         instance.setCreatedTime(createdAt.get(state.getInstanceId()));
                         instances.add(instance);
@@ -154,7 +154,7 @@ class FlowRecordSubmissionTest {
     void submitStartsTheApprovalFlowOfTheRecordsDocument() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
 
-        FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState state = startService.submitRecord(MODEL, ROW, SUBMITTER);
 
         assertEquals(FlowExecutionStatus.WAITING, state.getStatus());
         assertEquals("annual", state.getFlowId());
@@ -166,7 +166,7 @@ class FlowRecordSubmissionTest {
         assertEquals("Submit", state.getVariables().get("_triggerType"));
         assertEquals(5001L, state.getVariables().get("_subjectId"));
         assertEquals(List.of(MANAGER), state.getPendingApprovals().getFirst().getApprovers());
-        assertTrue(state.isApprovalOfRecord());
+        assertTrue(state.isRecordApproval());
         assertEquals("Pending", record.get("approvalStatus"));
         assertEquals(1001L, record.get("submitterId"));
         assertNotNull(record.get("submittedTime"));
@@ -189,7 +189,7 @@ class FlowRecordSubmissionTest {
         publishService.publish("annual", design);
 
         FlowNoApproverException refused = assertThrows(FlowNoApproverException.class,
-                () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+                () -> startService.submitRecord(MODEL, ROW, SUBMITTER));
 
         assertEquals("No approver was found for step 'Manager'. Ask your HR administrator to set one up, then try again.",
                 refused.getMessage());
@@ -205,7 +205,7 @@ class FlowRecordSubmissionTest {
         when(handler.submission(any())).thenReturn(new ApprovalSubmission("Leave of Alice", Map.of("days", 3),
                 LocalDate.of(2026, 11, 2), "LR-0007", "Annual Leave · 3 days · 2–4 Nov"));
 
-        FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState state = startService.submitRecord(MODEL, ROW, SUBMITTER);
 
         assertEquals(5001L, state.getSubjectId());
         assertEquals(LocalDate.of(2026, 11, 2), state.getEffectiveDate());
@@ -221,7 +221,7 @@ class FlowRecordSubmissionTest {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.empty());
 
-        assertThrows(BusinessException.class, () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+        assertThrows(BusinessException.class, () -> startService.submitRecord(MODEL, ROW, SUBMITTER));
 
         verify(handler, never()).validate(any());
         assertEquals("Draft", record.get("approvalStatus"));
@@ -236,7 +236,7 @@ class FlowRecordSubmissionTest {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
         List<AccessType> readAs = recordReachReadAs();
 
-        launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        startService.submitRecord(MODEL, ROW, SUBMITTER);
 
         assertEquals(List.of(AccessType.UPDATE), readAs);
     }
@@ -246,7 +246,7 @@ class FlowRecordSubmissionTest {
     void theApplicantsReachForACancellationIsTheRangeTheyMayEditTheRecordIn() {
         List<AccessType> readAs = recordReachReadAs();
 
-        launchService.cancelRecord(MODEL, ROW);
+        startService.cancelRecord(MODEL, ROW);
 
         assertEquals(List.of(AccessType.UPDATE), readAs);
     }
@@ -267,7 +267,7 @@ class FlowRecordSubmissionTest {
         doThrow(new BusinessException("Only the requester can submit this leave.")).when(handler).validate(any());
 
         BusinessException error = assertThrows(BusinessException.class,
-                () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+                () -> startService.submitRecord(MODEL, ROW, SUBMITTER));
 
         assertEquals("Only the requester can submit this leave.", error.getMessage());
         assertEquals("Draft", record.get("approvalStatus"));
@@ -282,7 +282,7 @@ class FlowRecordSubmissionTest {
         record.remove("employeeId");
 
         BusinessException error = assertThrows(BusinessException.class,
-                () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+                () -> startService.submitRecord(MODEL, ROW, SUBMITTER));
 
         assertTrue(error.getMessage().contains("employeeId"), error.getMessage());
         verify(handler, never()).validate(any());
@@ -294,7 +294,7 @@ class FlowRecordSubmissionTest {
         record.put("approvalStatus", "Approved");
 
         BusinessException error = assertThrows(BusinessException.class,
-                () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+                () -> startService.submitRecord(MODEL, ROW, SUBMITTER));
 
         assertTrue(error.getMessage().contains("approved"), error.getMessage());
         verify(handler, never()).validate(any());
@@ -307,7 +307,7 @@ class FlowRecordSubmissionTest {
         record.put("approvalStatus", status);
 
         BusinessException error = assertThrows(BusinessException.class,
-                () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+                () -> startService.submitRecord(MODEL, ROW, SUBMITTER));
 
         assertTrue(error.getMessage().contains(status.toLowerCase()), error.getMessage());
         verify(handler, never()).validate(any());
@@ -316,7 +316,7 @@ class FlowRecordSubmissionTest {
 
     @Test
     void aDraftIsCancelledForGood() {
-        launchService.cancelRecord(MODEL, ROW);
+        startService.cancelRecord(MODEL, ROW);
 
         assertEquals("Cancelled", record.get("approvalStatus"));
         InOrder order = inOrder(handler);
@@ -326,7 +326,7 @@ class FlowRecordSubmissionTest {
         // A returned approval of it no longer waits for the record to be revised.
         verify(instanceService).markSuperseded(MODEL, ROW);
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
-        assertThrows(BusinessException.class, () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+        assertThrows(BusinessException.class, () -> startService.submitRecord(MODEL, ROW, SUBMITTER));
     }
 
     @ParameterizedTest
@@ -334,7 +334,7 @@ class FlowRecordSubmissionTest {
     void onlyADraftIsCancelled(String status) {
         record.put("approvalStatus", status);
 
-        assertThrows(BusinessException.class, () -> launchService.cancelRecord(MODEL, ROW));
+        assertThrows(BusinessException.class, () -> startService.cancelRecord(MODEL, ROW));
 
         assertEquals(status, record.get("approvalStatus"));
         verify(handler, never()).validateCancel(any());
@@ -346,9 +346,9 @@ class FlowRecordSubmissionTest {
         doThrow(new BusinessException("Only the claimant can cancel this claim.")).when(handler).validateCancel(any());
 
         BusinessException refused = assertThrows(BusinessException.class,
-                () -> launchService.cancelRecord(MODEL, ROW));
+                () -> startService.cancelRecord(MODEL, ROW));
         when(modelService.getById(eq(MODEL), any(), eq(List.of("id")))).thenReturn(Optional.empty());
-        assertThrows(BusinessException.class, () -> launchService.cancelRecord(MODEL, ROW));
+        assertThrows(BusinessException.class, () -> startService.cancelRecord(MODEL, ROW));
 
         assertTrue(refused.getMessage().contains("claimant"), refused.getMessage());
         assertEquals("Draft", record.get("approvalStatus"));
@@ -358,7 +358,7 @@ class FlowRecordSubmissionTest {
     @Test
     void submitIsRefusedWhenTheDocumentHasNoApprovalFlow() {
         BusinessException error = assertThrows(BusinessException.class,
-                () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+                () -> startService.submitRecord(MODEL, ROW, SUBMITTER));
         assertTrue(error.getMessage().contains("No approval flow applies"), error.getMessage());
         verify(handler, never()).afterSubmitted(any());
     }
@@ -369,7 +369,7 @@ class FlowRecordSubmissionTest {
         bundleRegistry.disable("annual");
 
         BusinessException error = assertThrows(BusinessException.class,
-                () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+                () -> startService.submitRecord(MODEL, ROW, SUBMITTER));
         assertTrue(error.getMessage().contains("No approval flow applies"), error.getMessage());
         assertEquals("Draft", record.get("approvalStatus"));
     }
@@ -381,7 +381,7 @@ class FlowRecordSubmissionTest {
         publishService.publish("b", flow("Flow B", new SubmitTrigger(MODEL, "1 == 1"), List.of(MANAGER)));
 
         BusinessException error = assertThrows(BusinessException.class,
-                () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+                () -> startService.submitRecord(MODEL, ROW, SUBMITTER));
         assertTrue(error.getMessage().contains("Several approval flows"), error.getMessage());
         verify(handler, never()).afterSubmitted(any());
     }
@@ -392,11 +392,11 @@ class FlowRecordSubmissionTest {
         publishService.publish("default", flow("Leave", new SubmitTrigger(MODEL), List.of(MANAGER)));
         publishService.publish("long", flow("Long leave", new SubmitTrigger(MODEL, "days > 5"), List.of(MANAGER)));
 
-        assertEquals("default", launchService.submitRecord(MODEL, ROW, SUBMITTER).getFlowId());
+        assertEquals("default", startService.submitRecord(MODEL, ROW, SUBMITTER).getFlowId());
 
-        launchService.withdrawRecord(MODEL, ROW, SUBMITTER, "make it two weeks");
+        startService.withdrawRecord(MODEL, ROW, SUBMITTER, "make it two weeks");
         when(handler.submission(any())).thenReturn(new ApprovalSubmission("Leave of Alice", Map.of("days", 10)));
-        assertEquals("long", launchService.submitRecord(MODEL, ROW, SUBMITTER).getFlowId());
+        assertEquals("long", startService.submitRecord(MODEL, ROW, SUBMITTER).getFlowId());
     }
 
     @Test
@@ -406,17 +406,17 @@ class FlowRecordSubmissionTest {
         publishService.publish("b", flow("Flow B", new SubmitTrigger(MODEL, "1 == 1"), List.of(MANAGER)));
 
         BusinessException error = assertThrows(BusinessException.class,
-                () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+                () -> startService.submitRecord(MODEL, ROW, SUBMITTER));
         assertTrue(error.getMessage().contains("Several approval flows"), error.getMessage());
     }
 
     @Test
     void aRecordAlreadyInApprovalCannotBeSubmittedAgain() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
-        launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        startService.submitRecord(MODEL, ROW, SUBMITTER);
 
         BusinessException error = assertThrows(BusinessException.class,
-                () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+                () -> startService.submitRecord(MODEL, ROW, SUBMITTER));
         assertTrue(error.getMessage().contains("already in approval"), error.getMessage());
     }
 
@@ -431,7 +431,7 @@ class FlowRecordSubmissionTest {
         assertEquals(FlowExecutionStatus.COMPLETED, engine.startAutomation(automation).getStatus());
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
 
-        assertEquals(FlowExecutionStatus.WAITING, launchService.submitRecord(MODEL, ROW, SUBMITTER).getStatus());
+        assertEquals(FlowExecutionStatus.WAITING, startService.submitRecord(MODEL, ROW, SUBMITTER).getStatus());
 
         verify(handler, never()).afterOutcome(any(), any());
     }
@@ -459,18 +459,18 @@ class FlowRecordSubmissionTest {
         unsubmitted.setModelName(MODEL);
         unsubmitted.setRowId(ROW);
         FlowExecutionState other = engine.start(unsubmitted);
-        assertFalse(other.isApprovalOfRecord());
+        assertFalse(other.isRecordApproval());
 
         engine.approve(nodeRequest(new FlowApproveRequest(), other.getInstanceId(), MANAGER, "fine"));
 
         verify(handler, never()).afterOutcome(any(), any());
-        assertEquals(FlowExecutionStatus.WAITING, launchService.submitRecord(MODEL, ROW, SUBMITTER).getStatus());
+        assertEquals(FlowExecutionStatus.WAITING, startService.submitRecord(MODEL, ROW, SUBMITTER).getStatus());
     }
 
     @Test
     void approvalWritesApprovedBack() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
-        FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState started = startService.submitRecord(MODEL, ROW, SUBMITTER);
 
         engine.approve(nodeRequest(new FlowApproveRequest(), started.getInstanceId(), MANAGER, "enjoy"));
 
@@ -483,7 +483,7 @@ class FlowRecordSubmissionTest {
     @Test
     void rejectionWritesRejectedBack() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
-        FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState started = startService.submitRecord(MODEL, ROW, SUBMITTER);
 
         engine.reject(nodeRequest(new FlowRejectRequest(), started.getInstanceId(), MANAGER, "busy week"));
 
@@ -500,7 +500,7 @@ class FlowRecordSubmissionTest {
     void anApprovalThatCcsOnItsResultStillWritesApprovedBack() {
         publishService.publish("annual", withCc(approvalFlow("Annual leave", List.of(MANAGER)),
                 ccRule(CcTiming.ON_APPROVED, "3001")));
-        FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState started = startService.submitRecord(MODEL, ROW, SUBMITTER);
 
         FlowExecutionState completed = engine.approve(
                 nodeRequest(new FlowApproveRequest(), started.getInstanceId(), MANAGER, "enjoy"));
@@ -517,7 +517,7 @@ class FlowRecordSubmissionTest {
     void aRejectionThatCcsOnItsResultStillWritesRejectedBack() {
         publishService.publish("annual", withCc(approvalFlow("Annual leave", List.of(MANAGER)),
                 ccRule(CcTiming.ON_REJECTED, "3001")));
-        FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState started = startService.submitRecord(MODEL, ROW, SUBMITTER);
 
         FlowExecutionState rejected = engine.reject(
                 nodeRequest(new FlowRejectRequest(), started.getInstanceId(), MANAGER, "busy week"));
@@ -541,7 +541,7 @@ class FlowRecordSubmissionTest {
                 .build());
         publishService.publish("annual", design);
 
-        FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState state = startService.submitRecord(MODEL, ROW, SUBMITTER);
 
         assertEquals(FlowExecutionStatus.COMPLETED, state.getStatus());
         assertEquals("Approved", record.get("approvalStatus"));
@@ -557,9 +557,9 @@ class FlowRecordSubmissionTest {
     void aCcReadOnAReturnedApprovalLeavesTheRecordsNewApprovalPending() {
         publishService.publish("annual", withCc(approvalFlow("Annual leave", List.of(MANAGER)),
                 ccRule(CcTiming.ON_SUBMIT, "3001")));
-        FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState started = startService.submitRecord(MODEL, ROW, SUBMITTER);
         engine.returnApproval(nodeRequest(new FlowReturnRequest(), started.getInstanceId(), MANAGER, "fix the dates"));
-        launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        startService.submitRecord(MODEL, ROW, SUBMITTER);
         assertEquals("Pending", record.get("approvalStatus"));
 
         FlowCcReadRequest read = new FlowCcReadRequest();
@@ -576,7 +576,7 @@ class FlowRecordSubmissionTest {
     @Test
     void aReturnEndsTheApprovalAndTheNextSubmissionStartsANewOneFromTheStart() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
-        FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState started = startService.submitRecord(MODEL, ROW, SUBMITTER);
         FlowExecutionState returned = engine.returnApproval(
                 nodeRequest(new FlowReturnRequest(), started.getInstanceId(), MANAGER, "fix the dates"));
         assertEquals(FlowExecutionStatus.RETURNED, returned.getStatus());
@@ -585,7 +585,7 @@ class FlowRecordSubmissionTest {
         assertEquals("Draft", record.get("approvalStatus"), "a returned record is a draft again");
 
         when(handler.submission(any())).thenReturn(new ApprovalSubmission("Leave of Alice", Map.of("days", 2)));
-        FlowExecutionState submittedAgain = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState submittedAgain = startService.submitRecord(MODEL, ROW, SUBMITTER);
 
         // The returned approval no longer waits for the record: this submission replaces it.
         verify(instanceService, times(2)).markSuperseded(MODEL, ROW);
@@ -600,11 +600,11 @@ class FlowRecordSubmissionTest {
     @Test
     void aResubmissionRunsTheRevisionEffectiveNow() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
-        FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState started = startService.submitRecord(MODEL, ROW, SUBMITTER);
         engine.returnApproval(nodeRequest(new FlowReturnRequest(), started.getInstanceId(), MANAGER, "make it a week"));
         publishService.publish("annual", approvalFlow("Annual leave", List.of("2002")));
 
-        FlowExecutionState submittedAgain = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState submittedAgain = startService.submitRecord(MODEL, ROW, SUBMITTER);
 
         assertNotEquals(started.getBundleId(), submittedAgain.getBundleId());
         assertEquals(List.of("2002"), submittedAgain.getPendingApprovals().getFirst().getApprovers());
@@ -613,9 +613,9 @@ class FlowRecordSubmissionTest {
     @Test
     void withdrawalMakesTheRecordADraftAgain() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
-        FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState started = startService.submitRecord(MODEL, ROW, SUBMITTER);
 
-        FlowExecutionState withdrawn = launchService.withdrawRecord(MODEL, ROW, SUBMITTER, "not needed");
+        FlowExecutionState withdrawn = startService.withdrawRecord(MODEL, ROW, SUBMITTER, "not needed");
 
         assertEquals(FlowExecutionStatus.WITHDRAWN, withdrawn.getStatus());
         assertEquals(new ApprovalOutcome(ApprovalOutcomeType.WITHDRAWN, started.getInstanceId()),
@@ -626,7 +626,7 @@ class FlowRecordSubmissionTest {
     @Test
     void aRecordWithNoApprovalInProgressCannotBeWithdrawn() {
         BusinessException error = assertThrows(BusinessException.class,
-                () -> launchService.withdrawRecord(MODEL, ROW, SUBMITTER, "old request"));
+                () -> startService.withdrawRecord(MODEL, ROW, SUBMITTER, "old request"));
 
         assertTrue(error.getMessage().contains("no approval in progress"), error.getMessage());
         verify(handler, never()).afterOutcome(any(), any());
@@ -642,8 +642,8 @@ class FlowRecordSubmissionTest {
         record.put("approvalStatus", "Pending");
 
         assertThrows(FlowAuthorizationException.class,
-                () -> launchService.withdrawRecord(MODEL, ROW, MANAGER, "not mine"));
-        FlowExecutionState state = launchService.withdrawRecord(MODEL, ROW, SUBMITTER, "try again later");
+                () -> startService.withdrawRecord(MODEL, ROW, MANAGER, "not mine"));
+        FlowExecutionState state = startService.withdrawRecord(MODEL, ROW, SUBMITTER, "try again later");
 
         assertEquals(FlowExecutionStatus.FAILED, state.getStatus(), "the failed instance stays as it is");
         verify(handler).afterOutcome(any(), eq(new ApprovalOutcome(ApprovalOutcomeType.WITHDRAWN, "failed-1")));
@@ -654,7 +654,7 @@ class FlowRecordSubmissionTest {
     void aFlowWithoutApprovalStepsCompletesAfterTheRecordIsInApproval() {
         publishService.publish("auto", flow("Auto approve", new SubmitTrigger(MODEL), null));
 
-        FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState state = startService.submitRecord(MODEL, ROW, SUBMITTER);
 
         assertEquals(FlowExecutionStatus.COMPLETED, state.getStatus());
         InOrder order = inOrder(handler);
@@ -668,7 +668,7 @@ class FlowRecordSubmissionTest {
     void aStepWhoseOnlyApproverIsTheSubmitterIsApprovedOnRecord() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(SUBMITTER)));
 
-        FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState state = startService.submitRecord(MODEL, ROW, SUBMITTER);
 
         assertEquals(FlowExecutionStatus.COMPLETED, state.getStatus());
         assertTrue(state.getApprovalAuditDelta().stream().anyMatch(entry ->
@@ -680,7 +680,7 @@ class FlowRecordSubmissionTest {
     void theSubmittersApprovalPassesAnAnyOneStepTheyShareWithOthers() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(SUBMITTER, MANAGER)));
 
-        FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState state = startService.submitRecord(MODEL, ROW, SUBMITTER);
 
         assertEquals(FlowExecutionStatus.COMPLETED, state.getStatus());
     }
@@ -690,11 +690,11 @@ class FlowRecordSubmissionTest {
         DesignFlowDefinition design = approvalFlow("Annual leave", List.of(SUBMITTER, MANAGER));
         design.getGraph().getNodes().set(1, FlowGraphNode.builder()
                 .id("approval").type(FlowNodeType.APPROVAL).label("Manager")
-                .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(SUBMITTER, MANAGER))), "approvalMode", "Unanimous"))
+                .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", List.of(SUBMITTER, MANAGER))), "voteThreshold", "Unanimous"))
                 .build());
         publishService.publish("annual", design);
 
-        FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState state = startService.submitRecord(MODEL, ROW, SUBMITTER);
 
         assertEquals(FlowExecutionStatus.WAITING, state.getStatus());
         assertEquals(List.of(SUBMITTER), state.getPendingApprovals().getFirst().getApprovedActors());
@@ -711,14 +711,14 @@ class FlowRecordSubmissionTest {
         publishService.publish("supervisor", design);
 
         // Thrown from the start, so the submission's transaction rolls the record back.
-        assertThrows(FlowRuntimeException.class, () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
+        assertThrows(FlowRuntimeException.class, () -> startService.submitRecord(MODEL, ROW, SUBMITTER));
         verify(handler, never()).afterOutcome(any(), any());
     }
 
     @Test
     void aFinishedApprovalTakesNoMoreComments() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
-        FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState started = startService.submitRecord(MODEL, ROW, SUBMITTER);
         engine.approve(nodeRequest(new FlowApproveRequest(), started.getInstanceId(), MANAGER, null));
 
         FlowCommentRequest comment = new FlowCommentRequest();
@@ -733,7 +733,7 @@ class FlowRecordSubmissionTest {
     @Test
     void aResultReachesOnlyARecordStillInApproval() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
-        FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState started = startService.submitRecord(MODEL, ROW, SUBMITTER);
         // Moved on by a system write while its approval waited.
         record.put("approvalStatus", "Cancelled");
 
@@ -752,8 +752,8 @@ class FlowRecordSubmissionTest {
         try (MockedStatic<ModelManager> models = mockStatic(ModelManager.class)) {
             models.when(() -> ModelManager.isSoftDeleted(MODEL)).thenReturn(true);
 
-            submit = assertThrows(BusinessException.class, () -> launchService.submitRecord(MODEL, ROW, SUBMITTER));
-            assertThrows(BusinessException.class, () -> launchService.cancelRecord(MODEL, ROW));
+            submit = assertThrows(BusinessException.class, () -> startService.submitRecord(MODEL, ROW, SUBMITTER));
+            assertThrows(BusinessException.class, () -> startService.cancelRecord(MODEL, ROW));
         }
 
         assertTrue(submit.getMessage().contains("does not exist"), submit.getMessage());
@@ -767,7 +767,7 @@ class FlowRecordSubmissionTest {
     @Test
     void aResultReachesNoRecordDeletedSoftlyWhileItsApprovalWaited() {
         publishService.publish("annual", approvalFlow("Annual leave", List.of(MANAGER)));
-        FlowExecutionState started = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+        FlowExecutionState started = startService.submitRecord(MODEL, ROW, SUBMITTER);
         // Deleted while in approval — a system write gets past the approval lock — on a model that deletes softly.
         record.put("deleted", true);
 
@@ -859,7 +859,7 @@ class FlowRecordSubmissionTest {
             publishService.publish("sales", routedFlow("Sales leave", "CC1"));
             publishService.publish("others", routedFlow("Other leave", "CC2"));
 
-            FlowExecutionState state = launchService.submitRecord(MODEL, ROW, SUBMITTER);
+            FlowExecutionState state = startService.submitRecord(MODEL, ROW, SUBMITTER);
 
             assertEquals("sales", state.getFlowId());
             assertEquals("CC1", state.getVariables().get("departmentId.costCenter"));

@@ -70,8 +70,8 @@ class AdministrationScenarioTest {
             approvalHandler,
             taskHolders);
 
-    private FlowExecutionState start(List<String> approvers, String approvalMode) {
-        publishService.publish(FLOW_ID, flow(approvers, approvalMode));
+    private FlowExecutionState start(List<String> approvers, String voteThreshold) {
+        publishService.publish(FLOW_ID, flow(approvers, voteThreshold));
         FlowStartRequest start = new FlowStartRequest();
         start.setFlowId(FLOW_ID);
         start.setInitiatorId(INITIATOR);
@@ -242,7 +242,7 @@ class AdministrationScenarioTest {
         return request;
     }
 
-    private static DesignFlowDefinition flow(List<String> approvers, String approvalMode) {
+    private static DesignFlowDefinition flow(List<String> approvers, String voteThreshold) {
         return DesignFlowDefinition.builder()
                 .name("Administration")
                 .scenario(FlowScenario.APPROVAL)
@@ -251,7 +251,7 @@ class AdministrationScenarioTest {
                         .nodes(List.of(
                                 FlowGraphNode.builder().id("start").type(FlowNodeType.START).label("start").build(),
                                 FlowGraphNode.builder().id("approval").type(FlowNodeType.APPROVAL).label("approval")
-                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", approvers)), "approvalMode", approvalMode)).build(),
+                                        .config(Map.of("approverSources", List.of(Map.of("type", "Users", "userIds", approvers)), "voteThreshold", voteThreshold)).build(),
                                 FlowGraphNode.builder().id("end").type(FlowNodeType.END).label("end").build()))
                         .edges(List.of(
                                 FlowGraphEdge.builder().id("e1").source("start").target("approval").build(),

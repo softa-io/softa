@@ -267,7 +267,7 @@ class FlowInstanceAccessGuardTest {
         // The approver of the first submission, named there by their task alone.
         when(modelService.searchList(eq("FlowApprovalTask"), argThat(query -> query != null && new Filters()
                 .in(FlowApprovalTask::getInstanceId, List.of("first"))
-                .eq(FlowApprovalTask::getActorId, "2001").equals(query.getFilters()))))
+                .eq(FlowApprovalTask::getAssigneeId, "2001").equals(query.getFilters()))))
                 .thenReturn(List.of(Map.of("instanceId", "first")));
 
         assertDoesNotThrow(() -> guard.requireInstanceViewer(second, "2001"));
@@ -482,7 +482,7 @@ class FlowInstanceAccessGuardTest {
     private static Filters tasksOf(String userId, String... instanceIds) {
         return new Filters()
                 .in(FlowApprovalTask::getInstanceId, List.of(instanceIds))
-                .eq(FlowApprovalTask::getActorId, userId);
+                .eq(FlowApprovalTask::getAssigneeId, userId);
     }
 
     private static ArgumentMatcher<FlexQuery> tasksQueryOf(String userId, String... instanceIds) {

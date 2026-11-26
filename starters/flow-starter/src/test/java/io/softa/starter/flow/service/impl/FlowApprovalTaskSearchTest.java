@@ -117,14 +117,14 @@ class FlowApprovalTaskSearchTest {
 
     @Test
     void filtersNamingAnotherActorStillFindOnlyTheCallersTasks() {
-        search(FlowApprovalTaskBox.PENDING, "[\"actorId\", \"=\", \"boss\"]", null);
+        search(FlowApprovalTaskBox.PENDING, "[\"assigneeId\", \"=\", \"boss\"]", null);
         assertEquals(List.of(), matched(), "the boss's tasks are not the caller's to search");
 
         search(FlowApprovalTaskBox.PENDING,
-                "[[\"actorId\", \"=\", \"boss\"], \"OR\", [\"instanceTitle\", \"CONTAINS\", \"Taxi\"]]", null);
+                "[[\"assigneeId\", \"=\", \"boss\"], \"OR\", [\"instanceTitle\", \"CONTAINS\", \"Taxi\"]]", null);
         assertEquals(List.of("my pending taxi"), matched(), "an OR in the filters stays inside them");
 
-        search(FlowApprovalTaskBox.CC, "[[\"actorId\", \"!=\", \"me\"], \"OR\", [\"taskType\", \"=\", \"Approval\"]]",
+        search(FlowApprovalTaskBox.CC, "[[\"assigneeId\", \"!=\", \"me\"], \"OR\", [\"taskType\", \"=\", \"Approval\"]]",
                 null);
         assertEquals(List.of(), matched());
     }
@@ -168,7 +168,7 @@ class FlowApprovalTaskSearchTest {
         FlowApprovalTaskView view = page.getRows().getFirst();
         assertEquals("Taxi to the airport", view.getInstanceTitle());
         assertEquals(FlowExecutionStatus.WAITING, view.getInstanceStatus());
-        assertEquals("u-7", view.getInitiator().getId());
+        assertEquals("u-7", view.getSubmitter().getId());
     }
 
     @Test
@@ -214,7 +214,7 @@ class FlowApprovalTaskSearchTest {
 
     private static Map<String, Object> row(String actorId, String status, String taskType, String instanceTitle,
                                            String recordCode) {
-        return Map.of("actorId", actorId, "status", status, "taskType", taskType, "instanceTitle", instanceTitle,
+        return Map.of("assigneeId", actorId, "status", status, "taskType", taskType, "instanceTitle", instanceTitle,
                 "recordCode", recordCode);
     }
 
@@ -223,7 +223,7 @@ class FlowApprovalTaskSearchTest {
         task.setId(1L);
         task.setInstanceId("i1");
         task.setNodeId("manager");
-        task.setActorId("me");
+        task.setAssigneeId("me");
         task.setTaskType(FlowApprovalTaskType.APPROVAL);
         task.setStatus(FlowApprovalTaskStatus.PENDING);
         task.setInstanceTitle("Taxi to the airport");

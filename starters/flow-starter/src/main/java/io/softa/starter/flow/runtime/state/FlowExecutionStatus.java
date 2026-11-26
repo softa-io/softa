@@ -17,8 +17,6 @@ import io.softa.framework.base.annotation.OptionSet;
 @AllArgsConstructor
 @OptionSet
 public enum FlowExecutionStatus {
-    /** Instance created but not yet started (async-launch scenario). */
-    PENDING("Pending"),
     RUNNING("Running"),
     /**
      * Parked on one or more waits — a pending approval and/or an async-task

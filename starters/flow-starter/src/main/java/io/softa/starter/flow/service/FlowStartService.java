@@ -10,7 +10,7 @@ import io.softa.starter.flow.runtime.state.FlowExecutionState;
  * Launch facade: the editor's test run of a draft, and the submission (and withdrawal) of business records for
  * approval, with its preview.
  */
-public interface FlowLaunchService {
+public interface FlowStartService {
 
     /**
      * The editor's test run of an approval flow: what submitting a request with {@code values} as

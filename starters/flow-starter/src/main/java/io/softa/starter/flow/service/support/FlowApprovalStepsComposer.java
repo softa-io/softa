@@ -55,7 +55,7 @@ public class FlowApprovalStepsComposer {
 
     /** What else happens on a step besides its approvers' decisions: listed under it. */
     private static final Set<ApprovalActionType> STEP_EVENTS = EnumSet.of(ApprovalActionType.CC,
-            ApprovalActionType.URGE, ApprovalActionType.COMMENT, ApprovalActionType.ADD_SIGN);
+            ApprovalActionType.URGE, ApprovalActionType.COMMENT);
 
     /** An approver's decision, as their row shows it when no task of theirs does (history recorded before tasks). */
     private static final Map<ApprovalActionType, ApproverResult> DECISIONS = Map.of(
@@ -197,7 +197,7 @@ public class FlowApprovalStepsComposer {
                     .nodeId(expected.getNodeId())
                     .nodeLabel(expected.getNodeLabel())
                     .state(StepState.UPCOMING)
-                    .approvalMode(modeOf(definition, expected.getNodeId(), approverResolution))
+                    .voteThreshold(modeOf(definition, expected.getNodeId(), approverResolution))
                     .requiredApprovals(expected.getRequiredApprovals())
                     .approvers(approvers)
                     .outcome(expected.getOutcome())
@@ -216,20 +216,16 @@ public class FlowApprovalStepsComposer {
         if (!StringUtils.hasText(task.getNodeId())) {
             return false;
         }
-        if (task.getTaskType() != null) {
-            return FlowApprovalTaskType.APPROVAL.equals(task.getTaskType());
-        }
-        return task.getStatus() != FlowApprovalTaskStatus.CC && task.getStatus() != FlowApprovalTaskStatus.READ;
+        return FlowApprovalTaskType.APPROVAL.equals(task.getTaskType());
     }
 
     /** The copies sent, by step and recipient: whether each was read. */
     private static Map<String, FlowApprovalTask> copiesOf(List<FlowApprovalTask> tasks) {
         Map<String, FlowApprovalTask> copies = new HashMap<>();
         for (FlowApprovalTask task : tasks) {
-            boolean copy = FlowApprovalTaskType.CC.equals(task.getTaskType())
-                    || task.getStatus() == FlowApprovalTaskStatus.CC || task.getStatus() == FlowApprovalTaskStatus.READ;
-            if (copy && task.getActorId() != null) {
-                copies.put(copyKey(task.getNodeId(), task.getActorId()), task);
+            boolean copy = FlowApprovalTaskType.CC.equals(task.getTaskType());
+            if (copy && task.getAssigneeId() != null) {
+                copies.put(copyKey(task.getNodeId(), task.getAssigneeId()), task);
             }
         }
         return copies;
@@ -315,13 +311,13 @@ public class FlowApprovalStepsComposer {
         return step;
     }
 
-    /** A step's approval mode as its definition sets it, or null when its revision is not at hand. */
+    /** A step's vote threshold as its definition sets it, or null when its revision is not at hand. */
     private static VoteThresholdMode modeOf(CompiledFlowDefinition definition, String nodeId,
                                            ApproverResolutionService approverResolution) {
         CompiledFlowNode node = definition == null || definition.getNodeIndex() == null || nodeId == null
                 ? null : definition.getNodeIndex().get(nodeId);
         return node == null || !FlowNodeType.APPROVAL.equals(node.getType()) ? null
-                : approverResolution.resolveApprovalMode(node);
+                : approverResolution.resolveVoteThreshold(node);
     }
 
     private static Actor actor(String id) {
@@ -362,14 +358,14 @@ public class FlowApprovalStepsComposer {
             ApproverResult result = resultOf(task.getStatus());
             ApprovalActionAuditEntry decision = result == ApproverResult.PENDING ? null : lastDecisionOf(task, entries);
             approvers.add(Approver.builder()
-                    .actor(actor(task.getActorId()))
+                    .actor(actor(task.getAssigneeId()))
                     .result(result)
                     .target(decision == null ? null : actor(decision.getTargetActorId()))
                     .operator(decision == null ? null : actor(decision.getOperatorId()))
                     .time(result == ApproverResult.PENDING ? null : task.getEndTime())
                     .comment(task.getComment())
                     .build());
-            listed.add(task.getActorId());
+            listed.add(task.getAssigneeId());
             enteredAt = earlier(enteredAt, task.getStartTime());
             finishedAt = later(finishedAt, task.getEndTime());
             if (task.getRequiredApprovalCount() != null) {
@@ -437,7 +433,7 @@ public class FlowApprovalStepsComposer {
                     .nodeId(nodeId)
                     .nodeLabel(StringUtils.hasText(nodeLabel) ? nodeLabel : labelOf(definition))
                     .state(current ? StepState.CURRENT : StepState.DONE)
-                    .approvalMode(current && waiting.getApprovalMode() != null ? waiting.getApprovalMode()
+                    .voteThreshold(current && waiting.getVoteThreshold() != null ? waiting.getVoteThreshold()
                             : modeOf(definition, nodeId, approverResolution))
                     .requiredApprovals(current && waiting.getRequiredApprovalCount() != null
                             ? waiting.getRequiredApprovalCount() : requiredApprovals)
@@ -462,7 +458,7 @@ public class FlowApprovalStepsComposer {
             ApprovalActionAuditEntry last = null;
             for (ApprovalActionAuditEntry entry : entries) {
                 if (DECISIONS.containsKey(entry.getAction()) && Objects.equals(nodeId, entry.getNodeId())
-                        && Objects.equals(task.getActorId(), entry.getActorId())) {
+                        && Objects.equals(task.getAssigneeId(), entry.getActorId())) {
                     last = entry;
                 }
             }
@@ -476,7 +472,7 @@ public class FlowApprovalStepsComposer {
                 case RETURNED -> ApproverResult.RETURNED;
                 case TRANSFERRED -> ApproverResult.TRANSFERRED;
                 case DELEGATED -> ApproverResult.DELEGATED;
-                case CANCELED, WITHDRAWN -> ApproverResult.NOT_NEEDED;
+                case CANCELLED, WITHDRAWN -> ApproverResult.NOT_NEEDED;
                 case null, default -> ApproverResult.PENDING;
             };
         }
