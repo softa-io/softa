@@ -241,7 +241,7 @@ class OffBoardAndReviveTest {
         verify(accountService, org.mockito.Mockito.times(2)).updateOne(named.capture());
         assertThat(named.getAllValues().get(0))
                 .extracting(UserAccount::getId, UserAccount::getNickname, UserAccount::getUsername)
-                .containsExactly(100L, "Ada Lovelace", "new@acme.com");
+                .containsExactly(100L, "Ada Lovelace", "Ada Lovelace");
         // No name on the record: the login identifier, as a new account gets.
         assertThat(named.getAllValues().get(1))
                 .extracting(UserAccount::getNickname, UserAccount::getUsername)

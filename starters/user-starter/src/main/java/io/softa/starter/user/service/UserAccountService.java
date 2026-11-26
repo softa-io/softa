@@ -117,10 +117,10 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
      * {@link io.softa.starter.user.enums.AccountStatus#INVITED}; accepting the link then
      * sets the password and activates it.
      *
-     * @param email    Email (used as the username when present)
-     * @param mobile   Mobile (used as the username when email is absent)
-     * @param fullName Display name for the account (nickname) and profile; when blank, falls
-     *                 back to the login identifier (email or mobile)
+     * @param email    Email
+     * @param mobile   Mobile
+     * @param fullName The person's name: the account's username and nickname and the profile's name;
+     *                 when blank, all three fall back to the email, else the mobile
      * @return UserInfo
      */
     UserInfo registerInvitedUser(String email, String mobile, String fullName);
@@ -300,8 +300,8 @@ public interface UserAccountService extends EntityService<UserAccount, Long> {
     java.util.Optional<UserAccount> reviveAccount(Long accountId, String workEmail, String workMobile);
 
     /**
-     * Name a revived membership as a new one is named — nickname from the employee's name, username from
-     * the email or mobile. Reviving clears both; the join page shows the nickname to the invitee.
+     * Name a revived membership as a new one is named — username and nickname from the employee's name,
+     * else the email or mobile. Reviving clears both; the join page shows the nickname to the invitee.
      */
     void nameRevivedAccount(Long accountId, String email, String mobile, String fullName);
 
