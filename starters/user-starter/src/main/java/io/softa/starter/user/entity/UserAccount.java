@@ -26,16 +26,19 @@ import io.softa.starter.user.enums.AccountStatus;
 // endpoints without a shadow each. UserAccountController shadows every OTHER generic endpoint so the
 // roster scope applies to by-id reads and writes; copy is the one family the framework refuses on
 // its own once this is false.
-// displayName: the account as pickers and references show it — the person's name (nickname) and the
-// login it signs in with, which tells two people of one name apart. Undeclared, it fell back to the
-// id, and every account picker listed bare numbers.
+// displayName: the account as pickers and references show it — the person's name (nickname), then its
+// work email and mobile, which tell two people of one name apart; an empty one is left out. The mobile
+// is there for the worker with no work email, whom only the mobile tells apart. Not the username: an
+// account created for someone is named after them, so the username repeats the nickname and separates
+// nobody. searchName is the same three, so what is shown is what finds the account. Undeclared,
+// displayName fell back to the id, and every account picker listed bare numbers.
 @Model(
         idStrategy = IdStrategy.DISTRIBUTED_LONG,
         multiTenant = true,
         copyable = false,
-        displayName = {"nickname", "username"},
-        searchName = {"nickname", "username"},
-        defaultOrder = {"nickname", "username"}
+        displayName = {"nickname", "email", "mobile"},
+        searchName = {"nickname", "email", "mobile"},
+        defaultOrder = {"nickname", "email"}
 )
 /**
  * A MEMBERSHIP: one person's employment at one company. The person is {@link UserProfile}.

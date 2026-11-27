@@ -68,9 +68,22 @@ hops through `profileId` first.
 | `UserListViewPreference` | One person's arrangement of one list (see [List arrangements](#list-arrangements)) | `userId`, `viewStateKey`, `modelName`, `columns`, `exportFields`, `exportObjectFields`, `viewSettings` |
 
 Wherever another row references an account or a picker lists accounts, the account
-shows as `nickname / username` (`@Model(displayName)`): the person's name and the
-login that tells two people of one name apart; an empty one is left out. Either one
-finds it in a search (`searchName`).
+shows as `nickname / email / mobile` (`@Model(displayName)`): the person's name, then
+the work email and mobile that tell two people of one name apart; an empty one is left
+out, so a worker with no work email shows as name and mobile. Any of the three finds it
+in a search (`searchName`). Not the username: an account created for
+someone (`registerInvitedUser`) takes their name as its username as well as its
+nickname, falling back to the email, then the mobile, only when there is no name.
+
+On the roster (`/UserAccount/searchPage`, `searchList`), where an HR deployment has an `Employee`
+model, a search also matches the account of an employee whose name or code contains the term — an
+account nobody has joined yet has no nickname, and the employee's name is how HR knows the person.
+
+An account's `status` moves only through its operations (invite, revoke, freeze, unfreeze,
+unbind and re-invite, re-hire, off-boarding): the update endpoints refuse a write that sets it,
+by id or by filter. An account is never deleted — `/UserAccount/deleteById` and `deleteByIds`
+refuse every call; one is created with each employee record, and someone who should not use the
+app is not invited, or is frozen.
 
 ## Authentication & security
 

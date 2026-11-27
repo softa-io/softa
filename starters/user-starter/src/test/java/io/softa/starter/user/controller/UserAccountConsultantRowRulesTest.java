@@ -171,13 +171,12 @@ class UserAccountConsultantRowRulesTest {
 
     @Test
     void deletingAConsultantIsRefused() {
-        // It is the actor the tenant's own audit log points at. Removing it blanks the authorship of
-        // every change the consultant made while they had access.
+        // No account is deleted at all now; a consultant's is refused with the rest.
         rosterSees(consultantRow(CONSULTANT_ROW));
         withIds(() -> asTenantAdmin(() -> {
             assertThatThrownBy(() -> controller.deleteByIds(List.of(CONSULTANT_ROW)))
                     .isInstanceOf(BusinessException.class)
-                    .hasMessageContaining("managed by the platform");
+                    .hasMessageContaining("not deleted");
             return null;
         }));
         verify(modelService, never()).deleteByIds(eq("UserAccount"), any());
@@ -247,33 +246,6 @@ class UserAccountConsultantRowRulesTest {
     }
 
     // ─── the bounds the generic endpoint applied, kept by its shadow ───
-
-    @Test
-    void anOversizedIdListIsRefusedBeforeAnythingIsRead() {
-        // ModelController.validateIds caps a by-id list at MAX_BATCH_SIZE; the shadow replaced it
-        // with a bare notEmpty and lost the cap, so /UserAccount/deleteByIds accepted a hundred
-        // thousand ids — a by-id endpoint turned into a way to walk, or empty, the table.
-        List<Long> tooMany = java.util.stream.LongStream.rangeClosed(1, 10_001).boxed().toList();
-        asTenantAdmin(() -> {
-            assertThatThrownBy(() -> controller.deleteByIds(tooMany))
-                    .hasMessageContaining("maximum");
-            return null;
-        });
-        verify(modelService, never()).deleteByIds(eq("UserAccount"), any());
-        verify(modelService, never()).count(eq("UserAccount"), any());
-    }
-
-    @Test
-    void aNullInTheIdListIsRefused() {
-        // The other half of validateIds. A null element widens the IN to every row.
-        List<Long> withNull = java.util.Arrays.asList(1L, null, 3L);
-        asTenantAdmin(() -> {
-            assertThatThrownBy(() -> controller.deleteByIds(withNull))
-                    .hasMessageContaining("null");
-            return null;
-        });
-        verify(modelService, never()).deleteByIds(eq("UserAccount"), any());
-    }
 
     // ─── reading one is fine: that is what puts it on the roster ───
 

@@ -398,12 +398,10 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
         UserProfileDTO profileInfo = new UserProfileDTO();
         accountInfo.setEmail(email);
         accountInfo.setMobile(mobile);
-        // Username = email if present, else mobile (mirrors registerNewUser)
-        String identifier = StringUtils.isNotBlank(email) ? email : mobile;
-        accountInfo.setUsername(identifier);
-        // Display name: caller-supplied fullName (e.g. an employee's real name) when present,
-        // else fall back to the login identifier so account/profile display is never blank.
-        String displayName = StringUtils.isNotBlank(fullName) ? fullName : identifier;
+        // Username and nickname alike: the caller-supplied name (e.g. an employee's real name) when
+        // there is one, else the login identifier, so the account is never shown blank.
+        String displayName = invitedAccountName(email, mobile, fullName);
+        accountInfo.setUsername(displayName);
         accountInfo.setNickname(displayName);
         profileInfo.setFullName(displayName);
 
@@ -1562,21 +1560,34 @@ public class UserAccountServiceImpl extends EntityServiceImpl<UserAccount, Long>
     }
 
     /**
-     * Name a revived membership the way a new one is named: nickname = the employee's name (else the login
-     * identifier), username = the email (else the mobile). Reviving clears both, since the previous
-     * stint's may not be the new one's; without them the join page has no name to show.
+     * Name a revived membership the way a new one is named: username and nickname = the employee's name,
+     * else the login identifier. Reviving clears both, since the previous stint's may not be the new
+     * one's; without them the join page has no name to show.
      */
     @SkipPermissionCheck
     @Override
     @CrossTenant
     @Transactional
     public void nameRevivedAccount(Long accountId, String email, String mobile, String fullName) {
-        String identifier = StringUtils.isNotBlank(email) ? email : mobile;
+        String name = invitedAccountName(email, mobile, fullName);
         UserAccount named = new UserAccount();
         named.setId(accountId);
-        named.setUsername(identifier);
-        named.setNickname(StringUtils.isNotBlank(fullName) ? fullName : identifier);
+        named.setUsername(name);
+        named.setNickname(name);
         this.updateOne(named);
+    }
+
+    /**
+     * What an account created for someone is called, as its username and its nickname: their name when
+     * the caller has one, else the email, else the mobile. The username is what the account list shows
+     * the account by; signing in does not read it (email login resolves the person by their login
+     * email), so naming the account after the person costs the login nothing.
+     */
+    private static String invitedAccountName(String email, String mobile, String fullName) {
+        if (StringUtils.isNotBlank(fullName)) {
+            return fullName.trim();
+        }
+        return StringUtils.isNotBlank(email) ? email : mobile;
     }
 
     /**
