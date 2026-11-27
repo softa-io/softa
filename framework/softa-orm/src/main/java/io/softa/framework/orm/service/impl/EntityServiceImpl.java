@@ -606,17 +606,18 @@ public abstract class EntityServiceImpl<T extends AbstractModel, K extends Seria
     }
 
     /**
-     * A row built from an entity with its one-to-many and many-to-many fields left out where they are null.
+     * A row built from an entity with its one-to-many and many-to-many fields left out where they are null, at every
+     * level: the child rows written along with it are cleaned the same way, by their own model.
      *
      * <p>An entity read by {@code getById} does not load its to-many fields — they are not columns — so a null
      * there means "not loaded", never "clear". Written back with {@code ignoreNull = false}, which is how a
      * service writes the nulls it means (a detached reference, a cleared email), that null reached the relation
      * processors as a request to delete every row or link: reopening, re-inviting or re-syncing an account
-     * silently took all its roles away. To clear a to-many field, set it to an empty list.
+     * silently took all its roles away. A loaded child written back with its parent carries the same nulls for
+     * its own to-many fields. To clear a to-many field, set it to an empty list.
      */
     private Map<String, Object> withoutUnloadedRelation(Map<String, Object> row) {
-        row.entrySet().removeIf(entry -> entry.getValue() == null && isToMany(entry.getKey()));
-        return row;
+        return withoutUnloadedRelations(modelName, row);
     }
 
     /** {@link #withoutUnloadedRelation} for each row. */
@@ -625,8 +626,44 @@ public abstract class EntityServiceImpl<T extends AbstractModel, K extends Seria
         return rows;
     }
 
-    private boolean isToMany(String fieldName) {
-        MetaField field = ModelManager.getModelFieldOrNull(modelName, fieldName);
+    /**
+     * Leaves the null to-many fields of a row of the given model out, then does the same for the child rows it
+     * carries in its relational fields, each by the model that field relates to.
+     *
+     * @param model the model the row belongs to
+     * @param row the row, changed in place
+     * @return the same row
+     */
+    private static Map<String, Object> withoutUnloadedRelations(String model, Map<String, Object> row) {
+        row.entrySet().removeIf(entry -> entry.getValue() == null && isToMany(model, entry.getKey()));
+        row.forEach((fieldName, value) -> {
+            if (!(value instanceof Map<?, ?>) && !(value instanceof List<?>)) {
+                return;
+            }
+            MetaField field = ModelManager.getModelFieldOrNull(model, fieldName);
+            if (field == null || field.getRelatedModel() == null) {
+                return;
+            }
+            if (value instanceof Map<?, ?> child) {
+                withoutUnloadedRelations(field.getRelatedModel(), asRow(child));
+            } else {
+                for (Object item : (List<?>) value) {
+                    if (item instanceof Map<?, ?> child) {
+                        withoutUnloadedRelations(field.getRelatedModel(), asRow(child));
+                    }
+                }
+            }
+        });
+        return row;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asRow(Map<?, ?> child) {
+        return (Map<String, Object>) child;
+    }
+
+    private static boolean isToMany(String model, String fieldName) {
+        MetaField field = ModelManager.getModelFieldOrNull(model, fieldName);
         return field != null && FieldType.TO_MANY_TYPES.contains(field.getFieldType());
     }
 }

@@ -72,7 +72,7 @@ class EntityUpdateUnloadedRelationsTest {
         models = Mockito.mockStatic(ModelManager.class);
         models.when(() -> ModelManager.getModelFieldOrNull(eq("Account"), anyString())).thenAnswer(inv -> switch ((String) inv.getArgument(1)) {
             case "roles" -> field("roles", FieldType.MANY_TO_MANY);
-            case "lines" -> field("lines", FieldType.ONE_TO_MANY);
+            case "lines" -> related(field("lines", FieldType.ONE_TO_MANY), "Account");
             case "email" -> field("email", FieldType.STRING);
             case "profileId" -> field("profileId", FieldType.MANY_TO_ONE);
             default -> null;
@@ -111,6 +111,11 @@ class EntityUpdateUnloadedRelationsTest {
         MetaField field = new MetaField();
         ReflectionTestUtils.setField(field, "fieldName", name);
         ReflectionTestUtils.setField(field, "fieldType", type);
+        return field;
+    }
+
+    private static MetaField related(MetaField field, String relatedModel) {
+        ReflectionTestUtils.setField(field, "relatedModel", relatedModel);
         return field;
     }
 
@@ -160,6 +165,29 @@ class EntityUpdateUnloadedRelationsTest {
         ArgumentCaptor<List<Map<String, Object>>> rows = ArgumentCaptor.forClass(List.class);
         verify(modelService).updateList(eq("Account"), rows.capture());
         assertThat(rows.getValue()).allSatisfy(row -> assertThat(row).doesNotContainKeys("roles", "lines"));
+    }
+
+    /**
+     * A loaded child written back with its parent carries the same unloaded to-many fields; they are left out of the
+     * child row too, while the child's own cleared column is still written.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aChildWrittenWithItsParentLeavesItsUnloadedToManyFieldsOut() {
+        Account child = loaded();
+        child.setEmail(null);
+        Account account = loaded();
+        account.setLines(new ArrayList<>(List.of(child)));
+
+        service.updateOne(account, false);
+
+        ArgumentCaptor<Map<String, Object>> row = ArgumentCaptor.forClass(Map.class);
+        verify(modelService).updateOne(eq("Account"), row.capture());
+        List<Map<String, Object>> lines = (List<Map<String, Object>>) row.getValue().get("lines");
+        assertThat(lines).singleElement().satisfies(line -> {
+            assertThat(line).doesNotContainKeys("roles", "lines");
+            assertThat(line).containsEntry("email", null);
+        });
     }
 
     /** One entity write path of the service, named for the test report. */
