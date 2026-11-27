@@ -193,6 +193,131 @@ class MultiOwnerScopeTest {
     }
 
     @Test
+    void aChildBothCollectedAndPointedAtOneToOneIsReachedThroughEither() {
+        // The parent owns a collection of the child and also points at one of them as "the current
+        // one". Every row of the collection is the parent's, not only the one it points at.
+        declareCollectedAndCurrent();
+        grant(List.of("Employee"));
+
+        // The rows the in-range parent collects, or the one it points at — either side of the OR.
+        assertThat(scopeOf(CHILD).toString())
+                .contains("OR", "\"employeeId\",\"IN\",[5]", "\"id\",\"IN\",[7]");
+    }
+
+    @Test
+    void aNewChildAlsoCollectedOneToManyIsStillJudgedOnItsOwnBackReference() {
+        // Created on its own, it names its parent in its back-reference; no owner's write has to point
+        // at it one-to-one afterwards, so its own range check is the only one it gets. The same check
+        // refuses one created nested in the parent's one-to-one field: it is written before the parent
+        // with its back-reference still empty, so no in-range parent collects it yet. That is the
+        // accepted cost, pinned here: a nested create of such a child does not pass.
+        declareCollectedAndCurrent();
+        grant(List.of("Employee"));
+        when(modelService.count(eq(CHILD), any(Filters.class))).thenReturn(0L);
+
+        assertThatThrownBy(() -> asCaller(() -> {
+            service.checkIdsAccess(CHILD, List.<Serializable>of(99L), AccessType.CREATE);
+            return null;
+        })).isNotNull();
+
+        ArgumentCaptor<Filters> checked = ArgumentCaptor.forClass(Filters.class);
+        verify(modelService).count(eq(CHILD), checked.capture());
+        assertThat(checked.getValue().toString()).contains("\"employeeId\",\"IN\",[5]");
+    }
+
+    @Test
+    void aNewChildNamingAnInRangeParentIsLetThrough() {
+        declareCollectedAndCurrent();
+        grant(List.of("Employee"));
+        when(modelService.count(eq(CHILD), any(Filters.class))).thenReturn(1L);
+
+        asCaller(() -> {
+            service.checkIdsAccess(CHILD, List.<Serializable>of(99L), AccessType.CREATE);
+            return null;
+        });
+
+        ArgumentCaptor<Filters> checked = ArgumentCaptor.forClass(Filters.class);
+        verify(modelService).count(eq(CHILD), checked.capture());
+        assertThat(checked.getValue().toString()).contains("\"employeeId\",\"IN\",[5]");
+    }
+
+    @Test
+    void aCollectedRowTheParentDoesNotPointAtCanBeUpdatedWhenItsParentIsInRange() {
+        // Row 8 is in the in-range parent's collection; the parent points at row 7 as the current one.
+        declareCollectedAndCurrent();
+        grant(List.of("Employee"));
+        when(modelService.count(eq(CHILD), any(Filters.class))).thenReturn(1L);
+
+        asCaller(() -> {
+            service.checkIdsAccess(CHILD, List.<Serializable>of(8L), AccessType.UPDATE);
+            return null;
+        });
+
+        ArgumentCaptor<Filters> checked = ArgumentCaptor.forClass(Filters.class);
+        verify(modelService).count(eq(CHILD), checked.capture());
+        assertThat(checked.getValue().toString()).contains("\"employeeId\",\"IN\",[5]");
+    }
+
+    @Test
+    void aCollectedRowIsRefusedForAnUpdateWhenItsParentIsOutOfRange() {
+        declareCollectedAndCurrent();
+        // No parent in range: nothing collects a row for this role, and nothing points at one.
+        when(modelService.getIds(eq("Employee"), any(Filters.class))).thenReturn(List.of());
+        when(modelService.getRelatedIds(eq("Employee"), any(Filters.class), eq("currentChildId")))
+                .thenReturn(List.of());
+        grant(List.of("Employee"));
+        when(modelService.count(eq(CHILD), any(Filters.class))).thenReturn(0L);
+
+        assertThatThrownBy(() -> asCaller(() -> {
+            service.checkIdsAccess(CHILD, List.<Serializable>of(8L), AccessType.UPDATE);
+            return null;
+        })).hasMessageContaining("outside your UPDATE scope");
+    }
+
+    @Test
+    void aChildPointedAtByOneParentAndCollectedByAnotherIsReachedThroughEither() {
+        // The edges are merged by kind, not by owner: Employee points at row 7 one-to-one, Contract
+        // collects rows by their contractId. A role granted both reaches the rows of either.
+        MetaField collection = mock(MetaField.class);
+        when(collection.getRelatedModel()).thenReturn(CHILD);
+        when(collection.getFieldType()).thenReturn(FieldType.ONE_TO_MANY);
+        when(collection.getFieldName()).thenReturn("children");
+        when(collection.getRelatedField()).thenReturn("contractId");
+        declare("Employee", oneToOne("currentChildId", OnDelete.SET_NULL));
+        declare("Contract", collection);
+        when(compiler.compile(anyList(), eq("Contract"))).thenReturn(null);
+        when(modelService.getRelatedIds(eq("Employee"), any(Filters.class), eq("currentChildId")))
+                .thenReturn(List.of(7L));
+        when(modelService.getIds(eq("Contract"), any(Filters.class))).thenReturn(List.of(30L));
+
+        for (List<String> order : List.of(List.of("Contract", "Employee"), List.of("Employee", "Contract"))) {
+            grant(order);
+            assertThat(scopeOf(CHILD).toString()).as("grant order %s", order)
+                    .contains("OR", "\"contractId\",\"IN\",[30]", "\"id\",\"IN\",[7]");
+        }
+
+        when(modelService.count(eq(CHILD), any(Filters.class))).thenReturn(2L);
+        asCaller(() -> {
+            service.checkIdsAccess(CHILD, List.<Serializable>of(7L, 31L), AccessType.UPDATE);
+            return null;
+        });
+    }
+
+    private void declareCollectedAndCurrent() {
+        MetaField current = oneToOne("currentChildId", OnDelete.SET_NULL);
+        MetaField collection = mock(MetaField.class);
+        when(collection.getRelatedModel()).thenReturn(CHILD);
+        when(collection.getFieldType()).thenReturn(FieldType.ONE_TO_MANY);
+        when(collection.getFieldName()).thenReturn("children");
+        when(collection.getRelatedField()).thenReturn("employeeId");
+        modelManager.when(() -> ModelManager.existModel("Employee")).thenReturn(true);
+        modelManager.when(() -> ModelManager.getModelFields("Employee")).thenReturn(List.of(current, collection));
+        when(modelService.getRelatedIds(eq("Employee"), any(Filters.class), eq("currentChildId")))
+                .thenReturn(List.of(7L));
+        when(modelService.getIds(eq("Employee"), any(Filters.class))).thenReturn(List.of(5L));
+    }
+
+    @Test
     void aReportAloneDoesNotOpenTheProfile() {
         declare("BirthdayCountdown", oneToOne("employeeProfileId", OnDelete.CASCADE));
         grant(List.of("BirthdayCountdown"));
