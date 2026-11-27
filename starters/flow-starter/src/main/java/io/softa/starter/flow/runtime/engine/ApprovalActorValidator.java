@@ -51,7 +51,7 @@ public class ApprovalActorValidator {
         requireActorIsApprover(pendingApproval, request.getActorId(), node);
         requireTargetNotExisting(pendingApproval, request.getTargetActorId(), node);
         requireNotVoted(pendingApproval, request.getActorId(), node);
-        requireUsable(List.of(request.getTargetActorId()));
+        requireCanApprove(List.of(request.getTargetActorId()));
     }
 
     /**
@@ -63,7 +63,7 @@ public class ApprovalActorValidator {
         requireNonEmptyApprovers(pendingApproval, node);
         requireActorIsApprover(pendingApproval, actorId, node);
         requireNotVoted(pendingApproval, actorId, node);
-        requireUsable(List.of(targetActorId));
+        requireCanApprove(List.of(targetActorId));
     }
 
     /**
@@ -127,6 +127,13 @@ public class ApprovalActorValidator {
     private void requireUsable(Collection<String> userIds) {
         if (actorAccounts != null) {
             actorAccounts.requireUsable(userIds);
+        }
+    }
+
+    /** Someone handed the task to decide: able to act, and allowed to approve. */
+    private void requireCanApprove(Collection<String> userIds) {
+        if (actorAccounts != null) {
+            actorAccounts.requireCanApprove(userIds);
         }
     }
 

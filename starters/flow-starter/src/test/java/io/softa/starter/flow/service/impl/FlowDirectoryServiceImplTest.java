@@ -7,12 +7,16 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
 import io.softa.framework.base.context.ContextHolder;
+import io.softa.starter.flow.runtime.TestActorAccounts;
+import io.softa.starter.flow.runtime.engine.ActorAccounts;
 import io.softa.starter.flow.runtime.spi.DirectoryPerson;
 import io.softa.starter.flow.runtime.spi.OrganizationService;
 import io.softa.starter.flow.service.support.FlowUserNames;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -49,6 +53,84 @@ class FlowDirectoryServiceImplTest {
 
         directory.searchDepartments("fin", 50);
         verify(organization).searchDepartments("fin", 50);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aPickerChoosingWhomToHandATaskToDecide_findsOnlyThoseAllowedToApprove() {
+        when(organization.searchPeople("a", 20)).thenReturn(List.of(
+                new DirectoryPerson(1L, "Ann Lee", "E001", "Finance", null, true),
+                new DirectoryPerson(2L, "Bob Wu", "E002", "Finance", null, true),
+                new DirectoryPerson(3L, "Cat Ng", "E003", "Finance", null, true)));
+        ObjectProvider<OrganizationService> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(organization);
+        ObjectProvider<ActorAccounts> accounts = mock(ObjectProvider.class);
+        // Bob holds no role that approves.
+        ActorAccounts bobMayNotApprove = TestActorAccounts.of(Map.of(), Map.of(), Set.of(2L));
+        when(accounts.getIfAvailable()).thenReturn(bobMayNotApprove);
+        FlowDirectoryServiceImpl withAccounts = new FlowDirectoryServiceImpl(provider, userNames, accounts);
+
+        assertEquals(List.of(1L, 3L), withAccounts.searchPeople("a", null, true).stream()
+                .map(DirectoryPerson::id).toList());
+        // Every other picker — a CC, a filter by submitter — still finds everyone who signs in.
+        assertEquals(List.of(1L, 2L, 3L), withAccounts.searchPeople("a", null).stream()
+                .map(DirectoryPerson::id).toList());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void anApproversOnlyPage_isFilledFromFurtherDown_soAShortPageStillMeansTheEnd() {
+        // 60 people, every even one unable to approve: the first 20 read hold only 10 approvers.
+        List<DirectoryPerson> everyone = LongStream.rangeClosed(1, 60)
+                .mapToObj(id -> new DirectoryPerson(id, "P" + id, "E" + id, "Finance", null, true))
+                .toList();
+        when(organization.searchPeople(eq("p"), anyInt())).thenAnswer(invocation ->
+                everyone.subList(0, Math.min(invocation.<Integer>getArgument(1), everyone.size())));
+        ObjectProvider<OrganizationService> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(organization);
+        ObjectProvider<ActorAccounts> accounts = mock(ObjectProvider.class);
+        Set<Long> unable = new HashSet<>();
+        LongStream.rangeClosed(1, 60).filter(id -> id % 2 == 0).forEach(unable::add);
+        ActorAccounts oddOnesApprove = TestActorAccounts.of(Map.of(), Map.of(), unable);
+        when(accounts.getIfAvailable()).thenReturn(oddOnesApprove);
+        FlowDirectoryServiceImpl withAccounts = new FlowDirectoryServiceImpl(provider, userNames, accounts);
+
+        List<Long> page = withAccounts.searchPeople("p", 20, true).stream().map(DirectoryPerson::id).toList();
+        assertEquals(LongStream.iterate(1, id -> id + 2).limit(20).boxed().toList(), page,
+                "the first 20 approvers by name, read past the first 20 people");
+
+        // Only 30 approvers exist: asked for 40, the page is short, which the picker reads as the end.
+        assertEquals(30, withAccounts.searchPeople("p", 40, true).size());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void fillingAnApproversOnlyPage_asksAboutEachPersonOnce_thoughEachWiderReadStartsOverFromTheTop() {
+        // Every even one unable to approve: filling 20 reads 20 people, then 40 from the top again.
+        List<DirectoryPerson> everyone = LongStream.rangeClosed(1, 60)
+                .mapToObj(id -> new DirectoryPerson(id, "P" + id, "E" + id, "Finance", null, true))
+                .toList();
+        when(organization.searchPeople(eq("p"), anyInt())).thenAnswer(invocation ->
+                everyone.subList(0, Math.min(invocation.<Integer>getArgument(1), everyone.size())));
+        ObjectProvider<OrganizationService> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(organization);
+        Set<Long> unable = new HashSet<>();
+        LongStream.rangeClosed(1, 60).filter(id -> id % 2 == 0).forEach(unable::add);
+        ActorAccounts oddOnesApprove = spy(TestActorAccounts.of(Map.of(), Map.of(), unable));
+        ObjectProvider<ActorAccounts> accounts = mock(ObjectProvider.class);
+        when(accounts.getIfAvailable()).thenReturn(oddOnesApprove);
+        List<String> asked = new ArrayList<>();
+        doAnswer(invocation -> {
+            asked.addAll(invocation.getArgument(0));
+            return invocation.callRealMethod();
+        }).when(oddOnesApprove).ableToApprove(anyList());
+        FlowDirectoryServiceImpl withAccounts = new FlowDirectoryServiceImpl(provider, userNames, accounts);
+
+        assertEquals(20, withAccounts.searchPeople("p", 20, true).size());
+
+        // Each permission snapshot read once: the 20 of the first read, then only the 20 the wider one adds.
+        assertEquals(40, asked.size());
+        assertEquals(40, new HashSet<>(asked).size());
     }
 
     @Test

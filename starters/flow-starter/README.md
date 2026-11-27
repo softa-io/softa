@@ -161,7 +161,12 @@ entry that ended it — and announces a move once. The record write-back (`Appro
 **`ActorAccounts`** (`runtime/engine`) — the one place that decides whether accounts can act (`usable`,
 `whyUnusable`, `requireUsable`, over `OrganizationService.getUnusableAccounts`). Whatever names people goes through
 it: approver resolution, auto-delegation, the action targets (`ApprovalActorValidator`), reassignment, delegation
-rules and the designer's warnings (`ApproverAccountValidator`).
+rules and the designer's warnings (`ApproverAccountValidator`). Someone handed a task to decide — a transfer, a
+reassignment, a delegate — must also be allowed to approve (`whyCannotApprove`, `requireCanApprove`,
+`ableToApprove`): asked of the framework's `EndpointAccessChecker` (permission-starter's
+`SnapshotEndpointAccessChecker`) for `POST /flow/instances/approve`, by that person's own permissions. Without one
+every user who signs in may. A CC recipient only reads and is not asked; `GET /flow/directory/people?approvers=true`
+lists only people allowed to approve, for the pickers that hand a task on.
 
 ## Invariants
 

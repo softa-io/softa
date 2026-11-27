@@ -1,6 +1,7 @@
 package io.softa.framework.web.controller;
 
 import java.io.Serializable;
+import java.util.List;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
@@ -24,6 +25,7 @@ import io.softa.framework.orm.file.FileOpenKeys;
 import io.softa.framework.orm.file.FileOpenKeys.KeyCheck;
 import io.softa.framework.orm.service.FileService;
 import io.softa.framework.orm.service.PermissionService;
+import io.softa.framework.orm.service.RecordFieldEditGrant;
 import io.softa.framework.orm.utils.IdUtils;
 import io.softa.framework.web.response.ApiResponse;
 
@@ -44,6 +46,10 @@ public class FileController {
     @Autowired
     private FileOpenKeys fileOpenKeys;
 
+    /** Grants to write a field beyond the caller's own permissions on the model — an approval step's. */
+    @Autowired(required = false)
+    private List<RecordFieldEditGrant> fieldEditGrants;
+
     /**
      * Authorize attaching a file to an existing row — a change to that row, so it asks what a change to
      * that row asks.
@@ -61,6 +67,14 @@ public class FileController {
             throw new PermissionException("You may not attach files to " + modelName + ".");
         }
         permissionService.checkIdAccess(modelName, IdUtils.formatId(modelName, rowId), AccessType.UPDATE);
+    }
+
+    /** Whether a grant lets the caller write this field of this row, beyond their permissions on the model. */
+    private boolean grantedField(String modelName, Serializable rowId, String fieldName) {
+        if (fieldEditGrants == null || fieldEditGrants.isEmpty()) {
+            return false;
+        }
+        return fieldEditGrants.stream().anyMatch(grant -> grant.grants(modelName, rowId, fieldName));
     }
 
     /**
@@ -157,7 +171,12 @@ public class FileController {
         Assert.notBlank(modelName, "modelName cannot be empty.");
         Assert.notTrue(file.isEmpty(), "The file to upload cannot be empty!");
         if (rowId != null) {
-            assertCanAttach(modelName, rowId);
+            // A field someone may write by a grant of its own — an approver whose step lets them edit it —
+            // takes a file without their own permissions on the model; the write that saves it is the
+            // grant's to authorize, as the approval writes the edited fields back.
+            if (!this.grantedField(modelName, rowId, fieldName)) {
+                assertCanAttach(modelName, rowId);
+            }
         } else {
             // The create-form case: the record does not exist yet, so there is no row to check
             // against — but whether this caller may write the model at all is still answerable. What
