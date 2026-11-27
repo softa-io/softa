@@ -1,5 +1,7 @@
 package io.softa.starter.user.service.impl;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.RandomStringUtils;
@@ -254,6 +256,28 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         return e;
     }
 
+    /**
+     * The answer to switching into a company the picker does not list. One of the person's own that
+     * dropped off the list — their membership ended, or a consultancy lapsed, while the picker was
+     * open — is a company that cannot be entered now, coded so the APP refreshes the list. Anything
+     * else is not theirs, and gets the same answer as an id that does not exist: this ownership check
+     * is the whole gate, the caller names a company and nothing else about it is theirs to assert.
+     */
+    private BusinessException notListed(Long profileId, List<UserAccount> memberships, Long accountId) {
+        Optional<UserAccount> own = memberships.stream()
+                .filter(account -> accountId.equals(account.getId()))
+                .findFirst();
+        if (own.isPresent()) {
+            return orgUnavailable(accountDeniedMessage(own.get().getStatus()));
+        }
+        // The memberships leave out ended ones; an ended membership is still the person's own, and the
+        // commonest way a company drops off an open picker.
+        if (accountService.listAccountIdsOf(profileId).contains(accountId)) {
+            return orgUnavailable(accountDeniedMessage(AccountStatus.DEACTIVATED));
+        }
+        return new BusinessException("That company is not available for your account.");
+    }
+
     /** Human-readable reason for refusing login to a non-ACTIVE account. */
     /** Why a listed company cannot be entered: the company itself, or the account in it. */
     private static String deniedMessage(MembershipOption chosen) {
@@ -497,9 +521,13 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
                 throw incorrectCode();
             }
         } catch (BusinessException e) {
-            history.record(LoginEvent.LOGIN_FAILED, profileId, null, null, channel, method,
-                    identity == null ? AccountErrorCodes.ACCOUNT_NOT_FOUND
-                            : StringUtils.defaultString(e.getErrorCode(), e.getMessage()));
+            String reason = identity == null ? AccountErrorCodes.ACCOUNT_NOT_FOUND
+                    : StringUtils.defaultString(e.getErrorCode(), e.getMessage());
+            if (VerificationCodeGuard.refusedUntried(e)) {
+                history.recordUntried(profileId, channel, method, reason);
+            } else {
+                history.record(LoginEvent.LOGIN_FAILED, profileId, null, null, channel, method, reason);
+            }
             throw e;
         }
         // A lock refuses the PASSWORD only; a code still signs the person in, and into every
@@ -690,14 +718,30 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
      * able to pick a company and get a session.
      */
     private String issuePreAuthToken(Long profileId) {
+        return this.issuePreAuthToken(profileId, System.currentTimeMillis());
+    }
+
+    /** @param authenticatedAtMillis when the person proved who they are — what a credential change voids it from */
+    private String issuePreAuthToken(Long profileId, long authenticatedAtMillis) {
         String token = RandomUtils.randomString(PREAUTH_TOKEN_BYTES);
-        cacheService.save(preAuthKey(token), profileId + ":" + System.currentTimeMillis(), PREAUTH_TTL_SECONDS);
+        // Two times, for two questions: a credential change voids the token from when the person authenticated;
+        // its lifetime runs from when it was minted. A re-entry token is authenticated at its session's issue,
+        // hours or days before it is minted.
+        cacheService.save(preAuthKey(token),
+                profileId + ":" + authenticatedAtMillis + ":" + System.currentTimeMillis(), PREAUTH_TTL_SECONDS);
         return token;
     }
 
     @Override
-    public String issueReentryToken(Long profileId) {
-        return profileId == null ? null : this.issuePreAuthToken(profileId);
+    public String issueReentryToken(Long profileId, LocalDateTime authenticatedAt) {
+        if (profileId == null) {
+            return null;
+        }
+        // Sessions are dated in the server's own zone (LocalDateTime.now()); an unknown date is the
+        // epoch, which any recorded credential change is after.
+        long at = authenticatedAt == null ? 0L
+                : authenticatedAt.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+        return this.issuePreAuthToken(profileId, at);
     }
 
     /** The person a live pre-auth token stands for, or a refusal if it expired / never existed. */
@@ -728,7 +772,7 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
         try {
             return step.apply(profileId);
         } catch (RuntimeException e) {
-            long left = PREAUTH_TTL_SECONDS - (System.currentTimeMillis() - issuedAtOf(value)) / 1000;
+            long left = PREAUTH_TTL_SECONDS - (System.currentTimeMillis() - mintedAtOf(value)) / 1000;
             if (left > 0) {
                 cacheService.save(preAuthKey(authToken), value, (int) left);
             }
@@ -742,12 +786,22 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
             return null;
         }
         Long profileId = Long.valueOf(value.split(":", 2)[0]);
-        return sessionService.credentialsChangedSince(profileId, issuedAtOf(value)) ? null : profileId;
+        return sessionService.credentialsChangedSince(profileId, authenticatedAtOf(value)) ? null : profileId;
     }
 
-    private static long issuedAtOf(String value) {
-        String[] parts = value.split(":", 2);
+    /** When the person behind a token value authenticated: what a credential change voids it from. */
+    static long authenticatedAtOf(String value) {
+        String[] parts = value.split(":", 3);
         return parts.length > 1 ? Long.parseLong(parts[1]) : 0L;
+    }
+
+    /**
+     * When a token value was minted: what its lifetime runs from. A value written before the two times were kept
+     * apart ("profileId:authenticatedAt") was minted when its person authenticated.
+     */
+    static long mintedAtOf(String value) {
+        String[] parts = value.split(":", 3);
+        return parts.length > 2 ? Long.parseLong(parts[2]) : authenticatedAtOf(value);
     }
 
     private static BusinessException preAuthExpired() {
@@ -1331,12 +1385,11 @@ public class LoginServiceImpl implements LoginService, ReentryTokenIssuer {
     public AuthenticationResult switchTenant(Long currentAccountId, Long accountId) {
         Long profileId = personBehind(currentAccountId);
         this.refuseConsultancyOnApp(accountId);
-        MembershipOption chosen = this.resolveMemberships(profileId).stream()
+        List<UserAccount> memberships = accountService.listMembershipsOf(profileId);
+        MembershipOption chosen = this.resolveMemberships(profileId, memberships).stream()
                 .filter(option -> option.accountId().equals(accountId))
                 .findFirst()
-                // Same ownership check selectTenant makes, and it is the whole gate here: the
-                // caller names a company, and nothing else about it is theirs to assert.
-                .orElseThrow(() -> new BusinessException("That company is not available for your account."));
+                .orElseThrow(() -> this.notListed(profileId, memberships, accountId));
         if (!chosen.selectable()) {
             throw orgUnavailable(deniedMessage(chosen));
         }

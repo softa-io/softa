@@ -86,7 +86,7 @@ public class MyCredentialServiceImpl implements MyCredentialService {
      * {@code expiresAt} (epoch seconds) — kept so a ticket put back after a failed step keeps the
      * lifetime it had, rather than starting a new one.
      */
-    record Ticket(Step step, Long profileId, Long accountId, String mobile, long expiresAt, boolean byPassword) {
+    record Ticket(Step step, Long profileId, Long accountId, String mobile, long expiresAt) {
     }
 
     @Autowired
@@ -212,7 +212,7 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         UserAccount account = this.currentAccount();
         UserIdentity identity = this.identityOf(account);
         codeGuard.verify(this.loginMobileOf(identity), code);
-        return this.issue(Step.CHANGE_PASSWORD, account, null, false);
+        return this.issue(Step.CHANGE_PASSWORD, account, null);
     }
 
     private void changePasswordAsSelf(String ticket, String newPassword) {
@@ -245,10 +245,7 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         } else {
             throw new BusinessException("Verify with a code or with your password.");
         }
-        // Which proof was given travels with the tickets to the last step: only a change proven with
-        // the password is told to the old number — whoever proved it with a code from that number
-        // already has it in hand.
-        return this.issue(Step.NAME_NEW_MOBILE, account, null, "password".equalsIgnoreCase(method));
+        return this.issue(Step.NAME_NEW_MOBILE, account, null);
     }
 
     private String checkNewMobileAsSelf(String ticket, String newMobile) {
@@ -269,7 +266,7 @@ public class MyCredentialServiceImpl implements MyCredentialService {
             this.countNewMobile(account.getProfileId(), mobile);
             this.refuseUnusable(this.identityOf(account), mobile);
             this.sendCode(mobile);
-            return this.issue(Step.CONFIRM_NEW_MOBILE, account, mobile, held.byPassword());
+            return this.issue(Step.CONFIRM_NEW_MOBILE, account, mobile);
         });
     }
 
@@ -329,21 +326,19 @@ public class MyCredentialServiceImpl implements MyCredentialService {
             UserSecurityLog row = securityLog.entry(SecurityAction.LOGIN_MOBILE_CHANGED, this.source(), account, null);
             row.setOldValue(mobileFormat.format(previous).masked());
             row.setNewValue(mobileFormat.format(held.mobile()).masked());
-            if (held.byPassword()) {
-                // Told only once the change has committed, and the log row with it, so that it can
-                // say how the telling went; a change that rolls back is told to nobody. What to send
-                // and to whom is settled HERE, inside the caller's own context: the commit callback
-                // runs after it has been left, where reading the country list or the memberships
-                // would be checked against a role the person may not have.
-                List<Runnable> notices = this.mobileChangeNotices(identity.getProfileId(), previous, held.mobile(), row);
-                UserSessionServiceImpl.afterCommit(() -> {
-                    this.send(notices, row);
-                    securityLog.record(row);
-                    return 0;
-                });
-            } else {
+            // Told whichever proof was given: a code from the old number only shows the phone was in
+            // hand, not that its owner made the change — a lost or borrowed phone proves the same.
+            // Told only once the change has committed, and the log row with it, so that it can say
+            // how the telling went; a change that rolls back is told to nobody. What to send and to
+            // whom is settled HERE, inside the caller's own context: the commit callback runs after
+            // it has been left, where reading the country list or the memberships would be checked
+            // against a role the person may not have.
+            List<Runnable> notices = this.mobileChangeNotices(identity.getProfileId(), previous, held.mobile(), row);
+            UserSessionServiceImpl.afterCommit(() -> {
+                this.send(notices, row);
                 securityLog.record(row);
-            }
+                return 0;
+            });
             this.signOutOtherDevicesAfterCommit(account.getProfileId());
             return null;
         });
@@ -506,9 +501,9 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         return "me:ticket:" + HashUtils.sha256Hex(ticket);
     }
 
-    private String issue(Step step, UserAccount account, String mobile, boolean byPassword) {
+    private String issue(Step step, UserAccount account, String mobile) {
         return this.store(RandomUtils.randomString(TICKET_BYTES), new Ticket(step, account.getProfileId(),
-                account.getId(), mobile, nowSeconds() + TICKET_TTL_SECONDS, byPassword));
+                account.getId(), mobile, nowSeconds() + TICKET_TTL_SECONDS));
     }
 
     private String store(String token, Ticket ticket) {
@@ -516,8 +511,7 @@ public class MyCredentialServiceImpl implements MyCredentialService {
         if (left > 0) {
             cacheService.save(ticketKey(token), String.join("|", ticket.step().name(),
                     ticket.profileId().toString(), ticket.accountId().toString(),
-                    StringUtils.defaultString(ticket.mobile()), Long.toString(ticket.expiresAt()),
-                    ticket.byPassword() ? "password" : ""), (int) left);
+                    StringUtils.defaultString(ticket.mobile()), Long.toString(ticket.expiresAt())), (int) left);
         }
         return token;
     }
@@ -578,14 +572,13 @@ public class MyCredentialServiceImpl implements MyCredentialService {
 
     private static Ticket parse(String value) {
         String[] parts = value.split("\\|", -1);
-        // Five parts: a ticket issued before the proof was recorded on it — read as proven by code.
+        // Six parts: a ticket issued while the proof was still recorded on it; the sixth is ignored.
         if (parts.length != 5 && parts.length != 6) {
             return null;
         }
         try {
             return new Ticket(Step.valueOf(parts[0]), Long.valueOf(parts[1]), Long.valueOf(parts[2]),
-                    StringUtils.trimToNull(parts[3]), Long.parseLong(parts[4]),
-                    parts.length == 6 && "password".equals(parts[5]));
+                    StringUtils.trimToNull(parts[3]), Long.parseLong(parts[4]));
         } catch (IllegalArgumentException e) {
             return null;
         }

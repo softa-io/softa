@@ -11,6 +11,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 
 import org.apache.commons.lang3.math.NumberUtils;
 
+import io.softa.framework.base.constant.RedisConstant;
 import io.softa.framework.orm.service.CacheService;
 import io.softa.framework.web.session.SessionRevokeReason;
 import io.softa.framework.web.session.SessionStore;
@@ -27,10 +28,13 @@ import io.softa.starter.user.service.UserSessionService;
 public class UserSessionServiceImpl implements UserSessionService {
 
     /**
-     * How long a person-wide revocation is remembered for the sign-in tokens it voids: longer than
-     * any such token lives, so none issued before it can outlast the mark.
+     * How long a person-wide revocation is remembered for the sign-in tokens it voids: longer than an
+     * org-unavailable mark is kept ({@link SessionStore#TTL_SECONDS} at most), since a re-entry token is
+     * offered only while its ended session's mark lasts. A mark the change failed to take back can then
+     * offer no token the change does not refuse. The session's own age is no bound: a session slides,
+     * and the sign-in behind it can be any age.
      */
-    static final int CREDENTIAL_MARK_TTL_SECONDS = 15 * 60;
+    static final int CREDENTIAL_MARK_TTL_SECONDS = SessionStore.TTL_SECONDS + RedisConstant.ONE_DAY;
 
     @Autowired
     private SessionStore sessionStore;
@@ -65,8 +69,25 @@ public class UserSessionServiceImpl implements UserSessionService {
         this.markCredentialsChanged(profileId);
         return afterCommit(() -> {
             this.markCredentialsChanged(profileId);
-            return sessionStore.revokeAccounts(accountService.listAccountIdsOf(profileId), keepSessionId, reason);
+            int revoked = sessionStore.revokeAccounts(accountService.listAccountIdsOf(profileId), keepSessionId,
+                    reason);
+            this.clearOrgUnavailableMarks(profileId);
+            return revoked;
         });
+    }
+
+    /**
+     * An ended session's mark offers a token into the person's other companies; the change takes that offer
+     * back too, rather than leave the token check alone to refuse it. After the live sessions are ended, and on
+     * its own: a failure here leaves only marks whose tokens the credential mark already refuses, and must not
+     * keep the sessions alive.
+     */
+    private void clearOrgUnavailableMarks(Long profileId) {
+        try {
+            sessionStore.clearOrgUnavailableMarks(profileId);
+        } catch (RuntimeException e) {
+            log.warn("Org-unavailable marks of profile {} not cleared after a credential change.", profileId, e);
+        }
     }
 
     private void markCredentialsChanged(Long profileId) {

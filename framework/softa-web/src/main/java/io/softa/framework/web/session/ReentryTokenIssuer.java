@@ -1,5 +1,7 @@
 package io.softa.framework.web.session;
 
+import java.time.LocalDateTime;
+
 /**
  * Issues the single-use sign-in token a client re-enters with after its organisation became
  * unavailable mid-session.
@@ -12,8 +14,15 @@ package io.softa.framework.web.session;
 public interface ReentryTokenIssuer {
 
     /**
-     * @param profileId the person whose session just ended
+     * The token stands for the sign-in behind the ended session, not for the moment it is asked for:
+     * it is offered again every time the ended session is presented, for as long as the session would
+     * have lived, so dated now it would outlive any change of password or login mobile made since. Dated
+     * at the sign-in, such a change voids it like every other sign-in token.
+     *
+     * @param profileId      the person whose session just ended
+     * @param authenticatedAt when that session was issued — the person last proved who they are then;
+     *                        null when unknown, which no credential change survives
      * @return the token, or null when none can be issued
      */
-    String issueReentryToken(Long profileId);
+    String issueReentryToken(Long profileId, LocalDateTime authenticatedAt);
 }

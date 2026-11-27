@@ -135,15 +135,14 @@ public class VerificationCodeGuard {
         // No code guesses nothing, so it is refused before any counter: a client sending none — one still
         // sending it under its old name, say — cannot spend the attempt budget or bring on the ban.
         if (StringUtils.isBlank(submitted)) {
-            throw AccountErrorCodes.refusal(AccountErrorCodes.CODE_INCORRECT, "Please enter the verification code.");
+            throw untried(AccountErrorCodes.CODE_INCORRECT, "Please enter the verification code.");
         }
         countAddress();
         requireNotBanned(identifier);
 
         String expected = cacheService.get(key("code", identifier));
         if (expected == null) {
-            throw AccountErrorCodes.refusal(AccountErrorCodes.CODE_EXPIRED,
-                    "This code has expired. Please request a new one.");
+            throw untried(AccountErrorCodes.CODE_EXPIRED, "This code has expired. Please request a new one.");
         }
         if (expected.equals(submitted)) {
             // A check leaves everything as it was. Clearing the counters while the code stays alive
@@ -180,8 +179,32 @@ public class VerificationCodeGuard {
 
     private void requireNotBanned(String identifier) {
         if (cacheService.get(key("ban", identifier)) != null) {
-            throw AccountErrorCodes.refusal(AccountErrorCodes.CODE_BLOCKED,
+            // Refused while the ban stands; the failure that brought the ban on was a guess and is thrown above.
+            throw untried(AccountErrorCodes.CODE_BLOCKED,
                     "Too many attempts. Verification is temporarily unavailable — try again in 30 minutes.");
+        }
+    }
+
+    /**
+     * Whether a refusal came before any code was compared: no code sent, no code there to match, or verification
+     * banned. Such a refusal changes nothing and anyone who knows the identifier can repeat it without end, so its
+     * history is kept once rather than written to every company of the person. The client sees the same error code
+     * either way: a refusal during a ban and the one that brought it on are both CODE_BLOCKED.
+     */
+    public static boolean refusedUntried(RuntimeException e) {
+        return e instanceof UntriedRefusal;
+    }
+
+    private static BusinessException untried(String code, String message) {
+        UntriedRefusal e = new UntriedRefusal(message);
+        e.withErrorCode(code);
+        return e;
+    }
+
+    /** A refusal that compared no code — see {@link #refusedUntried}. */
+    static final class UntriedRefusal extends BusinessException {
+        UntriedRefusal(String message) {
+            super(message);
         }
     }
 }

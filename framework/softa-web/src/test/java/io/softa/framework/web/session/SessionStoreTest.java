@@ -189,16 +189,48 @@ class SessionStoreTest {
     }
 
     @Test
-    void endingASessionForAnUnavailableOrg_leavesAShortLivedMark_otherReasonsDoNot() {
+    void endingASessionForAnUnavailableOrg_leavesAMarkForAsLongAsTheSessionHadLeft_otherReasonsDoNot() {
+        // Ended by HR or the leaving-date job while nobody was calling: the next request may come
+        // hours later, and must still be told the organisation is closed, not that the session ran out.
         live("frozen", ACCOUNT, RedisConstant.ONE_WEEK);
         live("loggedOut", ACCOUNT, RedisConstant.ONE_WEEK);
+        when(cacheService.getExpire("session:frozen")).thenReturn(5L * RedisConstant.ONE_DAY);
 
         store.revoke("frozen", SessionRevokeReason.ORG_UNAVAILABLE);
         store.revoke("loggedOut", SessionRevokeReason.LOGOUT);
 
         verify(cacheService).save(eq(SessionStore.ORG_UNAVAILABLE_SESSIONS + "frozen"), any(SessionRecord.class),
-                eq(RedisConstant.ONE_MINUTES));
+                eq(5 * RedisConstant.ONE_DAY));
         verify(cacheService, never()).save(eq(SessionStore.ORG_UNAVAILABLE_SESSIONS + "loggedOut"), any(), anyInt());
+    }
+
+    @Test
+    void theMark_keepsAMinuteForRequestsInFlight_andAFullLifetimeWhenTheSessionsTimeIsUnknown() {
+        live("almostOut", ACCOUNT, RedisConstant.ONE_WEEK);
+        live("noExpiry", ACCOUNT, RedisConstant.ONE_WEEK);
+        when(cacheService.getExpire("session:almostOut")).thenReturn(5L);
+        when(cacheService.getExpire("session:noExpiry")).thenReturn(-1L);
+
+        store.revoke("almostOut", SessionRevokeReason.ORG_UNAVAILABLE);
+        store.revoke("noExpiry", SessionRevokeReason.ORG_UNAVAILABLE);
+
+        verify(cacheService).save(eq(SessionStore.ORG_UNAVAILABLE_SESSIONS + "almostOut"), any(SessionRecord.class),
+                eq(RedisConstant.ONE_MINUTES));
+        verify(cacheService).save(eq(SessionStore.ORG_UNAVAILABLE_SESSIONS + "noExpiry"), any(SessionRecord.class),
+                eq(SessionStore.TTL_SECONDS));
+    }
+
+    @Test
+    void aSecondRevokeOfTheSameSession_doesNotStretchTheMarkToAFullLifetime() {
+        // Two requests read the session before either removes it. The first marks it for the time
+        // the session had left and takes the key; the second then finds the key gone. Marking again
+        // with "unknown" would rewrite the mark to a fresh session's week.
+        live("raced", ACCOUNT, RedisConstant.ONE_WEEK);
+        when(cacheService.getExpire("session:raced")).thenReturn(-2L);
+
+        store.revoke("raced", SessionRevokeReason.ORG_UNAVAILABLE);
+
+        verify(cacheService, never()).save(eq(SessionStore.ORG_UNAVAILABLE_SESSIONS + "raced"), any(), anyInt());
     }
 
     @Test
@@ -221,5 +253,64 @@ class SessionStoreTest {
         assertThat(store.revoke("s1", SessionRevokeReason.ORG_UNAVAILABLE)).isFalse();
 
         verify(publisher).publishEvent(any(SessionRevokedEvent.class));
+    }
+
+    @Test
+    void aMark_isIndexedUnderItsPerson_soACredentialChangeCanTakeThemAllBack() {
+        live("frozen", ACCOUNT, RedisConstant.ONE_WEEK);
+        store.revoke("frozen", SessionRevokeReason.ORG_UNAVAILABLE);
+        verify(cacheService).addToSet(SessionStore.ORG_UNAVAILABLE_BY_PERSON + PROFILE, "frozen", SessionStore.TTL_SECONDS);
+
+        when(cacheService.getSetMembers(SessionStore.ORG_UNAVAILABLE_BY_PERSON + PROFILE)).thenReturn(Set.of("frozen"));
+        when(cacheService.clear(List.of(SessionStore.ORG_UNAVAILABLE_SESSIONS + "frozen"))).thenReturn(1L);
+
+        assertThat(store.clearOrgUnavailableMarks(PROFILE)).isEqualTo(1);
+        verify(cacheService).clear(List.of(SessionStore.ORG_UNAVAILABLE_SESSIONS + "frozen"));
+        verify(cacheService).removeFromSet(SessionStore.ORG_UNAVAILABLE_BY_PERSON + PROFILE, "frozen");
+        assertThat(store.clearOrgUnavailableMarks(null)).isZero();
+    }
+
+    @Test
+    void clearingAPersonsMarks_keepsTheIndexEntryOfASessionMarkedMeanwhile() {
+        // The index as Redis holds it: "frozen" when read, "later" marked right after the read and before the clear.
+        // Deleting the whole index would lose "later", and the next credential change would no longer find its mark.
+        String personKey = SessionStore.ORG_UNAVAILABLE_BY_PERSON + PROFILE;
+        Set<String> index = new java.util.HashSet<>(Set.of("frozen"));
+        when(cacheService.getSetMembers(personKey)).thenAnswer(invocation -> {
+            Set<String> read = Set.copyOf(index);
+            index.add("later");
+            return read;
+        });
+        org.mockito.Mockito.doAnswer(invocation -> index.remove(invocation.<String>getArgument(1)))
+                .when(cacheService).removeFromSet(org.mockito.ArgumentMatchers.eq(personKey), anyString());
+        org.mockito.Mockito.doAnswer(invocation -> {
+            index.clear();
+            return null;
+        }).when(cacheService).clear(personKey);
+
+        store.clearOrgUnavailableMarks(PROFILE);
+
+        assertThat(index).containsExactly("later");
+        verify(cacheService).clear(List.of(SessionStore.ORG_UNAVAILABLE_SESSIONS + "frozen"));
+    }
+
+    @Test
+    void aSignOutThatTakesTheSession_takesAMarkARacingRevokeLeftWithIt() {
+        // An org-unavailable revoke marked the session, then a sign-out removed it first: the session ended because
+        // the person signed out, and presenting it must not offer the other companies.
+        live("signedOut", ACCOUNT, RedisConstant.ONE_WEEK);
+
+        assertThat(store.revoke("signedOut", SessionRevokeReason.LOGOUT)).isTrue();
+
+        verify(cacheService).clear(SessionStore.ORG_UNAVAILABLE_SESSIONS + "signedOut");
+    }
+
+    @Test
+    void anOrgUnavailableRevoke_keepsTheMarkItWrote() {
+        live("frozen", ACCOUNT, RedisConstant.ONE_WEEK);
+
+        store.revoke("frozen", SessionRevokeReason.ORG_UNAVAILABLE);
+
+        verify(cacheService, never()).clear(SessionStore.ORG_UNAVAILABLE_SESSIONS + "frozen");
     }
 }
