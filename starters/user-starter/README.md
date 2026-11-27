@@ -68,9 +68,10 @@ hops through `profileId` first.
 | `UserListViewPreference` | One person's arrangement of one list (see [List arrangements](#list-arrangements)) | `userId`, `viewStateKey`, `modelName`, `columns`, `exportFields`, `exportObjectFields`, `viewSettings` |
 
 Wherever another row references an account or a picker lists accounts, the account
-shows as `nickname / email` (`@Model(displayName)`): the person's name and the
-work email that tells two people of one name apart; an empty one is left out. Either
-one finds it in a search (`searchName`). Not the username: an account created for
+shows as `nickname / email / mobile` (`@Model(displayName)`): the person's name, then
+the work email and mobile that tell two people of one name apart; an empty one is left
+out, so a worker with no work email shows as name and mobile. Any of the three finds it
+in a search (`searchName`). Not the username: an account created for
 someone (`registerInvitedUser`) takes their name as its username as well as its
 nickname, falling back to the email, then the mobile, only when there is no name.
 
