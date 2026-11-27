@@ -248,7 +248,7 @@ accepts (`{"ticket": "..."}`):
 | `POST /me/mobile/verifyCurrent` | `method` (`code` or `password`), `verificationCode` / `password` | a ticket for `/me/mobile/checkNew` |
 | `POST /me/mobile/checkNew` | `ticket`, `newMobile` | a ticket for confirming; a code is sent to the new number |
 | `POST /me/mobile/resendCode` | `ticket` | another code, same ticket |
-| `POST /me/mobile/confirm` | `ticket`, `verificationCode` | — ; the number holds in every company, every other device is signed out |
+| `POST /me/mobile/confirm` | `ticket`, `verificationCode` | — ; the number holds in every company, every other device is signed out, and the old number and the work mailbox of every company joined are told (`user.login-mobile-changed`), whichever proof was given |
 
 They act on the caller only and carry no business permission: the application lists `/me/**` under
 `permission.authenticated-bypass-patterns`, as `uiContext` already needs.

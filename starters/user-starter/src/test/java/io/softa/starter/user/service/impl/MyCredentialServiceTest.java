@@ -478,7 +478,7 @@ class MyCredentialServiceTest {
                 any(), any(), any());
     }
 
-    // ── telling of a login-mobile change proven with the password ─────────────
+    // ── telling of a login-mobile change ─────────────
 
     private UserAccount membership(Long id, Long tenantId, AccountStatus status, String email) {
         UserAccount m = new UserAccount();
@@ -576,6 +576,26 @@ class MyCredentialServiceTest {
         UserSecurityLog row = loggedChange();
         assertThat(row.getReminderChannels()).isEqualTo("sms,email");
         assertThat(row.getReminderResult()).isEqualTo("sms:sent,email:sent");
+    }
+
+    @Test
+    void aTicketIssuedWithTheProofOnIt_stillCompletesTheChange_andIsTold() {
+        // Issued by the version that recorded the proof on the ticket: six parts, the last "password"
+        // or empty. A change under way when this version starts goes through and is told.
+        when(accountService.listMembershipsOf(ADA)).thenReturn(List.of(
+                membership(ACCOUNT, 1L, AccountStatus.ACTIVE, "ada@acme.com")));
+        String verified = signedIn(() -> service.verifyCurrentForMobile("code", "123456", null));
+        String confirm = signedIn(() -> service.checkNewMobile(verified, NEW_MOBILE));
+        String key = cache.keySet().stream().filter(k -> k.startsWith("me:ticket:")).findFirst().orElseThrow();
+        cache.put(key, cache.get(key) + "|");
+
+        signedIn(() -> {
+            service.confirmNewMobile(confirm, "654321");
+            return null;
+        });
+
+        assertThat(ada.getLoginMobile()).isEqualTo(NEW_MOBILE);
+        assertThat(notices()).isNotEmpty();
     }
 
     @Test
