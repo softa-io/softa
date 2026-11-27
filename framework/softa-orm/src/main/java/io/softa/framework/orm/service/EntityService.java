@@ -88,7 +88,9 @@ public interface EntityService<T extends AbstractModel, K extends Serializable> 
      * Creates or updates entities by their ID.
      *
      * @param entities the list of entities to create or update
-     * @param ignoreNull whether to ignore null values
+     * @param ignoreNull if `true`, null values are ignored; otherwise, they overwrite existing values, except that a
+     *                   null one-to-many or many-to-many field (at any level) is left out: it means "not loaded",
+     *                   so the relation is kept. Set an empty list to clear one.
      */
     void createOrUpdate(List<T> entities, boolean ignoreNull);
 
@@ -97,7 +99,9 @@ public interface EntityService<T extends AbstractModel, K extends Serializable> 
      *
      * @param entities the list of entities to create or update
      * @param uniqueConstraints the list of unique constraint fields
-     * @param ignoreNull whether to ignore null values
+     * @param ignoreNull if `true`, null values are ignored; otherwise, they overwrite existing values, except that a
+     *                   null one-to-many or many-to-many field (at any level) is left out: it means "not loaded",
+     *                   so the relation is kept. Set an empty list to clear one.
      */
     void createOrUpdate(List<T> entities, List<SFunction<T, ?>> uniqueConstraints, boolean ignoreNull);
 
@@ -222,7 +226,9 @@ public interface EntityService<T extends AbstractModel, K extends Serializable> 
      * Updates an existing entity by its ID, with an option to ignore null values.
      *
      * @param entity the entity with updated values
-     * @param ignoreNull if `true`, null values are ignored; otherwise, they overwrite existing values
+     * @param ignoreNull if `true`, null values are ignored; otherwise, they overwrite existing values, except that a
+     *                   null one-to-many or many-to-many field (at any level) is left out: it means "not loaded",
+     *                   so the relation is kept. Set an empty list to clear one.
      * @return `true` if the update was successful; otherwise, an exception is thrown
      */
     boolean updateOne(T entity, boolean ignoreNull);
@@ -241,7 +247,9 @@ public interface EntityService<T extends AbstractModel, K extends Serializable> 
      * Returns the updated entity with the latest field values.
      *
      * @param entity the entity with updated values
-     * @param ignoreNull if `true`, null values are ignored; otherwise, they overwrite existing values
+     * @param ignoreNull if `true`, null values are ignored; otherwise, they overwrite existing values, except that a
+     *                   null one-to-many or many-to-many field (at any level) is left out: it means "not loaded",
+     *                   so the relation is kept. Set an empty list to clear one.
      * @return the updated entity with the latest field values
      */
     T updateOneAndFetch(T entity, boolean ignoreNull);
@@ -258,7 +266,9 @@ public interface EntityService<T extends AbstractModel, K extends Serializable> 
      * Updates multiple entities by their IDs, with an option to ignore null values.
      *
      * @param entities the list of entities to be updated
-     * @param ignoreNull if `true`, null values are ignored; otherwise, they overwrite existing values
+     * @param ignoreNull if `true`, null values are ignored; otherwise, they overwrite existing values, except that a
+     *                   null one-to-many or many-to-many field (at any level) is left out: it means "not loaded",
+     *                   so the relation is kept. Set an empty list to clear one.
      * @return `true` if the update was successful; otherwise, an exception is thrown
      */
     boolean updateList(List<T> entities, boolean ignoreNull);
@@ -277,7 +287,9 @@ public interface EntityService<T extends AbstractModel, K extends Serializable> 
      * Returns the updated entities with the latest field values.
      *
      * @param entities the list of entities to be updated
-     * @param ignoreNull if `true`, null values are ignored; otherwise, they overwrite existing values
+     * @param ignoreNull if `true`, null values are ignored; otherwise, they overwrite existing values, except that a
+     *                   null one-to-many or many-to-many field (at any level) is left out: it means "not loaded",
+     *                   so the relation is kept. Set an empty list to clear one.
      * @return a list of updated entities with the latest field values
      */
     List<T> updateListAndFetch(List<T> entities, boolean ignoreNull);

@@ -18,6 +18,9 @@ import io.softa.framework.orm.domain.Page;
 import io.softa.framework.orm.domain.SubQueries;
 import io.softa.framework.orm.entity.AbstractModel;
 import io.softa.framework.orm.enums.ConvertType;
+import io.softa.framework.orm.enums.FieldType;
+import io.softa.framework.orm.meta.MetaField;
+import io.softa.framework.orm.meta.ModelManager;
 import io.softa.framework.orm.service.EntityService;
 import io.softa.framework.orm.service.ModelService;
 import io.softa.framework.orm.utils.BeanTool;
@@ -157,7 +160,7 @@ public abstract class EntityServiceImpl<T extends AbstractModel, K extends Seria
      */
     @Override
     public void createOrUpdate(List<T> entities, boolean ignoreNull) {
-        List<Map<String, Object>> rows = BeanTool.objectsToMapList(entities, ignoreNull);
+        List<Map<String, Object>> rows = withoutUnloadedRelations(BeanTool.objectsToMapList(entities, ignoreNull));
         modelService.createOrUpdate(modelName, rows, List.of(ModelConstant.ID));
     }
 
@@ -170,7 +173,7 @@ public abstract class EntityServiceImpl<T extends AbstractModel, K extends Seria
      */
     @Override
     public void createOrUpdate(List<T> entities, List<SFunction<T, ?>> uniqueConstraints, boolean ignoreNull) {
-        List<Map<String, Object>> rows = BeanTool.objectsToMapList(entities, ignoreNull);
+        List<Map<String, Object>> rows = withoutUnloadedRelations(BeanTool.objectsToMapList(entities, ignoreNull));
         List<String> uniqueFields = uniqueConstraints.stream()
                 .map(LambdaUtils::getAttributeName)
                 .collect(Collectors.toList());
@@ -349,7 +352,7 @@ public abstract class EntityServiceImpl<T extends AbstractModel, K extends Seria
      */
     @Override
     public boolean updateOne(T entity, boolean ignoreNull) {
-        Map<String, Object> rowMap = BeanTool.objectToMap(entity, ignoreNull);
+        Map<String, Object> rowMap = withoutUnloadedRelation(BeanTool.objectToMap(entity, ignoreNull));
         return modelService.updateOne(modelName, rowMap);
     }
 
@@ -377,7 +380,7 @@ public abstract class EntityServiceImpl<T extends AbstractModel, K extends Seria
      */
     @Override
     public T updateOneAndFetch(T entity, boolean ignoreNull) {
-        Map<String, Object> rowMap = BeanTool.objectToMap(entity, ignoreNull);
+        Map<String, Object> rowMap = withoutUnloadedRelation(BeanTool.objectToMap(entity, ignoreNull));
         Map<String, Object> result = modelService.updateOneAndFetch(modelName, rowMap, ConvertType.TYPE_CAST);
         return BeanTool.mapToObject(result, entityClass);
     }
@@ -403,7 +406,7 @@ public abstract class EntityServiceImpl<T extends AbstractModel, K extends Seria
      */
     @Override
     public boolean updateList(List<T> entities, boolean ignoreNull) {
-        List<Map<String, Object>> rows = BeanTool.objectsToMapList(entities, ignoreNull);
+        List<Map<String, Object>> rows = withoutUnloadedRelations(BeanTool.objectsToMapList(entities, ignoreNull));
         return modelService.updateList(modelName, rows);
     }
 
@@ -431,7 +434,7 @@ public abstract class EntityServiceImpl<T extends AbstractModel, K extends Seria
      */
     @Override
     public List<T> updateListAndFetch(List<T> entities, boolean ignoreNull) {
-        List<Map<String, Object>> rows = BeanTool.objectsToMapList(entities, ignoreNull);
+        List<Map<String, Object>> rows = withoutUnloadedRelations(BeanTool.objectsToMapList(entities, ignoreNull));
         List<Map<String, Object>> results = modelService.updateListAndFetch(modelName, rows, ConvertType.TYPE_CAST);
         return BeanTool.mapListToObjects(results, entityClass);
     }
@@ -600,5 +603,67 @@ public abstract class EntityServiceImpl<T extends AbstractModel, K extends Seria
             return objects.stream().collect(Collectors.toMap(AbstractModel::getId, Function.identity()));
         }
         return Collections.emptyMap();
+    }
+
+    /**
+     * A row built from an entity with its one-to-many and many-to-many fields left out where they are null, at every
+     * level: the child rows written along with it are cleaned the same way, by their own model.
+     *
+     * <p>An entity read by {@code getById} does not load its to-many fields — they are not columns — so a null
+     * there means "not loaded", never "clear". Written back with {@code ignoreNull = false}, which is how a
+     * service writes the nulls it means (a detached reference, a cleared email), that null reached the relation
+     * processors as a request to delete every row or link: reopening, re-inviting or re-syncing an account
+     * silently took all its roles away. A loaded child written back with its parent carries the same nulls for
+     * its own to-many fields. To clear a to-many field, set it to an empty list.
+     */
+    private Map<String, Object> withoutUnloadedRelation(Map<String, Object> row) {
+        return withoutUnloadedRelations(modelName, row);
+    }
+
+    /** {@link #withoutUnloadedRelation} for each row. */
+    private List<Map<String, Object>> withoutUnloadedRelations(List<Map<String, Object>> rows) {
+        rows.forEach(this::withoutUnloadedRelation);
+        return rows;
+    }
+
+    /**
+     * Leaves the null to-many fields of a row of the given model out, then does the same for the child rows it
+     * carries in its relational fields, each by the model that field relates to.
+     *
+     * @param model the model the row belongs to
+     * @param row the row, changed in place
+     * @return the same row
+     */
+    private static Map<String, Object> withoutUnloadedRelations(String model, Map<String, Object> row) {
+        row.entrySet().removeIf(entry -> entry.getValue() == null && isToMany(model, entry.getKey()));
+        row.forEach((fieldName, value) -> {
+            if (!(value instanceof Map<?, ?>) && !(value instanceof List<?>)) {
+                return;
+            }
+            MetaField field = ModelManager.getModelFieldOrNull(model, fieldName);
+            if (field == null || field.getRelatedModel() == null) {
+                return;
+            }
+            if (value instanceof Map<?, ?> child) {
+                withoutUnloadedRelations(field.getRelatedModel(), asRow(child));
+            } else {
+                for (Object item : (List<?>) value) {
+                    if (item instanceof Map<?, ?> child) {
+                        withoutUnloadedRelations(field.getRelatedModel(), asRow(child));
+                    }
+                }
+            }
+        });
+        return row;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asRow(Map<?, ?> child) {
+        return (Map<String, Object>) child;
+    }
+
+    private static boolean isToMany(String model, String fieldName) {
+        MetaField field = ModelManager.getModelFieldOrNull(model, fieldName);
+        return field != null && FieldType.TO_MANY_TYPES.contains(field.getFieldType());
     }
 }
