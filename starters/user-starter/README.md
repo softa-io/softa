@@ -69,11 +69,12 @@ hops through `profileId` first.
 
 Wherever another row references an account or a picker lists accounts, the account
 shows as `nickname / username` (`@Model(displayName)`): the person's name and the
-login that tells two people of one name apart; an empty one is left out. A search
-(`searchName`) matches the nickname, username, email or mobile; on the roster
-(`/UserAccount/searchPage`, `searchList`), where an HR deployment has an `Employee` model, it
-also matches the account of an employee whose name or code contains the term — an account nobody
-has joined yet has no nickname or username, and the employee's name is how HR knows the person.
+login that tells two people of one name apart; an empty one is left out. Either one
+finds it in a search (`searchName`).
+
+On the roster (`/UserAccount/searchPage`, `searchList`), where an HR deployment has an `Employee`
+model, a search also matches the account of an employee whose name or code contains the term — an
+account nobody has joined yet has no nickname, and the employee's name is how HR knows the person.
 
 An account's `status` moves only through its operations (invite, revoke, freeze, unfreeze,
 unbind and re-invite, re-hire, off-boarding): the update endpoints refuse a write that sets it,

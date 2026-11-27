@@ -636,9 +636,9 @@ public class UserAccountController extends EntityController<UserAccountService, 
     /**
      * The search box also finds an account by its employee's name or code.
      *
-     * <p>The box searches the account's own {@code searchName} — nickname, username, email, mobile — and
-     * an account nobody has joined yet has no nickname or username: it was found only by a whole email
-     * typed into a filter, or not at all for a worker without one. The name HR knows the person by is the
+     * <p>The box searches the account's own {@code searchName} fields, and an account nobody has joined
+     * yet has no nickname: it was found only by a whole email typed into a filter, or not at all for a
+     * worker without one. The name HR knows the person by is the
      * employee's, shown beside the account and read from the employee record, so each {@code searchName}
      * term is widened in place to "the account matches, or it is the account of an employee whose name or
      * code contains the term". Nothing changes where no employee matches, or where no employee model is

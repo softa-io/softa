@@ -34,7 +34,7 @@ import io.softa.starter.user.enums.AccountStatus;
         multiTenant = true,
         copyable = false,
         displayName = {"nickname", "username"},
-        searchName = {"nickname", "username", "email", "mobile"},
+        searchName = {"nickname", "username"},
         defaultOrder = {"nickname", "username"}
 )
 /**
